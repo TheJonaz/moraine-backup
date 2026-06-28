@@ -135,6 +135,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     println!("$ rsync {}", render(&args));
     let status = Command::new("rsync")
         .args(&args)
+        .envs(ssh::askpass_env(target))
         .status()
         .context("could not start rsync — is it installed?")?;
     if !status.success() {
@@ -156,6 +157,7 @@ pub fn update_latest(target: &Target, timestamp: &str) -> Result<()> {
     let args = ssh::remote_command_args(target, &cmd);
     let status = Command::new("ssh")
         .args(&args)
+        .envs(ssh::askpass_env(target))
         .status()
         .context("could not start ssh for latest symlink")?;
     if !status.success() {

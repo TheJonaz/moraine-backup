@@ -40,7 +40,17 @@ const WEEKDAYS: [&str; 7] = [
 fn main() -> iced::Result {
     iced::application("Moraine Backup", App::update, App::view)
         .theme(|_| system_theme())
+        .window(iced::window::Settings {
+            icon: window_icon(),
+            ..Default::default()
+        })
         .run_with(App::new)
+}
+
+/// The app/window icon (taskbar, dock, alt-tab, tray), built from the Moraine
+/// logo. Returns None if decoding fails, in which case iced uses no icon.
+fn window_icon() -> Option<iced::window::Icon> {
+    iced::window::icon::from_file_data(include_bytes!("../../assets/moraine-256.png"), None).ok()
 }
 
 // ───────────────────────────── theme ─────────────────────────────
@@ -590,6 +600,8 @@ struct App {
     rclone_remotes: Vec<String>,
     // The hero background image (navy + grid + glow).
     hero: iced::widget::image::Handle,
+    // The Moraine logo, shown in the header.
+    logo: iced::widget::image::Handle,
     // Run log (newest first) + the pending operation to log when done.
     history: Vec<LogEntry>,
     pending_op: Option<(String, String, String)>, // (op, target, info)
@@ -744,6 +756,9 @@ impl App {
                 rclone_remotes: Vec::new(),
                 hero: iced::widget::image::Handle::from_bytes(
                     include_bytes!("../../assets/hero-bg.png").to_vec(),
+                ),
+                logo: iced::widget::image::Handle::from_bytes(
+                    include_bytes!("../../assets/moraine-128.png").to_vec(),
                 ),
                 history: history::read(Path::new(CONFIG_PATH)),
                 pending_op: None,
@@ -1239,7 +1254,7 @@ impl App {
                     Some(("restore".into(), name.clone(), format!("{ts} → {dest}")))
                 };
                 self.log = format!("Restore {ts}\n");
-                return Task::run(run_stream(vec![cmd]), map_prog);
+                return Task::run(run_stream(vec![cmd], ssh::askpass_env(&target)), map_prog);
             }
 
             Message::Save => {
@@ -1297,7 +1312,7 @@ impl App {
                     ))
                 };
                 self.log = format!("snapshot {ts}\n");
-                return Task::run(run_stream(cmds), map_prog);
+                return Task::run(run_stream(cmds, ssh::askpass_env(&target)), map_prog);
             }
             Message::ProgressLine(line) => {
                 self.log.push_str(&line);
@@ -1390,7 +1405,7 @@ impl App {
     // ─────────────────────────── views ───────────────────────────
 
     fn view(&self) -> Element<'_, Message> {
-        let header = column![
+        let title = column![
             text("Moraine").size(28).font(semibold()),
             muted_text(format!(
                 "Snapshot backups over SSH & rclone · v{}",
@@ -1398,6 +1413,14 @@ impl App {
             )),
         ]
         .spacing(2);
+        let header = row![
+            iced::widget::image(self.logo.clone())
+                .width(Length::Fixed(44.0))
+                .height(Length::Fixed(44.0)),
+            title,
+        ]
+        .spacing(14)
+        .align_y(iced::alignment::Vertical::Center);
 
         let content = match self.tab {
             Tab::QuickBackup => self.view_quick_backup(),
@@ -1650,6 +1673,11 @@ impl App {
                             .on_press(Message::PickKey),
                     ]
                     .spacing(8),
+                ));
+                details = details.push(password_field(
+                    "Key passphrase / login password (optional)",
+                    &form.password,
+                    Message::Password,
                 ));
                 details = details.push(field("Destination on target", &form.dest, Message::Dest));
             }
@@ -2947,6 +2975,7 @@ async fn list_snapshots(target: Target) -> Result<Vec<String>, String> {
         let args = ssh::probe_command_args(&target, &snapshot::list_cmd(&target));
         let out = tokio::process::Command::new("ssh")
             .args(&args)
+            .envs(ssh::askpass_env(&target))
             .output()
             .await
             .map_err(|e| format!("could not start ssh: {e}"))?;
@@ -2984,6 +3013,7 @@ async fn list_tree(target: Target, ts: String) -> Result<Vec<(bool, String)>, St
         let args = ssh::probe_command_args(&target, &snapshot::tree_cmd(&target, &ts));
         let out = tokio::process::Command::new("ssh")
             .args(&args)
+            .envs(ssh::askpass_env(&target))
             .output()
             .await
             .map_err(|e| format!("could not start ssh: {e}"))?;
@@ -3068,64 +3098,71 @@ fn map_prog(p: Prog) -> Message {
 
 /// Runs a sequence of commands and streams their stdout line by line.
 /// Stops (with an error) if a command fails; otherwise `Done(true)` at the end.
-fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<Item = Prog> {
+fn run_stream(
+    cmds: Vec<(String, Vec<String>)>,
+    env: Vec<(String, String)>,
+) -> impl iced::futures::Stream<Item = Prog> {
     let queue: std::collections::VecDeque<_> = cmds.into_iter().collect();
-    iced::futures::stream::unfold(Phase::Next(queue), |mut phase| async move {
-        loop {
-            match phase {
-                Phase::End => return None,
-                Phase::Next(mut queue) => match queue.pop_front() {
-                    None => return Some((Prog::Done(true, String::new()), Phase::End)),
-                    Some((prog, args)) => {
-                        let spawn = tokio::process::Command::new(&prog)
-                            .args(&args)
-                            .stdout(Stdio::piped())
-                            .stderr(Stdio::piped())
-                            .spawn();
-                        match spawn {
-                            Ok(mut child) => {
-                                let stdout = child.stdout.take().expect("stdout piped");
-                                let lines = BufReader::new(stdout).lines();
-                                let echo = format!("$ {prog} {}", rsync::render(&args));
-                                return Some((
-                                    Prog::Line(echo),
-                                    Phase::Read {
-                                        rest: queue,
-                                        child,
-                                        lines,
-                                    },
-                                ));
+    iced::futures::stream::unfold(Phase::Next(queue), move |mut phase| {
+        let env = env.clone();
+        async move {
+            loop {
+                match phase {
+                    Phase::End => return None,
+                    Phase::Next(mut queue) => match queue.pop_front() {
+                        None => return Some((Prog::Done(true, String::new()), Phase::End)),
+                        Some((prog, args)) => {
+                            let spawn = tokio::process::Command::new(&prog)
+                                .args(&args)
+                                .envs(env.clone())
+                                .stdout(Stdio::piped())
+                                .stderr(Stdio::piped())
+                                .spawn();
+                            match spawn {
+                                Ok(mut child) => {
+                                    let stdout = child.stdout.take().expect("stdout piped");
+                                    let lines = BufReader::new(stdout).lines();
+                                    let echo = format!("$ {prog} {}", rsync::render(&args));
+                                    return Some((
+                                        Prog::Line(echo),
+                                        Phase::Read {
+                                            rest: queue,
+                                            child,
+                                            lines,
+                                        },
+                                    ));
+                                }
+                                Err(e) => {
+                                    return Some((
+                                        Prog::Done(false, format!("could not start {prog}: {e}")),
+                                        Phase::End,
+                                    ));
+                                }
                             }
-                            Err(e) => {
-                                return Some((
-                                    Prog::Done(false, format!("could not start {prog}: {e}")),
-                                    Phase::End,
-                                ));
+                        }
+                    },
+                    Phase::Read {
+                        rest,
+                        mut child,
+                        mut lines,
+                    } => match lines.next_line().await {
+                        Ok(Some(line)) => {
+                            return Some((Prog::Line(line), Phase::Read { rest, child, lines }));
+                        }
+                        _ => {
+                            // stdout exhausted → read any error and check status.
+                            let mut err = String::new();
+                            if let Some(mut e) = child.stderr.take() {
+                                let _ = e.read_to_string(&mut err).await;
                             }
+                            let ok = child.wait().await.map(|s| s.success()).unwrap_or(false);
+                            if !ok {
+                                return Some((Prog::Done(false, err), Phase::End));
+                            }
+                            phase = Phase::Next(rest); // next command in the sequence
                         }
-                    }
-                },
-                Phase::Read {
-                    rest,
-                    mut child,
-                    mut lines,
-                } => match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        return Some((Prog::Line(line), Phase::Read { rest, child, lines }));
-                    }
-                    _ => {
-                        // stdout exhausted → read any error and check status.
-                        let mut err = String::new();
-                        if let Some(mut e) = child.stderr.take() {
-                            let _ = e.read_to_string(&mut err).await;
-                        }
-                        let ok = child.wait().await.map(|s| s.success()).unwrap_or(false);
-                        if !ok {
-                            return Some((Prog::Done(false, err), Phase::End));
-                        }
-                        phase = Phase::Next(rest); // next command in the sequence
-                    }
-                },
+                    },
+                }
             }
         }
     })
@@ -3143,6 +3180,7 @@ async fn prune_now(target: Target, policy: Retention) -> Result<String, String> 
         let dargs = ssh::probe_command_args(&target, &snapshot::prune_cmd(&target, &plan.delete));
         let dout = tokio::process::Command::new("ssh")
             .args(&dargs)
+            .envs(ssh::askpass_env(&target))
             .output()
             .await
             .map_err(|e| format!("could not start ssh: {e}"))?;
@@ -3217,6 +3255,7 @@ async fn verify_target(target: Target) -> String {
     let probe = ssh::probe_command_args(&target, "echo connection-ok");
     match tokio::process::Command::new("ssh")
         .args(&probe)
+        .envs(ssh::askpass_env(&target))
         .output()
         .await
     {
@@ -3227,6 +3266,7 @@ async fn verify_target(target: Target) -> String {
             let dprobe = ssh::probe_command_args(&target, &snapshot::dest_check_cmd(&target));
             match tokio::process::Command::new("ssh")
                 .args(&dprobe)
+                .envs(ssh::askpass_env(&target))
                 .output()
                 .await
             {

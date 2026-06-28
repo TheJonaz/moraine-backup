@@ -376,6 +376,7 @@ fn prune_target(config_path: &Path, t: &config::Target, dry_run: bool) -> Result
 fn ssh_probe(target: &config::Target, remote_cmd: &str) -> SysCommand {
     let mut cmd = SysCommand::new("ssh");
     cmd.args(ssh::probe_command_args(target, remote_cmd));
+    cmd.envs(ssh::askpass_env(target));
     cmd
 }
 

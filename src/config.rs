@@ -130,7 +130,9 @@ pub struct Target {
     /// Path to the private SSH key. Optional — otherwise ssh-agent is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    /// Password (used by the FTP backend). Stored in plaintext in the config.
+    /// Secret stored in plaintext in the config: the FTP password for the `ftp`
+    /// backend, or (for `ssh`) the SSH key passphrase or login password, which
+    /// is supplied to ssh/rsync non-interactively via `SSH_ASKPASS`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
     /// Root directory on the target where `<name>/<timestamp>/` is created.
