@@ -59,7 +59,7 @@ const EXAMPLE_CONFIG: &str = include_str!("../moraine.example.toml");
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("fel: {e:#}");
+        eprintln!("error: {e:#}");
         std::process::exit(1);
     }
 }
