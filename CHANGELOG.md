@@ -7,6 +7,24 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Cross-platform
+- Builds and tests run on **Linux, macOS and Windows** in CI (plus `fmt` +
+  `clippy` gate); tagged releases ship a binary archive per OS and a Linux `.deb`.
+- The `rfd` file-dialog dependency is split per target (xdg-portal on Linux,
+  native dialogs on Windows/macOS) so the GUI compiles everywhere.
+- **Scheduling is now cross-platform**: the Schedule tab installs to `crontab`
+  on Linux/macOS and to **Windows Task Scheduler** (`schtasks`, via per-schedule
+  `.cmd` wrappers under `%APPDATA%\Moraine\`) on Windows.
+
+### Fixed
+- Scheduled jobs referenced a non-existent `backup` binary after the rename;
+  they now invoke `moraine` (`moraine.exe` on Windows) next to the GUI.
+
+### Changed
+- Source comments and CLI messages are now fully English.
+
 ## [0.1.0]
 
 ### Core

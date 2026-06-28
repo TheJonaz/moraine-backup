@@ -1018,9 +1018,9 @@ impl App {
                     .iter()
                     .map(ScheduleForm::to_schedule)
                     .collect();
-                self.status = match install_crontab(&scheds) {
-                    Ok(n) => format!("Installed {n} schedule(s) to crontab"),
-                    Err(e) => format!("Crontab error: {e}"),
+                self.status = match install_schedules(&scheds) {
+                    Ok(n) => format!("Installed {n} schedule(s) to {}", scheduler_name()),
+                    Err(e) => format!("{} error: {e}", scheduler_name()),
                 };
             }
 
@@ -1787,9 +1787,10 @@ impl App {
                 .style(ghost_btn)
                 .on_press(Message::ModAddSchedule(name.clone())),
         );
-        col = col.push(muted_text(
-            "Activate via \"Install to crontab\" in the Schedule tab.",
-        ));
+        col = col.push(muted_text(format!(
+            "Activate via \"Install to {}\" in the Schedule tab.",
+            scheduler_name()
+        )));
         section("Schedule", col)
     }
 
@@ -1893,7 +1894,7 @@ impl App {
                 .width(Length::Fill)
                 .style(ghost_btn)
                 .on_press(Message::AddSchedule),
-            button(text("Install to crontab").width(Length::Fill))
+            button(text(format!("Install to {}", scheduler_name())).width(Length::Fill))
                 .padding([10.0, 12.0])
                 .width(Length::Fill)
                 .style(primary_btn)
@@ -1990,9 +1991,10 @@ impl App {
                 .style(checkbox_style),
         );
         col = col.push(cron_chip(&form.to_schedule().cron()));
-        col = col.push(muted_text(
-            "Click \"Install to crontab\" to activate all enabled schedules.",
-        ));
+        col = col.push(muted_text(format!(
+            "Click \"Install to {}\" to activate all enabled schedules.",
+            scheduler_name()
+        )));
         col = col.push(
             row![
                 button(text("Save"))
@@ -2654,15 +2656,50 @@ fn view_footer() -> Element<'static, Message> {
         .into()
 }
 
-// ─────────────────────────── crontab/backup ───────────────────────────
+// ──────────────────────── scheduling (cron / Task Scheduler) ───────────────────────
 
+/// Path to the `moraine` CLI that sits next to this GUI binary, so a scheduled
+/// job runs the same build the user installed (not whatever is on PATH).
 fn backup_cli_path() -> String {
+    let exe_name = if cfg!(windows) {
+        "moraine.exe"
+    } else {
+        "moraine"
+    };
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            return dir.join("backup").display().to_string();
+            return dir.join(exe_name).display().to_string();
         }
     }
-    "backup".to_string()
+    exe_name.to_string()
+}
+
+/// The OS scheduler we install into — used in button labels and status text.
+fn scheduler_name() -> &'static str {
+    if cfg!(windows) {
+        "Task Scheduler"
+    } else {
+        "crontab"
+    }
+}
+
+/// The absolute config path that a scheduled job should use.
+fn scheduled_config_path() -> String {
+    std::fs::canonicalize(CONFIG_PATH)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| CONFIG_PATH.to_string())
+}
+
+/// Installs all enabled schedules into the OS scheduler, replacing any
+/// previously installed Moraine jobs. Dispatches per platform: crontab on
+/// Linux/macOS, Windows Task Scheduler (`schtasks`) on Windows. Both arms
+/// compile everywhere (they only shell out), so CI type-checks both.
+fn install_schedules(schedules: &[Schedule]) -> Result<usize, String> {
+    if cfg!(windows) {
+        install_schtasks(schedules)
+    } else {
+        install_crontab(schedules)
+    }
 }
 
 fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
@@ -2680,9 +2717,7 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
         .collect();
 
     let exe = backup_cli_path();
-    let cfg = std::fs::canonicalize(CONFIG_PATH)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| CONFIG_PATH.to_string());
+    let cfg = scheduled_config_path();
 
     let mut count = 0;
     for s in schedules
@@ -2721,6 +2756,131 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
             "crontab exited with {}",
             status.code().unwrap_or(-1)
         ))
+    }
+}
+
+/// Windows Task Scheduler backend for `install_schedules`.
+///
+/// schtasks' `/TR` quoting is famously fragile when the command has both a
+/// quoted program path and arguments, so each schedule instead gets a tiny
+/// `.cmd` wrapper in `%APPDATA%\Moraine\tasks\` and the task just runs that
+/// single (quoted) path. Existing Moraine tasks are removed first, so a
+/// re-install mirrors the crontab arm's replace-all semantics.
+fn install_schtasks(schedules: &[Schedule]) -> Result<usize, String> {
+    const FOLDER: &str = "Moraine"; // task folder: \Moraine\<name>
+
+    remove_moraine_tasks(FOLDER);
+
+    let dir = schtasks_wrapper_dir()?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+
+    let exe = backup_cli_path();
+    let cfg = scheduled_config_path();
+
+    let mut count = 0;
+    for s in schedules
+        .iter()
+        .filter(|s| s.enabled && !s.target.is_empty())
+    {
+        let safe = sanitize_task_name(&s.name);
+        // The wrapper carries the full command, so /TR is just its quoted path.
+        let wrapper = dir.join(format!("{safe}.cmd"));
+        let body = format!(
+            "@echo off\r\n\"{exe}\" -c \"{cfg}\" run --target {}\r\n",
+            s.target
+        );
+        std::fs::write(&wrapper, body)
+            .map_err(|e| format!("could not write {}: {e}", wrapper.display()))?;
+
+        let tn = format!("{FOLDER}\\{safe}");
+        let tr = format!("\"{}\"", wrapper.display());
+        let mut cmd = std::process::Command::new("schtasks");
+        cmd.args(["/Create", "/F", "/TN", tn.as_str(), "/TR", tr.as_str()]);
+        schtasks_schedule_flags(&mut cmd, s);
+
+        let out = cmd
+            .output()
+            .map_err(|e| format!("could not run schtasks: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "schtasks failed for '{}': {}",
+                s.name,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// `%APPDATA%\Moraine\tasks` — where the per-schedule `.cmd` wrappers live.
+fn schtasks_wrapper_dir() -> Result<std::path::PathBuf, String> {
+    let base = std::env::var("APPDATA").map_err(|_| "APPDATA is not set".to_string())?;
+    Ok(std::path::Path::new(&base).join("Moraine").join("tasks"))
+}
+
+/// Appends the schtasks `/SC` flags (frequency, time, weekday) for a schedule.
+fn schtasks_schedule_flags(cmd: &mut std::process::Command, s: &Schedule) {
+    let time = format!("{:02}:{:02}", s.hour.min(23), s.minute.min(59));
+    match s.frequency {
+        Frequency::Hourly => {
+            // Run every hour, first firing at minute `minute`.
+            let st = format!("00:{:02}", s.minute.min(59));
+            cmd.args(["/SC", "HOURLY", "/MO", "1", "/ST", st.as_str()]);
+        }
+        Frequency::Daily => {
+            cmd.args(["/SC", "DAILY", "/ST", time.as_str()]);
+        }
+        Frequency::Weekly => {
+            // schtasks wants MON/TUE/…; our weekday is 0=Sun … 6=Sat.
+            const DAYS: [&str; 7] = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+            let d = DAYS[(s.weekday as usize).min(6)];
+            cmd.args(["/SC", "WEEKLY", "/D", d, "/ST", time.as_str()]);
+        }
+    }
+}
+
+/// Deletes every task under the `\<folder>\` Task Scheduler folder, so an
+/// install replaces the previous set rather than accumulating duplicates.
+fn remove_moraine_tasks(folder: &str) {
+    let Ok(out) = std::process::Command::new("schtasks")
+        .args(["/Query", "/FO", "CSV", "/NH"])
+        .output()
+    else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let prefix = format!("\\{folder}\\");
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        // CSV: "TaskName","Next Run Time","Status" — first field is the path.
+        let rest = line.trim().trim_start_matches('"');
+        let name = match rest.find('"') {
+            Some(i) => &rest[..i],
+            None => continue,
+        };
+        if name.starts_with(&prefix) {
+            let _ = std::process::Command::new("schtasks")
+                .args(["/Delete", "/F", "/TN", name])
+                .output();
+        }
+    }
+}
+
+/// Sanitizes a schedule name into a Task Scheduler task name (no path or quote
+/// characters). Empty names fall back to "task".
+fn sanitize_task_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "task".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 

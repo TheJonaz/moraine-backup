@@ -46,17 +46,20 @@ Both binaries are pure Rust and build on Linux, macOS and Windows; CI builds and
 tests all three on every push, and tagged releases ship a binary archive per OS
 (plus a `.deb` for Linux). What each platform needs at runtime:
 
-| Platform    | Build | rsync/SSH backend         | rclone backend | Scheduling          |
-|-------------|:-----:|---------------------------|----------------|---------------------|
-| Linux       |  ✅   | `rsync` + `openssh-client`| `rclone`       | `crontab` ✅        |
-| macOS       |  ✅   | `rsync` + `ssh` (bundled) | `rclone` (brew)| `crontab` ✅        |
-| Windows     |  ✅   | needs `rsync`/`ssh`¹      | `rclone`       | not yet² (use rclone)|
+| Platform    | Build | rsync/SSH backend         | rclone backend | Scheduling           |
+|-------------|:-----:|---------------------------|----------------|----------------------|
+| Linux       |  ✅   | `rsync` + `openssh-client`| `rclone`       | `crontab` ✅         |
+| macOS       |  ✅   | `rsync` + `ssh` (bundled) | `rclone` (brew)| `crontab` ✅         |
+| Windows     |  ✅   | needs `rsync`/`ssh`¹      | `rclone`       | Task Scheduler ✅    |
 
 ¹ Windows has no bundled rsync; install via WSL, MSYS2 or Git-for-Windows, or
 use the rclone backend (SFTP/FTP/SMB/cloud), which needs only the `rclone`
 binary on `PATH`.
-² The Schedule tab installs to `crontab`, which Windows lacks. Windows Task
-Scheduler integration is planned; until then schedule via an external tool.
+
+The **Schedule** tab installs jobs into the platform scheduler automatically:
+`crontab` on Linux/macOS, **Windows Task Scheduler** on Windows (each schedule
+becomes a task under the `\Moraine\` folder, driven by a small `.cmd` wrapper in
+`%APPDATA%\Moraine\tasks\`).
 
 ## CLI
 
