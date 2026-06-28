@@ -1,35 +1,40 @@
 # Changelog
 
-Alla noterbara ändringar i detta projekt dokumenteras här.
-Formatet följer löst [Keep a Changelog](https://keepachangelog.com/),
-och projektet använder [semantisk versionering](https://semver.org/).
+All notable changes to this project are documented here.
+The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
+and the project uses [semantic versioning](https://semver.org/).
 
-Versionssträngen i binären inkluderar även git-hash och byggdatum, t.ex.
-`0.1.0 (a1b2c3d, 2026-06-26)` — se `moraine --version`.
-
-## [Ej släppt]
-
-### Tillagt
-- **Körningslogg** — varje backup/restore/prune skrivs till `history.jsonl`
-  bredvid config-filen, och visas i en **History-flik** i GUI:t.
-- **App-versionering** — `build.rs` bäddar in git-hash och byggdatum;
-  visas i `moraine --version` och i GUI:ts header.
+The version string embedded in the binary also includes the git hash and build
+date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
 ## [0.1.0]
 
-### Tillagt
-- **Snapshot-backup** över SSH/rsync med hårdlänkade snapshots
-  (`<dest>/<namn>/<timestamp>/` + `--link-dest=../latest`) och en
-  `latest`-symlänk.
-- **CLI**: `init`, `verify` (SSH/nyckel/källor/dest), `run` (med dry-run),
-  `list`, `prune`.
-- **Retention/pruning** (GFS): behåll N senaste + N dagliga/veckovisa/
-  månatliga; auto-prune efter `run`. Planeringslogiken är enhetstestad.
-- **Desktop-klient** (iced) med systemtema (ljus/mörk):
-  - *Quick Backup* — redigera mål, live-strömmad rsync-logg, Test connection,
-    retention + Prune now.
-  - *Schedule* — flera scheman, cron-installation, snapshot-antal.
-  - *Restore* — lista snapshots, bläddra mappträd, selektiv återställning,
-    snapshot-antal.
-- Delad motor (config, rsync, snapshot, ssh, prune, history) som lib +
-  två binärer (`moraine`, `moraine-gui`).
+### Core
+- **Snapshot backup** over SSH/rsync with hardlinked snapshots
+  (`<dest>/<name>/<timestamp>/` + `--link-dest=../latest`) and a `latest` symlink.
+- **Backends** — `ssh` (rsync over SSH), `rclone` (cloud, SFTP, SMB, WebDAV, S3,
+  Drive, B2 …) and `ftp` (rclone's FTP backend, credentials entered in the app).
+- **Retention / pruning** (GFS): keep N latest + N daily/weekly/monthly; auto-prune
+  after a successful run. Planning logic is unit-tested.
+- **Run history** — each backup/restore/prune is appended to `history.jsonl` next to
+  the config file.
+- **App versioning** — `build.rs` embeds the git hash and build date.
+
+### CLI (`moraine`)
+- `init`, `verify` (SSH/key/sources/dest), `run` (with `--dry-run`), `list`, `prune`.
+
+### Desktop client (`moraine-gui`)
+- System light/dark theme, native window/app icon.
+- **Quick Backup** — edit targets, live-streamed rsync log, Test connection.
+- **Schedule** — multiple schedules per target, crontab install, snapshot counts.
+- **Restore** — list snapshots, browse the file tree, selective restore, snapshot counts.
+- **History** — view the run log.
+- Per-target **settings modal** (gear icon) for the advanced fields, including an
+  inline filtered **schedule editor**.
+- Native **file pickers** for the SSH key, sources and restore destination.
+- Per-row delete confirmation in the target list.
+
+### Engine
+- Shared `moraine` library (config, rsync, snapshot, ssh, rclone, prune, history)
+  plus two binaries (`moraine`, `moraine-gui`).
+- Debian packaging via `cargo-deb`.

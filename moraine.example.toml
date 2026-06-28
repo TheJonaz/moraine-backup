@@ -1,56 +1,67 @@
-# moraine.toml — ett eller flera [[target]]-block.
-# Kör `moraine run --dry-run` när du redigerat klart.
+# moraine.toml — one or more [[target]] blocks.
+# Run `moraine run --dry-run` when you're done editing.
 
 [[target]]
-# Kort namn. Används som mapp på målet och med --target.
+# Short name. Used as the folder on the target and with --target.
 name = "nas"
 
-# IP eller hostname.
+# IP or hostname.
 host = "192.168.1.50"
 
-# SSH-användare.
+# SSH user.
 user = "backup"
 
-# SSH-port. Valfri, default 22.
+# SSH port. Optional, default 22.
 port = 22
 
-# Sökväg till privat SSH-nyckel. Valfri — utelämna för att använda ssh-agent.
+# Path to the private SSH key. Optional — omit to use ssh-agent.
 key = "~/.ssh/backup_ed25519"
 
-# Rotkatalog på målet. Snapshots hamnar i <dest>/<name>/<timestamp>/.
+# Root directory on the target. Snapshots go to <dest>/<name>/<timestamp>/.
 dest = "/volume1/backups"
 
-# Filer och kataloger på klienten som ska backas upp.
+# Files and directories on the client to back up.
 sources = [
-    "/home/jonaz/dokument",
-    "/home/jonaz/bilder",
+    "/home/jonaz/documents",
+    "/home/jonaz/pictures",
 ]
 
-# rsync exclude-mönster. Valfri.
+# rsync exclude patterns. Optional.
 exclude = [
     "*.tmp",
     "node_modules",
     ".cache",
 ]
 
-# Lägg till fler mål genom att kopiera blocket:
+# Add more targets by copying the block:
 # [[target]]
 # name = "offsite"
 # host = "backup.example.com"
 # user = "jonaz"
 # dest = "/srv/backups"
-# sources = ["/home/jonaz/dokument"]
+# sources = ["/home/jonaz/documents"]
 
-# rclone-backend (moln, FTP, SMB, WebDAV ...). Kör först `rclone config` för
-# att skapa ett remote, sätt sedan backend = "rclone" och host = remote-namnet.
-# Fungerar med t.ex. ftp, sftp, smb, webdav, s3, drive, b2, ...
+# rclone backend (cloud, FTP, SMB, WebDAV ...). First run `rclone config` to
+# create a remote, then set backend = "rclone" and host = the remote name.
+# Works with e.g. ftp, sftp, smb, webdav, s3, drive, b2, ...
 # [[target]]
-# name = "ftp"
+# name = "cloud"
 # backend = "rclone"
-# host = "myftp"          # rclone-remote (tomt = lokal sökväg)
-# dest = "backups"        # sökväg i remoten
-# sources = ["/home/jonaz/dokument"]
+# host = "myremote"       # rclone remote (empty = local path)
+# dest = "backups"        # path within the remote
+# sources = ["/home/jonaz/documents"]
 #
 # [target.retention]
 # keep_last = 7
 # keep_monthly = 6
+
+# FTP backend (credentials in the config, no rclone config needed):
+# [[target]]
+# name = "ftp"
+# backend = "ftp"
+# host = "ftp.example.com"
+# user = "jonaz"
+# password = "..."        # stored in plain text — chmod 600 moraine.toml
+# port = 21
+# dest = "backups"
+# sources = ["/home/jonaz/documents"]

@@ -2,7 +2,7 @@
 name = "moraine"
 version = "0.1.0"
 edition = "2021"
-description = "Moraine — snapshot-baserad backup över SSH/rsync och rclone"
+description = "Moraine — snapshot-based backup over SSH/rsync and rclone"
 license = "MIT"
 build = "build.rs"
 
@@ -42,10 +42,10 @@ copyright = "2026, Jonaz Thern"
 section = "utils"
 priority = "optional"
 extended-description = """\
-Moraine — snapshot-baserad backup med hårdlänkade snapshots, retention/pruning, \
-selektiv restore och schemaläggning. Backends: rsync över SSH och rclone \
-(moln, FTP, SMB, WebDAV, S3, Drive, B2 ...). Innehåller både CLI:t `moraine` \
-och desktop-klienten `moraine-gui`."""
+Moraine — snapshot-based backup with hardlinked snapshots, retention/pruning, \
+selective restore and scheduling. Backends: rsync over SSH and rclone \
+(cloud, FTP, SMB, WebDAV, S3, Drive, B2 ...). Includes both the CLI `moraine` \
+and the desktop client `moraine-gui`."""
 depends = "$auto, rsync, openssh-client"
 recommends = "rclone, xdg-desktop-portal"
 assets = [

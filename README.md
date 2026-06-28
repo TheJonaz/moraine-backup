@@ -1,27 +1,27 @@
 <div align="center">
   <img src="assets/moraine.svg" width="96" alt="Moraine">
   <h1>Moraine</h1>
-  <p><strong>Snapshot-baserad backup över SSH/rsync och rclone — CLI + desktop-klient.</strong></p>
+  <p><strong>Snapshot-based backup over SSH/rsync and rclone — CLI + desktop client.</strong></p>
 </div>
 
-<p align="center"><img src="assets/screenshot.png" width="760" alt="Moraine desktop-klient"></p>
+<p align="center"><img src="assets/screenshot.png" width="760" alt="Moraine desktop client"></p>
 
-Moraine tar **hårdlänkade snapshots** av dina filer till valfritt mål: en NAS/server
-över SSH, eller moln/FTP/SMB/WebDAV/S3/Drive via rclone. Varje körning blir en egen
-tidsstämplad snapshot där oförändrade filer delar lagring — full historik till nästan
-ingen extra diskkostnad. Återställ hela snapshots eller enstaka filer, schemalägg via
-cron, och städa gamla snapshots automatiskt med en retention-policy.
+Moraine takes **hardlinked snapshots** of your files to any destination: a NAS/server
+over SSH, or cloud/FTP/SMB/WebDAV/S3/Drive via rclone. Every run becomes its own
+timestamped snapshot where unchanged files share storage — full history at almost no
+extra disk cost. Restore whole snapshots or individual files, schedule via cron, and
+prune old snapshots automatically with a retention policy.
 
-## Funktioner
+## Features
 
-- **Snapshots** — `<dest>/<namn>/<timestamp>/` med rsync `--link-dest` (hårdlänkar) och en `latest`-pekare.
-- **Backends** — `ssh` (rsync över SSH) och `rclone` (moln, **FTP**, SFTP, SMB, WebDAV, S3, Drive, B2 …). FTP är inbyggt: värd/användare/lösenord direkt i appen.
-- **Restore** — lista snapshots, bläddra mappträdet, återställ allt eller utvalda filer/mappar.
-- **Retention / pruning** (GFS) — behåll N senaste + N dagliga/veckovisa/månatliga; auto-prune efter varje körning.
-- **Schemaläggning** — flera scheman per mål, installeras i crontab.
-- **Live progress** — rsync-loggen strömmas medan den körs.
-- **Körningslogg** — varje backup/restore/prune sparas och visas i en History-flik.
-- **Desktop-klient** (iced) med systemtema, native filväljare och en inställnings-modal per mål.
+- **Snapshots** — `<dest>/<name>/<timestamp>/` using rsync `--link-dest` (hardlinks) plus a `latest` pointer.
+- **Backends** — `ssh` (rsync over SSH) and `rclone` (cloud, **FTP**, SFTP, SMB, WebDAV, S3, Drive, B2 …). FTP is built in: enter host/user/password right in the app.
+- **Restore** — list snapshots, browse the file tree, restore everything or selected files/folders.
+- **Retention / pruning** (GFS) — keep N latest + N daily/weekly/monthly; auto-prune after each run.
+- **Scheduling** — multiple schedules per target, installed into crontab.
+- **Live progress** — the rsync log streams while it runs.
+- **Run history** — every backup/restore/prune is recorded and shown in a History tab.
+- **Desktop client** (iced) with system theme, native file pickers and a per-target settings modal.
 
 ## Installation
 
@@ -29,25 +29,25 @@ cron, och städa gamla snapshots automatiskt med en retention-policy.
 ```bash
 sudo apt install ./moraine_0.1.0-1_amd64.deb
 ```
-Installerar `moraine` (CLI) och `moraine-gui` (desktop) samt en menypost. Beroenden:
-`rsync`, `openssh-client`; rekommenderat: `rclone`, `xdg-desktop-portal`.
+Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
+`rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
 
-### Bygga från källa
+### Build from source
 ```bash
 cargo build --release
 ./target/release/moraine --help
 ./target/release/moraine-gui
 ```
-Bygg en `.deb`: `cargo install cargo-deb && cargo deb`.
+Build a `.deb`: `cargo install cargo-deb && cargo deb`.
 
 ## CLI
 
 ```bash
-moraine init                       # skapa en exempel-config (moraine.toml)
-moraine verify                     # testa SSH/nyckel/källor/dest
-moraine run [--target NAMN] [--dry-run]
-moraine list --target NAMN         # lista snapshots
-moraine prune [--target NAMN] [--dry-run]
+moraine init                       # create an example config (moraine.toml)
+moraine verify                     # test SSH/key/sources/dest
+moraine run [--target NAME] [--dry-run]
+moraine list --target NAME         # list snapshots
+moraine prune [--target NAME] [--dry-run]
 ```
 
 ## Config (`moraine.toml`)
@@ -55,37 +55,37 @@ moraine prune [--target NAMN] [--dry-run]
 ```toml
 [[target]]
 name    = "nas"
-host    = "192.168.1.50"          # IP eller hostname
+host    = "192.168.1.50"          # IP or hostname
 user    = "backup"
-key     = "~/.ssh/id_ed25519"     # valfri, annars ssh-agent
+key     = "~/.ssh/id_ed25519"     # optional, otherwise ssh-agent
 dest    = "/volume1/backups"
-sources = ["/home/jonaz/dokument", "/home/jonaz/bilder"]
+sources = ["/home/jonaz/documents", "/home/jonaz/pictures"]
 exclude = ["*.tmp", "node_modules"]
 
 [target.retention]
 keep_last = 7
 keep_monthly = 6
 
-# rclone-backend (moln/FTP/SMB/WebDAV/S3 …):
+# rclone backend (cloud/FTP/SMB/WebDAV/S3 …):
 # [[target]]
 # name = "ftp"
-# backend = "ftp"                 # eller "rclone" + host = <rclone-remote>
+# backend = "ftp"                 # or "rclone" + host = <rclone-remote>
 # host = "ftp.example.com"
 # user = "jonaz"
 # password = "..."
 # dest = "backups"
-# sources = ["/home/jonaz/dokument"]
+# sources = ["/home/jonaz/documents"]
 ```
 
-Se [`moraine.example.toml`](moraine.example.toml) för en fullständig mall.
+See [`moraine.example.toml`](moraine.example.toml) for a complete template.
 
-## Arkitektur
+## Architecture
 
-Ett `moraine`-bibliotek (motor: config, rsync, snapshot, ssh, rclone, prune, history)
-plus två binärer (`moraine` CLI, `moraine-gui` desktop). Backenderna kör i dag externa
-verktyg (`rsync`/`ssh`/`rclone`); en transport-abstraktion för in-process Rust planeras
-för bredare portabilitet (Windows utan rsync, mobil).
+A `moraine` library (engine: config, rsync, snapshot, ssh, rclone, prune, history)
+plus two binaries (`moraine` CLI, `moraine-gui` desktop). The backends currently shell
+out to external tools (`rsync`/`ssh`/`rclone`); a transport abstraction for in-process
+Rust is planned for broader portability (Windows without rsync, mobile).
 
-## Licens
+## License
 
 [MIT](LICENSE) © 2026 Jonaz Thern
