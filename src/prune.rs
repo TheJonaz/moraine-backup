@@ -1,25 +1,25 @@
-//! Retention-planering: vilka snapshots som ska behållas resp. raderas.
+//! Retention planning: which snapshots to keep and which to delete.
 //!
-//! GFS-stil ("grandfather-father-son"): behåll de N senaste, plus nyaste per
-//! dag/vecka/månad för N perioder. Den nyaste snapshoten behålls alltid.
-//! Logiken är ren (ingen I/O) och testas i `tests` nedan.
+//! GFS style ("grandfather-father-son"): keep the N most recent, plus the
+//! newest per day/week/month for N periods. The newest snapshot is always kept.
+//! The logic is pure (no I/O) and is tested in `tests` below.
 
 use crate::config::Retention;
 use chrono::{Datelike, NaiveDateTime};
 use std::collections::HashSet;
 
-/// Formatet som snapshot-mappar namnges med (se [`crate::snapshot::timestamp`]).
+/// The format that snapshot directories are named with (see [`crate::snapshot::timestamp`]).
 const FMT: &str = "%Y-%m-%dT%H-%M-%S";
 
-/// Resultatet av en planering.
+/// The result of a planning run.
 pub struct Plan {
     pub keep: Vec<String>,
     pub delete: Vec<String>,
 }
 
-/// Beslutar vilka tidsstämplar som ska behållas resp. raderas enligt policyn.
-/// Bevarar inmatningens ordning i utdatalistorna. Tidsstämplar som inte går
-/// att tolka behålls alltid (säkrare att inte radera det vi inte förstår).
+/// Decides which timestamps to keep and which to delete according to the policy.
+/// Preserves the input order in the output lists. Timestamps that cannot be
+/// parsed are always kept (safer not to delete what we don't understand).
 pub fn plan(timestamps: &[String], policy: &Retention) -> Plan {
     if policy.is_empty() {
         return Plan {
@@ -30,19 +30,19 @@ pub fn plan(timestamps: &[String], policy: &Retention) -> Plan {
 
     let mut keep: HashSet<String> = HashSet::new();
 
-    // Tolka och sortera giltiga tidsstämplar nyaste först.
+    // Parse and sort valid timestamps newest first.
     let mut valid: Vec<(String, NaiveDateTime)> = Vec::new();
     for ts in timestamps {
         match NaiveDateTime::parse_from_str(ts, FMT) {
             Ok(dt) => valid.push((ts.clone(), dt)),
             Err(_) => {
-                keep.insert(ts.clone()); // otolkbar → behåll
+                keep.insert(ts.clone()); // unparseable → keep
             }
         }
     }
     valid.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // Behåll alltid den nyaste (skyddar bl.a. `latest`-symlänken).
+    // Always keep the newest (protects, among other things, the `latest` symlink).
     if let Some((ts, _)) = valid.first() {
         keep.insert(ts.clone());
     }
@@ -64,7 +64,7 @@ fn keep_last(valid: &[(String, NaiveDateTime)], n: usize, keep: &mut HashSet<Str
     }
 }
 
-/// Behåll nyaste snapshot per period (dag/vecka/månad), för `limit` perioder.
+/// Keep the newest snapshot per period (day/week/month), for `limit` periods.
 fn keep_tier(
     valid: &[(String, NaiveDateTime)],
     limit: usize,
@@ -78,10 +78,10 @@ fn keep_tier(
     for (ts, dt) in valid {
         let k = key_fn(dt);
         if seen.contains(&k) {
-            continue; // redan behållit nyaste för den perioden
+            continue; // already kept the newest for that period
         }
         if seen.len() >= limit {
-            break; // alla perioder fyllda
+            break; // all periods filled
         }
         seen.insert(k);
         keep.insert(ts.clone());
@@ -114,7 +114,7 @@ mod tests {
         }
     }
 
-    /// Hjälpare: en tidsstämpel för ett datum kl 12:00.
+    /// Helper: a timestamp for a date at 12:00.
     fn ts(date: &str) -> String {
         format!("{date}T12-00-00")
     }
@@ -136,30 +136,30 @@ mod tests {
             ts("2026-01-04"),
         ];
         let p = plan(&snaps, &ret(2, 0, 0, 0));
-        // behåller de två nyaste
+        // keeps the two newest
         assert_eq!(p.keep, vec![ts("2026-01-03"), ts("2026-01-04")]);
         assert_eq!(p.delete, vec![ts("2026-01-01"), ts("2026-01-02")]);
     }
 
     #[test]
     fn daily_keeps_newest_per_day() {
-        // två snapshots samma dag + en dag till
+        // two snapshots on the same day + one more day
         let snaps = vec![
             "2026-01-01T08-00-00".to_string(),
-            "2026-01-01T20-00-00".to_string(), // nyast den 1:a
+            "2026-01-01T20-00-00".to_string(), // newest on the 1st
             "2026-01-02T09-00-00".to_string(),
         ];
         let p = plan(&snaps, &ret(0, 2, 0, 0));
         assert!(p.keep.contains(&"2026-01-02T09-00-00".to_string()));
         assert!(p.keep.contains(&"2026-01-01T20-00-00".to_string()));
-        // den tidigare på samma dag raderas
+        // the earlier one on the same day is deleted
         assert_eq!(p.delete, vec!["2026-01-01T08-00-00".to_string()]);
     }
 
     #[test]
     fn always_keeps_newest_even_if_policy_smaller() {
         let snaps = vec![ts("2026-01-01"), ts("2026-06-01")];
-        // keep_daily=1 → bara nyaste dagen; nyaste behålls ändå
+        // keep_daily=1 → only the newest day; the newest is kept anyway
         let p = plan(&snaps, &ret(0, 1, 0, 0));
         assert!(p.keep.contains(&ts("2026-06-01")));
         assert_eq!(p.delete, vec![ts("2026-01-01")]);
@@ -181,7 +181,7 @@ mod tests {
             ts("2026-03-05"),
         ];
         let p = plan(&snaps, &ret(0, 0, 0, 3));
-        // nyaste per månad: jan-20, feb-05, mar-05
+        // newest per month: jan-20, feb-05, mar-05
         assert!(p.keep.contains(&ts("2026-01-20")));
         assert!(p.keep.contains(&ts("2026-02-05")));
         assert!(p.keep.contains(&ts("2026-03-05")));

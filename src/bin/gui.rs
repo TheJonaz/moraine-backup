@@ -1,12 +1,12 @@
-//! moraine-gui — desktop-klient (iced) ovanpå moraine-motorn.
+//! moraine-gui — desktop client (iced) on top of the moraine engine.
 //!
-//! Två flikar:
-//!  * Quick Backup — redigera mål och kör dry-run/backup direkt.
-//!  * Schedule — skapa flera scheman och installera dem i crontab.
+//! Two tabs:
+//!  * Quick Backup — edit targets and run dry-run/backup directly.
+//!  * Schedule — create multiple schedules and install them in crontab.
 //!
-//! Utseendet definieras av ett litet designsystem (se `style`-sektionen):
-//! palett som följer systemets ljus/mörk-läge, kort, accentfärg, rundade
-//! hörn och konsekvent spacing/typografi.
+//! The look is defined by a small design system (see the `style` section):
+//! a palette that follows the system's light/dark mode, cards, an accent
+//! color, rounded corners and consistent spacing/typography.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -43,11 +43,11 @@ fn main() -> iced::Result {
         .run_with(App::new)
 }
 
-// ───────────────────────────── tema ─────────────────────────────
+// ───────────────────────────── theme ─────────────────────────────
 
 fn system_theme() -> Theme {
-    // Tvingat mörkt tema (hero-bakgrunden är mörk navy). Återställ till
-    // system-följning genom att avkommentera blocket nedan.
+    // Forced dark theme (the hero background is dark navy). Restore
+    // system-follow by uncommenting the block below.
     Theme::Dark
     // if let Some(dark) = gsettings_prefers_dark() {
     //     return if dark { Theme::Dark } else { Theme::Light };
@@ -83,9 +83,9 @@ fn gsettings_get(key: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).to_lowercase())
 }
 
-// ────────────────────────── designsystem ──────────────────────────
+// ────────────────────────── design system ──────────────────────────
 
-/// Färgpalett för en flik (ljus eller mörk).
+/// Color palette for a tab (light or dark).
 struct Pal {
     bg: Color,
     surface: Color,
@@ -94,14 +94,14 @@ struct Pal {
     text: Color,
     muted: Color,
     accent: Color,
-    accent2: Color, // blå (thern.io --blue-2) — andra änden av accent-gradienten
+    accent2: Color, // blue (thern.io --blue-2) — the other end of the accent gradient
     accent_hover: Color,
     on_accent: Color,
     selected: Color,
     danger: Color,
 }
 
-/// Linjär gradient mellan två färger (~120°, som thern.io).
+/// Linear gradient between two colors (~120°, like thern.io).
 fn linear(start: Color, end: Color) -> Background {
     let g = iced::gradient::Linear::new(iced::Radians(2.1))
         .add_stop(0.0, start)
@@ -109,7 +109,7 @@ fn linear(start: Color, end: Color) -> Background {
     Background::Gradient(iced::Gradient::Linear(g))
 }
 
-/// Blå→teal accent-gradient (thern.io "SÅ FUNKAR DET"-sektionen).
+/// Blue→teal accent gradient (thern.io "SÅ FUNKAR DET" section).
 fn accent_gradient(p: &Pal) -> Background {
     linear(p.accent2, p.accent)
 }
@@ -122,36 +122,36 @@ fn with_alpha(c: Color, a: f32) -> Color {
     Color { a, ..c }
 }
 
-// Palett matchad mot thern.io: teal-accent (#0fd4a0) på navy/off-white.
+// Palette matched to thern.io: teal accent (#0fd4a0) on navy/off-white.
 fn pal(theme: &Theme) -> Pal {
     let accent = rgb(15, 212, 160); // thern.io --accent
     if theme.extended_palette().is_dark {
         Pal {
-            bg: rgb(10, 22, 38),        // fallback (hero-bilden täcker)
-            surface: rgb(45, 66, 96),   // mycket ljusare slate-navy-kort
-            elevated: rgb(56, 80, 112), // input, ytterligare ljusare
-            border: rgb(78, 104, 142),  // tydlig kant
+            bg: rgb(10, 22, 38),        // fallback (the hero image covers it)
+            surface: rgb(45, 66, 96),   // much lighter slate-navy card
+            elevated: rgb(56, 80, 112), // input, lighter still
+            border: rgb(78, 104, 142),  // clear border
             text: rgb(238, 243, 249),
             muted: rgb(176, 190, 208),
             accent,                      // teal #0fd4a0
-            accent2: rgb(46, 139, 224),  // blå --blue-2
+            accent2: rgb(46, 139, 224),  // blue --blue-2
             accent_hover: rgb(46, 224, 179),
-            on_accent: rgb(255, 255, 255), // vit text på blå→teal-gradienten
+            on_accent: rgb(255, 255, 255), // white text on the blue→teal gradient
             selected: with_alpha(accent, 0.18),
             danger: rgb(226, 58, 58), // --danger
         }
     } else {
         Pal {
-            bg: rgb(244, 246, 249),       // off-white bakgrund
-            surface: rgb(255, 255, 255),  // vita kort (lite ljusare än bg)
-            elevated: rgb(255, 255, 255), // vita textfält
-            border: rgb(214, 222, 233),   // ljus kant (definierar vita fält)
-            text: rgb(20, 26, 33),        // svart text
+            bg: rgb(244, 246, 249),       // off-white background
+            surface: rgb(255, 255, 255),  // white cards (slightly lighter than bg)
+            elevated: rgb(255, 255, 255), // white text fields
+            border: rgb(214, 222, 233),   // light border (defines white fields)
+            text: rgb(20, 26, 33),        // black text
             muted: rgb(108, 120, 137),
             accent,
             accent2: rgb(46, 139, 224),
             accent_hover: rgb(13, 190, 143),
-            on_accent: rgb(255, 255, 255), // vit text på blå→teal-gradienten
+            on_accent: rgb(255, 255, 255), // white text on the blue→teal gradient
             selected: with_alpha(accent, 0.13),
             danger: rgb(214, 55, 55),
         }
@@ -184,8 +184,8 @@ fn soft_shadow() -> Shadow {
 #[allow(dead_code)]
 fn window_style(theme: &Theme) -> container::Style {
     let p = pal(theme);
-    // Diskret vertikal gradient (lite ljusare upptill → p.bg nedtill) för
-    // djup utan platt svart.
+    // Subtle vertical gradient (slightly lighter at the top → p.bg at the
+    // bottom) for depth without flat black.
     let top = if theme.extended_palette().is_dark {
         rgb(33, 46, 65)
     } else {
@@ -201,7 +201,7 @@ fn window_style(theme: &Theme) -> container::Style {
     }
 }
 
-/// Nedtonad bakgrund bakom modaler.
+/// Dimmed background behind modals.
 fn scrim_style(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(Color {
@@ -346,7 +346,7 @@ fn link_btn(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
-/// Stil för en rad i en sidolista (markerad eller ej).
+/// Style for a row in a side list (selected or not).
 fn list_item_style(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
         let p = pal(theme);
@@ -369,7 +369,7 @@ fn list_item_style(selected: bool) -> impl Fn(&Theme, button::Status) -> button:
     }
 }
 
-/// Stil för en flik-pill (aktiv eller ej).
+/// Style for a tab pill (active or not).
 fn tab_style(theme: &Theme, status: button::Status, active: bool) -> button::Style {
     let p = pal(theme);
     let bg = if active {
@@ -388,7 +388,7 @@ fn tab_style(theme: &Theme, status: button::Status, active: bool) -> button::Sty
     }
 }
 
-/// Liten dämpad etikett-text.
+/// Small muted label text.
 fn muted_text<'a>(s: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
     text(s)
         .size(12)
@@ -397,7 +397,7 @@ fn muted_text<'a>(s: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
         })
 }
 
-// ───────────────────────────── modeller ─────────────────────────────
+// ───────────────────────────── models ─────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -557,7 +557,7 @@ fn clean(items: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// En post i en snapshots filträd.
+/// An entry in a snapshot's file tree.
 #[derive(Clone)]
 struct TreeEntry {
     path: String,
@@ -570,9 +570,9 @@ struct App {
     tab: Tab,
     targets: Vec<TargetForm>,
     selected: Option<usize>,
-    // Mål-index som väntar på raderings-bekräftelse i listan.
+    // Target index awaiting delete confirmation in the list.
     confirm_delete: Option<usize>,
-    // Om inställnings-modalen är öppen (för valt mål).
+    // Whether the settings modal is open (for the selected target).
     settings_open: bool,
     schedules: Vec<ScheduleForm>,
     selected_schedule: Option<usize>,
@@ -583,13 +583,13 @@ struct App {
     restore_dest: String,
     tree: Vec<TreeEntry>,
     cwd: String,
-    // Snapshot-antal per målnamn.
+    // Snapshot count per target name.
     counts: HashMap<String, usize>,
-    // Konfigurerade rclone-remotes (för backend-guiden).
+    // Configured rclone remotes (for the backend guide).
     rclone_remotes: Vec<String>,
-    // Hero-bakgrundsbilden (navy + rutnät + glöd).
+    // The hero background image (navy + grid + glow).
     hero: iced::widget::image::Handle,
-    // Körningslogg (nyaste först) + pågående operation att logga vid klar.
+    // Run log (newest first) + the pending operation to log when done.
     history: Vec<LogEntry>,
     pending_op: Option<(String, String, String)>, // (op, target, info)
     log: String,
@@ -608,7 +608,7 @@ enum Message {
     OpenSettings(usize),
     CloseSettings,
     NoOp,
-    // Schemaredigering per index (modalens filtrerade vy).
+    // Schedule editing by index (the modal's filtered view).
     ModAddSchedule(String),
     ModDeleteSchedule(usize),
     ModSchedName(usize, String),
@@ -755,7 +755,7 @@ impl App {
         self.selected.and_then(|i| self.targets.get_mut(i))
     }
 
-    /// Tar bort mål `i` och håller `selected` giltigt.
+    /// Removes target `i` and keeps `selected` valid.
     fn remove_target(&mut self, i: usize) {
         if i >= self.targets.len() {
             return;
@@ -775,7 +775,7 @@ impl App {
         self.selected_schedule.and_then(|i| self.schedules.get_mut(i))
     }
 
-    /// Slår upp ett mål på namn och konverterar till en `Target`.
+    /// Looks up a target by name and converts it to a `Target`.
     fn target_by_name(&self, name: &str) -> Option<Target> {
         self.targets
             .iter()
@@ -863,7 +863,7 @@ impl App {
             }
             Message::Name(v) => set(self.current_mut(), |t| t.name = v),
             Message::BackendSelected(b) => set(self.current_mut(), |t| {
-                // Föreslå standardport vid backend-byte.
+                // Suggest a default port when the backend changes.
                 if b == Backend::Ftp && (t.port.is_empty() || t.port == "22") {
                     t.port = "21".to_string();
                 } else if b == Backend::Ssh && (t.port.is_empty() || t.port == "21") {
@@ -1092,7 +1092,7 @@ impl App {
                 self.selected_snapshot = Some(i);
                 self.tree.clear();
                 self.cwd.clear();
-                // Föreslå en återställningsmapp om fältet är tomt.
+                // Suggest a restore folder if the field is empty.
                 if self.restore_dest.trim().is_empty() {
                     if let (Some(name), Some(ts)) =
                         (self.restore_target.as_ref(), self.snapshots.get(i))
@@ -1276,8 +1276,8 @@ impl App {
                     }
                     c
                 } else {
-                    // GUI-backup utan --copy-dest (schemalagda CLI-körningar
-                    // gör den bandbredds-effektiva varianten).
+                    // GUI backup without --copy-dest (scheduled CLI runs do
+                    // the bandwidth-efficient variant).
                     rclone::backup_cmds(&target, &ts, None, dry_run)
                 };
                 self.pending_op = if dry_run {
@@ -1348,14 +1348,14 @@ impl App {
         }
     }
 
-    /// Skriver en post till history.jsonl och lägger den överst i minnet.
+    /// Writes an entry to history.jsonl and puts it at the top in memory.
     fn push_history(&mut self, entry: LogEntry) {
         let _ = history::append(Path::new(CONFIG_PATH), &entry);
         self.history.insert(0, entry);
     }
 
-    /// Loggar utfallet av den pågående operationen (om någon).
-    /// Vid fel används sista icke-tomma raden i `err` som detalj.
+    /// Logs the outcome of the pending operation (if any).
+    /// On failure, the last non-empty line in `err` is used as the detail.
     fn record(&mut self, ok: bool, err: &str) {
         if let Some((op, target, info)) = self.pending_op.take() {
             let detail = if ok {
@@ -1372,7 +1372,7 @@ impl App {
         }
     }
 
-    // ─────────────────────────── vyer ───────────────────────────
+    // ─────────────────────────── views ───────────────────────────
 
     fn view(&self) -> Element<'_, Message> {
         let header = column![
@@ -1406,7 +1406,7 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        // Hero-bakgrunden (navy + rutnät + glöd) bakom allt innehåll.
+        // The hero background (navy + grid + glow) behind all content.
         let background = iced::widget::image(self.hero.clone())
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1589,7 +1589,7 @@ impl App {
         form_card(column![connection, actions].spacing(22))
     }
 
-    /// Inställnings-modalen för det valda målet (overlay).
+    /// The settings modal for the selected target (overlay).
     fn view_settings_modal(&self) -> Element<'_, Message> {
         let Some(form) = self.selected.and_then(|i| self.targets.get(i)) else {
             return Space::new(Length::Fixed(0.0), Length::Fixed(0.0)).into();
@@ -1704,7 +1704,7 @@ impl App {
         let content =
             column![header, connection, files, schedule, retention, footer].spacing(20);
 
-        // Höger-padding så scrollbaren inte klipper fält/✕-knappar.
+        // Right padding so the scrollbar doesn't clip fields/✕ buttons.
         let inner_pad = iced::Padding {
             top: 0.0,
             right: 14.0,
@@ -1729,7 +1729,7 @@ impl App {
             .into()
     }
 
-    /// Schemasektion i modalen — filtrerad till det valda målet.
+    /// Schedule section in the modal — filtered to the selected target.
     fn modal_schedule_section(&self) -> Element<'_, Message> {
         let name = self
             .selected
@@ -1760,7 +1760,7 @@ impl App {
         section("Schedule", col)
     }
 
-    /// Ett redigerbart schema-kort i modalen (för schema-index `i`).
+    /// An editable schedule card in the modal (for schedule index `i`).
     fn schedule_card(&self, i: usize, s: &ScheduleForm) -> Element<'_, Message> {
         let top = row![
             text_input("", &s.name)
@@ -2150,7 +2150,7 @@ impl App {
     fn view_file_tree(&self) -> Element<'_, Message> {
         let selected = self.tree.iter().filter(|e| e.checked).count();
 
-        // Brödsmulor: snapshot / seg1 / seg2 …
+        // Breadcrumbs: snapshot / seg1 / seg2 …
         let mut crumbs = Row::new()
             .spacing(2)
             .align_y(iced::alignment::Vertical::Center);
@@ -2167,7 +2167,7 @@ impl App {
             }
         }
 
-        // Poster i nuvarande mapp.
+        // Entries in the current folder.
         let mut list = Column::new().spacing(2);
         let mut shown = 0;
         for (i, e) in self.tree.iter().enumerate() {
@@ -2209,7 +2209,7 @@ impl App {
             list = list.push(muted_text("(empty folder)"));
         }
 
-        // Rad med Up-knapp, vald-räknare och Clear.
+        // Row with the Up button, selected counter and Clear.
         let mut header = Row::new()
             .spacing(8)
             .align_y(iced::alignment::Vertical::Center);
@@ -2249,7 +2249,7 @@ impl App {
     }
 }
 
-/// Öppnar `rclone config` i en terminal. True om en terminal kunde startas.
+/// Opens `rclone config` in a terminal. True if a terminal could be started.
 fn open_rclone_config() -> bool {
     fn try_spawn(term: &str, args: &[&str]) -> bool {
         std::process::Command::new(term).args(args).spawn().is_ok()
@@ -2262,7 +2262,7 @@ fn open_rclone_config() -> bool {
         || try_spawn("xterm", &["-e", "rclone", "config"])
 }
 
-/// Hjälpruta som visas när rclone-backend är vald.
+/// Help box shown when the rclone backend is selected.
 fn rclone_guide(remotes: &[String]) -> Element<'static, Message> {
     let remotes_line = if remotes.is_empty() {
         "No remotes configured yet — click Open rclone config.".to_string()
@@ -2303,7 +2303,7 @@ fn rclone_guide(remotes: &[String]) -> Element<'static, Message> {
     .into()
 }
 
-/// En rad i körningsloggen.
+/// A row in the run log.
 fn history_row(e: &LogEntry) -> Element<'static, Message> {
     let ok = e.ok;
     let status = text(if ok { "✓" } else { "✗" }).size(14).style(move |t: &Theme| {
@@ -2342,7 +2342,7 @@ fn history_row(e: &LogEntry) -> Element<'static, Message> {
         .into()
 }
 
-/// En brödsmula: klickbar utom för den nuvarande mappen.
+/// A breadcrumb: clickable except for the current folder.
 fn crumb(label: &str, path: &str, current: bool) -> Element<'static, Message> {
     if current {
         text(label.to_string()).size(12).into()
@@ -2355,9 +2355,9 @@ fn crumb(label: &str, path: &str, current: bool) -> Element<'static, Message> {
     }
 }
 
-// ─────────────────────────── view-hjälpare ───────────────────────────
+// ─────────────────────────── view helpers ───────────────────────────
 
-/// En sidopanel: rubrik, innehåll (fyller höjd) och knapp(ar) i botten.
+/// A sidebar: heading, content (fills height) and button(s) at the bottom.
 fn sidebar<'a>(
     title: &str,
     content: Element<'a, Message>,
@@ -2379,10 +2379,10 @@ fn sidebar<'a>(
     .into()
 }
 
-/// Formulärets högerpanel som ett kort (scrollbart).
+/// The form's right panel as a card (scrollable).
 fn form_card<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    // Höger-padding (top, right, bottom, left) reserverar plats åt scrollbaren
-    // så fälten aldrig klipps under den.
+    // Right padding (top, right, bottom, left) reserves room for the scrollbar
+    // so the fields are never clipped beneath it.
     let inner_pad = iced::Padding {
         top: 4.0,
         right: 16.0,
@@ -2397,7 +2397,7 @@ fn form_card<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Messag
         .into()
 }
 
-/// Tomt kort med en dämpad text.
+/// Empty card with a muted text.
 fn empty_card(msg: &str) -> Element<'static, Message> {
     container(muted_text(msg.to_string()))
         .style(card_style)
@@ -2407,7 +2407,7 @@ fn empty_card(msg: &str) -> Element<'static, Message> {
         .into()
 }
 
-/// En sektion med liten rubrik ovanför sitt innehåll.
+/// A section with a small heading above its content.
 fn section<'a>(title: &str, body: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     column![
         text(title.to_string()).size(13).font(semibold()),
@@ -2417,7 +2417,7 @@ fn section<'a>(title: &str, body: impl Into<Element<'a, Message>>) -> Element<'a
     .into()
 }
 
-/// En liten "chip" som visar cron-uttrycket.
+/// A small "chip" that shows the cron expression.
 fn cron_chip(cron: &str) -> Element<'static, Message> {
     container(
         row![
@@ -2459,7 +2459,7 @@ fn pick_after_remove(len: usize, removed: usize) -> Option<usize> {
     }
 }
 
-/// En etiketterad textrad (fyller bredd).
+/// A labeled text row (fills width).
 fn field<'a>(
     label: &str,
     value: &str,
@@ -2474,7 +2474,7 @@ fn field<'a>(
     )
 }
 
-/// En etiketterad textrad med maskerad inmatning (lösenord).
+/// A labeled text row with masked input (password).
 fn password_field<'a>(
     label: &str,
     value: &str,
@@ -2490,7 +2490,7 @@ fn password_field<'a>(
     )
 }
 
-/// Som `field` men med fast bredd (för korta fält som port/timme).
+/// Like `field` but with a fixed width (for short fields like port/hour).
 fn fixed_field<'a>(
     label: &str,
     value: &str,
@@ -2671,7 +2671,7 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
     }
 }
 
-/// Räknar snapshots på ett mål. Returnerar `(namn, antal/err)`.
+/// Counts snapshots on a target. Returns `(name, count/err)`.
 async fn count_snapshots(target: Target, name: String) -> (String, Result<usize, String>) {
     match list_snapshots(target).await {
         Ok(list) => (name, Ok(list.len())),
@@ -2679,7 +2679,7 @@ async fn count_snapshots(target: Target, name: String) -> (String, Result<usize,
     }
 }
 
-/// Öppnar en native fildialog för att välja SSH-nyckel. None om avbruten.
+/// Opens a native file dialog to pick an SSH key. None if cancelled.
 async fn pick_key_file() -> Option<String> {
     let mut dialog = rfd::AsyncFileDialog::new().set_title("Select SSH private key");
     if let Ok(home) = std::env::var("HOME") {
@@ -2694,7 +2694,7 @@ async fn pick_key_file() -> Option<String> {
         .map(|h| h.path().display().to_string())
 }
 
-/// Öppnar en native mappväljare. None om avbruten.
+/// Opens a native folder picker. None if cancelled.
 async fn pick_folder() -> Option<String> {
     rfd::AsyncFileDialog::new()
         .set_title("Select a folder")
@@ -2703,7 +2703,7 @@ async fn pick_folder() -> Option<String> {
         .map(|h| h.path().display().to_string())
 }
 
-/// Listar konfigurerade rclone-remotes (utan avslutande `:`).
+/// Lists configured rclone remotes (without the trailing `:`).
 async fn list_remotes() -> Vec<String> {
     match tokio::process::Command::new("rclone")
         .arg("listremotes")
@@ -2719,7 +2719,7 @@ async fn list_remotes() -> Vec<String> {
     }
 }
 
-/// Kör ett rclone-kommando och returnerar dess output.
+/// Runs an rclone command and returns its output.
 async fn rclone_output(args: Vec<String>) -> Result<std::process::Output, String> {
     tokio::process::Command::new("rclone")
         .args(&args)
@@ -2728,7 +2728,7 @@ async fn rclone_output(args: Vec<String>) -> Result<std::process::Output, String
         .map_err(|e| format!("could not start rclone: {e}"))
 }
 
-/// Listar snapshots på målet (ssh `ls` eller `rclone lsf`). Nyaste först.
+/// Lists snapshots on the target (ssh `ls` or `rclone lsf`). Newest first.
 async fn list_snapshots(target: Target) -> Result<Vec<String>, String> {
     let mut list = if target.backend.is_ssh() {
         let args = ssh::probe_command_args(&target, &snapshot::list_cmd(&target));
@@ -2752,7 +2752,7 @@ async fn list_snapshots(target: Target) -> Result<Vec<String>, String> {
     } else {
         let out = rclone_output(rclone::list_args(&target)).await?;
         if !out.status.success() {
-            return Ok(Vec::new()); // basen finns troligen inte än
+            return Ok(Vec::new()); // the base probably doesn't exist yet
         }
         String::from_utf8_lossy(&out.stdout)
             .lines()
@@ -2765,7 +2765,7 @@ async fn list_snapshots(target: Target) -> Result<Vec<String>, String> {
     Ok(list)
 }
 
-/// Listar innehållet i en snapshot via `ssh find`. Returnerar `(is_dir, path)`.
+/// Lists the contents of a snapshot via `ssh find`. Returns `(is_dir, path)`.
 async fn list_tree(target: Target, ts: String) -> Result<Vec<(bool, String)>, String> {
     let mut entries: Vec<(bool, String)> = if target.backend.is_ssh() {
         let args = ssh::probe_command_args(&target, &snapshot::tree_cmd(&target, &ts));
@@ -2781,7 +2781,7 @@ async fn list_tree(target: Target, ts: String) -> Result<Vec<(bool, String)>, St
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
-        // ssh `find` ger "<typ>\t<sökväg>".
+        // ssh `find` yields "<type>\t<path>".
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter_map(|l| {
@@ -2802,7 +2802,7 @@ async fn list_tree(target: Target, ts: String) -> Result<Vec<(bool, String)>, St
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
-        // rclone `lsf -R` ger en sökväg per rad; kataloger slutar med `/`.
+        // rclone `lsf -R` yields one path per line; directories end with `/`.
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter_map(|l| {
@@ -2818,13 +2818,13 @@ async fn list_tree(target: Target, ts: String) -> Result<Vec<(bool, String)>, St
     Ok(entries)
 }
 
-/// En händelse från en körande process-ström.
+/// An event from a running process stream.
 enum Prog {
     Line(String),
     Done(bool, String),
 }
 
-/// Tillstånd för strömmen som kör en sekvens av kommandon.
+/// State for the stream that runs a sequence of commands.
 enum Phase {
     Next(std::collections::VecDeque<(String, Vec<String>)>),
     Read {
@@ -2835,8 +2835,8 @@ enum Phase {
     End,
 }
 
-/// Säkerställer att rsync-argumenten har `--verbose` (per-fil-utskrift så
-/// loggen tickar live).
+/// Ensures the rsync arguments include `--verbose` (per-file output so the
+/// log ticks live).
 fn ensure_verbose(args: &mut Vec<String>) {
     if !args.iter().any(|a| a == "--verbose" || a == "-v") {
         args.insert(0, "--verbose".to_string());
@@ -2850,8 +2850,8 @@ fn map_prog(p: Prog) -> Message {
     }
 }
 
-/// Kör en sekvens av kommandon och strömmar deras stdout rad-för-rad.
-/// Stannar (med fel) om ett kommando misslyckas; annars `Done(true)` på slutet.
+/// Runs a sequence of commands and streams their stdout line by line.
+/// Stops (with an error) if a command fails; otherwise `Done(true)` at the end.
 fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<Item = Prog> {
     let queue: std::collections::VecDeque<_> = cmds.into_iter().collect();
     iced::futures::stream::unfold(Phase::Next(queue), |mut phase| async move {
@@ -2901,7 +2901,7 @@ fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<It
                         ));
                     }
                     _ => {
-                        // stdout slut → läs ev. fel och kontrollera status.
+                        // stdout exhausted → read any error and check status.
                         let mut err = String::new();
                         if let Some(mut e) = child.stderr.take() {
                             let _ = e.read_to_string(&mut err).await;
@@ -2910,7 +2910,7 @@ fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<It
                         if !ok {
                             return Some((Prog::Done(false, err), Phase::End));
                         }
-                        phase = Phase::Next(rest); // nästa kommando i sekvensen
+                        phase = Phase::Next(rest); // next command in the sequence
                     }
                 },
             }
@@ -2918,7 +2918,7 @@ fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<It
     })
 }
 
-/// Listar snapshots, planerar enligt retention och raderar de äldre (via ssh).
+/// Lists snapshots, plans according to retention and deletes the older ones (via ssh).
 async fn prune_now(target: Target, policy: Retention) -> Result<String, String> {
     let snaps = list_snapshots(target.clone()).await?;
     let plan = prune::plan(&snaps, &policy);
@@ -2959,7 +2959,7 @@ async fn prune_now(target: Target, policy: Retention) -> Result<String, String> 
     ))
 }
 
-/// Kör verify-kontrollerna för ett mål och returnerar en rapport med ✓/✗.
+/// Runs the verify checks for a target and returns a report with ✓/✗.
 async fn verify_target(target: Target) -> String {
     fn line(ok: bool, msg: &str) -> String {
         format!("  {} {msg}\n", if ok { "✓" } else { "✗" })
@@ -2967,7 +2967,7 @@ async fn verify_target(target: Target) -> String {
 
     let mut out = String::new();
 
-    // rclone-backend: källor lokalt + remote-nåbarhet.
+    // rclone backend: sources locally + remote reachability.
     if !target.backend.is_ssh() {
         for s in &target.sources {
             let p = moraine::config::expand_tilde(s);
@@ -2986,20 +2986,20 @@ async fn verify_target(target: Target) -> String {
         return out;
     }
 
-    // SSH-nyckel (lokalt)
+    // SSH key (local)
     match target.key_path() {
         Some(k) if k.exists() => out.push_str(&line(true, &format!("SSH key: {}", k.display()))),
         Some(k) => out.push_str(&line(false, &format!("SSH key missing: {}", k.display()))),
         None => out.push_str("  · no key set (using ssh-agent)\n"),
     }
 
-    // Källor (lokalt)
+    // Sources (local)
     for s in &target.sources {
         let p = moraine::config::expand_tilde(s);
         out.push_str(&line(p.exists(), &format!("source {}", p.display())));
     }
 
-    // SSH-anslutning
+    // SSH connection
     let probe = ssh::probe_command_args(&target, "echo connection-ok");
     match tokio::process::Command::new("ssh")
         .args(&probe)
@@ -3009,7 +3009,7 @@ async fn verify_target(target: Target) -> String {
         Ok(o) if o.status.success() => {
             out.push_str(&line(true, "SSH connection"));
 
-            // Dest skrivbar? (remote)
+            // Dest writable? (remote)
             let dprobe = ssh::probe_command_args(&target, &snapshot::dest_check_cmd(&target));
             match tokio::process::Command::new("ssh")
                 .args(&dprobe)

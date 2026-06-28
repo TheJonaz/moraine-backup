@@ -1,5 +1,5 @@
-//! Bygg-skript: bäddar in git-hash och byggdatum i binären via env-variabler
-//! som blir tillgängliga med `env!("GIT_HASH")` / `env!("BUILD_DATE")`.
+//! Build script: embeds the git hash and build date into the binary via env
+//! variables that become available with `env!("GIT_HASH")` / `env!("BUILD_DATE")`.
 
 use std::process::Command;
 
@@ -23,6 +23,6 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BUILD_DATE={build_date}");
 
-    // Bygg om versionssträngen om HEAD ändras.
+    // Rebuild the version string if HEAD changes.
     println!("cargo:rerun-if-changed=.git/HEAD");
 }

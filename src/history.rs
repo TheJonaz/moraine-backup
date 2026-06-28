@@ -1,29 +1,29 @@
-//! Körningslogg: varje backup/restore/prune skrivs som en JSON-rad till
-//! `history.jsonl` bredvid config-filen. En "version" = en körning man kan
-//! spåra i efterhand (i CLI eller GUI:ts History-flik).
+//! Run log: each backup/restore/prune is written as a JSON line to
+//! `history.jsonl` next to the config file. A "version" = a run that can be
+//! traced afterwards (in the CLI or the GUI's History tab).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// En post i körningsloggen.
+/// An entry in the run log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
-    /// Lokal tidsstämpel, `YYYY-MM-DD HH:MM:SS`.
+    /// Local timestamp, `YYYY-MM-DD HH:MM:SS`.
     pub time: String,
     /// Operation: `backup` | `restore` | `prune`.
     pub op: String,
-    /// Målets namn.
+    /// The target's name.
     pub target: String,
-    /// Lyckades operationen?
+    /// Did the operation succeed?
     pub ok: bool,
-    /// Kort beskrivning (snapshot-id, antal, eller felmeddelande).
+    /// Short description (snapshot id, count, or error message).
     pub detail: String,
 }
 
 impl LogEntry {
-    /// Skapar en post med aktuell tidsstämpel.
+    /// Creates an entry with the current timestamp.
     pub fn new(op: &str, target: &str, ok: bool, detail: impl Into<String>) -> LogEntry {
         LogEntry {
             time: now(),
@@ -35,12 +35,12 @@ impl LogEntry {
     }
 }
 
-/// Aktuell lokal tid som loggsträng.
+/// Current local time as a log string.
 pub fn now() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-/// Sökväg till loggfilen, bredvid config-filen.
+/// Path to the log file, next to the config file.
 pub fn path_for(config_path: &Path) -> PathBuf {
     config_path
         .parent()
@@ -49,20 +49,20 @@ pub fn path_for(config_path: &Path) -> PathBuf {
         .join("history.jsonl")
 }
 
-/// Lägger till en post sist i loggfilen (skapar den vid behov).
+/// Appends an entry to the end of the log file (creates it if needed).
 pub fn append(config_path: &Path, entry: &LogEntry) -> Result<()> {
     let path = path_for(config_path);
-    let line = serde_json::to_string(entry).context("serialisera loggpost")?;
+    let line = serde_json::to_string(entry).context("serialize log entry")?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .with_context(|| format!("kunde inte öppna {}", path.display()))?;
-    writeln!(file, "{line}").context("kunde inte skriva loggrad")?;
+        .with_context(|| format!("could not open {}", path.display()))?;
+    writeln!(file, "{line}").context("could not write log line")?;
     Ok(())
 }
 
-/// Läser alla loggposter, nyaste först. Trasiga rader hoppas över.
+/// Reads all log entries, newest first. Corrupt lines are skipped.
 pub fn read(config_path: &Path) -> Vec<LogEntry> {
     let path = path_for(config_path);
     let Ok(text) = std::fs::read_to_string(path) else {

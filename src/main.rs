@@ -1,4 +1,4 @@
-//! moraine — CLI för snapshot-baserad backup över SSH/rsync och rclone.
+//! moraine — CLI for snapshot-based backup over SSH/rsync and rclone.
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
 #[derive(Parser)]
-#[command(name = "moraine", version = moraine::VERSION, about = "Moraine — snapshot-backup över SSH/rsync och rclone")]
+#[command(name = "moraine", version = moraine::VERSION, about = "Moraine — snapshot backup over SSH/rsync and rclone")]
 struct Cli {
-    /// Sökväg till config-filen.
+    /// Path to the config file.
     #[arg(short, long, global = true, default_value = "moraine.toml")]
     config: PathBuf,
 
@@ -21,35 +21,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Skriv en exempel-config att utgå från.
+    /// Write an example config to start from.
     Init {
-        /// Skriv över om filen redan finns.
+        /// Overwrite if the file already exists.
         #[arg(long)]
         force: bool,
     },
-    /// Testa SSH-anslutning, nyckel, källor och att målet går att skriva till.
+    /// Test the SSH connection, key, sources, and that the target is writable.
     Verify {
         #[arg(short, long)]
         target: Option<String>,
     },
-    /// Kör backup för alla mål, eller ett valt.
+    /// Run backup for all targets, or a selected one.
     Run {
         #[arg(short, long)]
         target: Option<String>,
-        /// Visa vad som skulle göras utan att överföra något.
+        /// Show what would be done without transferring anything.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Lista snapshots på målet.
+    /// List snapshots on the target.
     List {
         #[arg(short, long)]
         target: String,
     },
-    /// Radera gamla snapshots enligt målets retention-policy.
+    /// Delete old snapshots according to the target's retention policy.
     Prune {
         #[arg(short, long)]
         target: Option<String>,
-        /// Visa vad som skulle raderas utan att radera.
+        /// Show what would be deleted without deleting.
         #[arg(long)]
         dry_run: bool,
     },
@@ -78,14 +78,14 @@ fn run() -> Result<()> {
 fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
     if path.exists() && !force {
         anyhow::bail!(
-            "{} finns redan — använd --force för att skriva över",
+            "{} already exists — use --force to overwrite",
             path.display()
         );
     }
     std::fs::write(path, EXAMPLE_CONFIG)
-        .with_context(|| format!("kunde inte skriva {}", path.display()))?;
-    println!("Skrev exempel-config till {}", path.display());
-    println!("Redigera den och kör sedan: moraine run --dry-run");
+        .with_context(|| format!("could not write {}", path.display()))?;
+    println!("Wrote example config to {}", path.display());
+    println!("Edit it, then run: moraine run --dry-run");
     Ok(())
 }
 
@@ -105,9 +105,9 @@ fn cmd_run(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
                 if !dry_run {
                     log(path, LogEntry::new("backup", &t.name, true, format!("snapshot {ts}")));
                 }
-                // Auto-prune efter lyckad backup om målet har retention.
+                // Auto-prune after a successful backup if the target has retention.
                 if let Err(e) = prune_target(path, t, dry_run) {
-                    eprintln!("  prune misslyckades: {e:#}");
+                    eprintln!("  prune failed: {e:#}");
                 }
             }
             Err(e) => {
@@ -120,7 +120,7 @@ fn cmd_run(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
         }
     }
     if failures > 0 {
-        bail!("{failures} mål misslyckades");
+        bail!("{failures} target(s) failed");
     }
     Ok(())
 }
@@ -144,14 +144,14 @@ fn cmd_verify(path: &PathBuf, target: Option<&str>) -> Result<()> {
     }
 }
 
-/// Kör alla kontroller för ett mål. Returnerar true om allt gick bra.
+/// Runs all checks for a target. Returns true if everything went well.
 fn verify_target(t: &config::Target) -> bool {
     if !t.backend.is_ssh() {
         return verify_rclone(t);
     }
     let mut ok = true;
 
-    // SSH-nyckel (finns den lokalt?)
+    // SSH key (does it exist locally?)
     match t.key_path() {
         Some(key) if key.exists() => check(true, &format!("SSH key: {}", key.display())),
         Some(key) => {
@@ -161,7 +161,7 @@ fn verify_target(t: &config::Target) -> bool {
         None => println!("  · no key set (using ssh-agent)"),
     }
 
-    // Källor (finns de lokalt?)
+    // Sources (do they exist locally?)
     for src in &t.sources {
         let p = config::expand_tilde(src);
         let exists = p.exists();
@@ -169,7 +169,7 @@ fn verify_target(t: &config::Target) -> bool {
         check(exists, &format!("source {}", p.display()));
     }
 
-    // SSH-anslutning
+    // SSH connection
     match ssh_probe(t, "echo connection-ok").output() {
         Ok(out) if out.status.success() => check(true, "SSH connection"),
         Ok(out) => {
@@ -184,7 +184,7 @@ fn verify_target(t: &config::Target) -> bool {
                         .trim()
                 ),
             );
-            return false; // utan anslutning kan vi inte testa dest
+            return false; // without a connection we cannot test dest
         }
         Err(e) => {
             check(false, &format!("SSH connection: {e}"));
@@ -192,7 +192,7 @@ fn verify_target(t: &config::Target) -> bool {
         }
     }
 
-    // Dest skrivbar? (remote)
+    // Dest writable? (remote)
     match ssh_probe(t, &snapshot::dest_check_cmd(t)).output() {
         Ok(out) if out.status.success() => {
             match String::from_utf8_lossy(&out.stdout).trim() {
@@ -219,7 +219,7 @@ fn verify_target(t: &config::Target) -> bool {
     ok
 }
 
-/// Visar målets destination olika beroende på backend.
+/// Shows the target's destination differently depending on the backend.
 fn backend_dest(t: &config::Target) -> String {
     match t.backend {
         config::Backend::Ssh => t.ssh_dest(),
@@ -228,15 +228,15 @@ fn backend_dest(t: &config::Target) -> String {
     }
 }
 
-/// Hämtar snapshot-listan (nyaste först) för ett mål, oavsett backend.
+/// Fetches the snapshot list (newest first) for a target, regardless of backend.
 fn list_snapshots(t: &config::Target) -> Result<Vec<String>> {
     let mut snaps = if t.backend.is_ssh() {
         let out = ssh_probe(t, &snapshot::list_cmd(t))
             .output()
-            .context("kunde inte starta ssh")?;
+            .context("could not start ssh")?;
         if !out.status.success() {
             bail!(
-                "ssh misslyckades (exit {}): {}",
+                "ssh failed (exit {}): {}",
                 out.status.code().unwrap_or(-1),
                 String::from_utf8_lossy(&out.stderr).trim()
             );
@@ -258,7 +258,7 @@ fn cmd_list(path: &PathBuf, target_name: &str) -> Result<()> {
     let config = Config::load(path)?;
     let t = config
         .target(target_name)
-        .with_context(|| format!("inget mål heter '{target_name}'"))?;
+        .with_context(|| format!("no target named '{target_name}'"))?;
 
     let snaps = list_snapshots(t)?;
     println!("Snapshots for {} ({}):", t.name, backend_dest(t));
@@ -272,7 +272,7 @@ fn cmd_list(path: &PathBuf, target_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Verify för rclone-mål: källor lokalt + att rclone finns.
+/// Verify for rclone targets: sources locally + that rclone exists.
 fn verify_rclone(t: &config::Target) -> bool {
     let mut ok = true;
     for src in &t.sources {
@@ -306,15 +306,15 @@ fn cmd_prune(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> 
     Ok(())
 }
 
-/// Skriver en loggpost; fel ignoreras (loggning ska aldrig fälla en körning).
+/// Writes a log entry; errors are ignored (logging should never fail a run).
 fn log(config_path: &Path, entry: LogEntry) {
     if let Err(e) = history::append(config_path, &entry) {
-        eprintln!("  varning: kunde inte skriva history: {e:#}");
+        eprintln!("  warning: could not write history: {e:#}");
     }
 }
 
-/// Listar snapshots, planerar enligt retention och raderar de äldre.
-/// No-op om målet saknar (eller har tom) retention-policy.
+/// Lists snapshots, plans according to retention, and deletes the older ones.
+/// No-op if the target lacks (or has an empty) retention policy.
 fn prune_target(config_path: &Path, t: &config::Target, dry_run: bool) -> Result<()> {
     let Some(policy) = &t.retention else {
         return Ok(());
@@ -346,10 +346,10 @@ fn prune_target(config_path: &Path, t: &config::Target, dry_run: bool) -> Result
     if t.backend.is_ssh() {
         let del = ssh_probe(t, &snapshot::prune_cmd(t, &plan.delete))
             .output()
-            .context("kunde inte starta ssh för radering")?;
+            .context("could not start ssh for deletion")?;
         if !del.status.success() {
             bail!(
-                "radering misslyckades (exit {}): {}",
+                "deletion failed (exit {}): {}",
                 del.status.code().unwrap_or(-1),
                 String::from_utf8_lossy(&del.stderr).trim()
             );
@@ -372,26 +372,26 @@ fn prune_target(config_path: &Path, t: &config::Target, dry_run: bool) -> Result
     Ok(())
 }
 
-/// Bygger ett fail-fast ssh-kommando (BatchMode + timeout) för verify/list,
-/// så det inte hänger på lösenordsprompt eller en död host.
+/// Builds a fail-fast ssh command (BatchMode + timeout) for verify/list,
+/// so it does not hang on a password prompt or a dead host.
 fn ssh_probe(target: &config::Target, remote_cmd: &str) -> SysCommand {
     let mut cmd = SysCommand::new("ssh");
     cmd.args(ssh::probe_command_args(target, remote_cmd));
     cmd
 }
 
-/// Skriver ut en kontrollrad med ✓/✗.
+/// Prints a check line with ✓/✗.
 fn check(ok: bool, msg: &str) {
     println!("  {} {msg}", if ok { "✓" } else { "✗" });
 }
 
-/// Plocka ut målen att jobba med: ett namngivet, eller alla.
+/// Pick out the targets to work with: a named one, or all.
 fn select_targets<'a>(config: &'a Config, name: Option<&str>) -> Result<Vec<&'a config::Target>> {
     match name {
         Some(n) => {
             let t = config
                 .target(n)
-                .with_context(|| format!("inget mål heter '{n}'"))?;
+                .with_context(|| format!("no target named '{n}'"))?;
             Ok(vec![t])
         }
         None => Ok(config.targets.iter().collect()),

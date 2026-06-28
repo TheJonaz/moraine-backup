@@ -1,26 +1,26 @@
-//! rclone-backend: speglar rsync-motorn men mot rclone (moln/objektlagring).
+//! rclone backend: mirrors the rsync engine but targets rclone (cloud/object storage).
 //!
-//! Samma snapshot-layout som SSH-backenden — `<base>/<timestamp>/<källa>/` —
-//! men oförändrade filer server-side-kopieras via `--copy-dest` (rclones
-//! motsvarighet till rsync `--link-dest`). `<base>` är antingen ett rclone-
-//! remote (`remote:path`) eller en lokal sökväg om `host` är tomt.
+//! Same snapshot layout as the SSH backend — `<base>/<timestamp>/<source>/` —
+//! but unchanged files are server-side copied via `--copy-dest` (rclone's
+//! equivalent to rsync `--link-dest`). `<base>` is either an rclone
+//! remote (`remote:path`) or a local path if `host` is empty.
 
 use crate::config::{expand_tilde, Backend, Target};
 use crate::{rsync, snapshot};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-/// Bas-sökvägen för ett mål i rclone-syntax:
-///  * Rclone: `remote:dest/name` (eller lokal `dest/name` om host är tomt)
-///  * Ftp: on-the-fly connection-string `:ftp,host=…,user=…,pass=…:dest/name`
+/// The base path for a target in rclone syntax:
+///  * Rclone: `remote:dest/name` (or local `dest/name` if host is empty)
+///  * Ftp: on-the-fly connection string `:ftp,host=…,user=…,pass=…:dest/name`
 pub fn base(target: &Target) -> String {
     match target.backend {
         Backend::Ftp => {
             let dest = target.dest.trim_matches('/');
             let port = if target.port == 0 { 21 } else { target.port };
             let pass = obscure(&target.password);
-            // disable_mlsd=true: rclone skapar då kataloger korrekt och undviker
-            // "501 No such directory" mot servrar med MLSD-quirks (vanligt).
+            // disable_mlsd=true: rclone then creates directories correctly and avoids
+            // "501 No such directory" against servers with MLSD quirks (common).
             format!(
                 ":ftp,host={},user={},port={},pass={},disable_mlsd=true:{}/{}",
                 target.host.trim(),
@@ -43,7 +43,7 @@ pub fn base(target: &Target) -> String {
     }
 }
 
-/// Obfuskerar ett lösenord via `rclone obscure` (FTP-backenden kräver det).
+/// Obscures a password via `rclone obscure` (the FTP backend requires it).
 fn obscure(plain: &str) -> String {
     if plain.is_empty() {
         return String::new();
@@ -57,7 +57,7 @@ fn obscure(plain: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Sökväg till en snapshot: `<base>/<ts>`.
+/// Path to a snapshot: `<base>/<ts>`.
 pub fn snapshot_path(target: &Target, ts: &str) -> String {
     format!("{}/{ts}", base(target))
 }
@@ -69,8 +69,8 @@ fn basename(src: &str) -> String {
         .unwrap_or_else(|| "data".to_string())
 }
 
-/// Backup-kommandon: ett `rclone copy` per källa in i `<base>/<ts>/<basename>`,
-/// med `--copy-dest <base>/<prev>/<basename>` när en tidigare snapshot finns.
+/// Backup commands: one `rclone copy` per source into `<base>/<ts>/<basename>`,
+/// with `--copy-dest <base>/<prev>/<basename>` when a previous snapshot exists.
 pub fn backup_cmds(
     target: &Target,
     ts: &str,
@@ -88,14 +88,14 @@ pub fn backup_cmds(
             if dry_run {
                 args.push("--dry-run".to_string());
             }
-            args.push("-v".to_string()); // per-fil-utskrift för live-logg
+            args.push("-v".to_string()); // per-file output for the live log
             for pat in &target.exclude {
                 args.push("--exclude".to_string());
                 args.push(pat.clone());
             }
-            // --copy-dest server-side-kopierar oförändrade filer (sparar
-            // bandbredd). Anroparen sätter `prev` till None för backends utan
-            // server-side copy (FTP/SMB/WebDAV/lokalt) → full kopia istället.
+            // --copy-dest server-side copies unchanged files (saves
+            // bandwidth). The caller sets `prev` to None for backends without
+            // server-side copy (FTP/SMB/WebDAV/local) → full copy instead.
             if let Some(p) = prev {
                 args.push("--copy-dest".to_string());
                 args.push(format!("{base}/{p}/{name}"));
@@ -107,24 +107,24 @@ pub fn backup_cmds(
         .collect()
 }
 
-/// Argument som listar snapshots (kataloger) under basen.
+/// Arguments that list snapshots (directories) under the base.
 pub fn list_args(target: &Target) -> Vec<String> {
     vec!["lsf".into(), "--dirs-only".into(), base(target)]
 }
 
-/// Argument som listar en snapshots innehåll rekursivt (kataloger får `/`).
+/// Arguments that list a snapshot's contents recursively (directories get `/`).
 pub fn tree_args(target: &Target, ts: &str) -> Vec<String> {
     vec!["lsf".into(), "-R".into(), snapshot_path(target, ts)]
 }
 
-/// Argument för att radera en snapshot (rekursivt).
+/// Arguments to delete a snapshot (recursively).
 pub fn prune_args(target: &Target, ts: &str) -> Vec<String> {
     vec!["purge".into(), snapshot_path(target, ts)]
 }
 
-/// Restore-argument: kopierar (hela eller utvalda sökvägar) från en snapshot
-/// till en lokal mapp. Utvalda sökvägar filtreras med `--include` (matchar
-/// både filer och katalogträd), så strukturen bevaras.
+/// Restore arguments: copies (the whole snapshot or selected paths) from a snapshot
+/// to a local directory. Selected paths are filtered with `--include` (matches
+/// both files and directory trees), so the structure is preserved.
 pub fn restore_args(
     target: &Target,
     ts: &str,
@@ -148,14 +148,14 @@ pub fn restore_args(
     args
 }
 
-/// Listar befintliga snapshots. Tom lista om basen inte finns än.
+/// Lists existing snapshots. Empty list if the base does not exist yet.
 pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
     let out = Command::new("rclone")
         .args(list_args(target))
         .output()
-        .context("kunde inte starta rclone")?;
+        .context("could not start rclone")?;
     if !out.status.success() {
-        // Basen finns troligen inte än (första körningen) → tom lista.
+        // The base probably does not exist yet (first run) → empty list.
         return Ok(Vec::new());
     }
     Ok(String::from_utf8_lossy(&out.stdout)
@@ -165,7 +165,7 @@ pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
         .collect())
 }
 
-/// fs-strängen för `rclone backend features`: lokal sökväg eller `remote:`.
+/// The fs string for `rclone backend features`: local path or `remote:`.
 fn features_fs(target: &Target) -> String {
     let host = target.host.trim();
     if host.is_empty() {
@@ -176,8 +176,8 @@ fn features_fs(target: &Target) -> String {
     }
 }
 
-/// Frågar rclone om backenden stödjer server-side copy (`--copy-dest`).
-/// FTP/SMB/WebDAV/lokalt → false; S3/Drive/B2 m.fl. → true.
+/// Asks rclone whether the backend supports server-side copy (`--copy-dest`).
+/// FTP/SMB/WebDAV/local → false; S3/Drive/B2 and others → true.
 pub fn supports_server_side_copy(target: &Target) -> bool {
     let out = Command::new("rclone")
         .args(["backend", "features"])
@@ -196,13 +196,13 @@ pub fn supports_server_side_copy(target: &Target) -> bool {
     }
 }
 
-/// Kör backup (CLI): hittar föregående snapshot, kör en copy per källa.
-/// Använder `--copy-dest` bara om backenden stödjer server-side copy.
-/// Ärver stdio. Returnerar timestampen.
+/// Runs the backup (CLI): finds the previous snapshot, runs one copy per source.
+/// Uses `--copy-dest` only if the backend supports server-side copy.
+/// Inherits stdio. Returns the timestamp.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     let ts = snapshot::timestamp();
     let prev = list_snapshots(target)?.into_iter().max();
-    // Hoppa över --copy-dest för backends utan server-side copy (t.ex. FTP).
+    // Skip --copy-dest for backends without server-side copy (e.g. FTP).
     let prev_eff = match prev.as_deref() {
         Some(p) if supports_server_side_copy(target) => Some(p),
         _ => None,
@@ -213,27 +213,27 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         let status = Command::new(prog)
             .args(args)
             .status()
-            .context("kunde inte starta rclone")?;
+            .context("could not start rclone")?;
         if !status.success() {
-            bail!("rclone misslyckades (exit {})", status.code().unwrap_or(-1));
+            bail!("rclone failed (exit {})", status.code().unwrap_or(-1));
         }
     }
     if dry_run {
-        println!("(dry-run: ingen snapshot skapad)");
+        println!("(dry run: no snapshot created)");
     } else {
-        println!("snapshot {ts} klar");
+        println!("snapshot {ts} complete");
     }
     Ok(ts)
 }
 
-/// Raderar en snapshot via `rclone purge`.
+/// Deletes a snapshot via `rclone purge`.
 pub fn purge(target: &Target, ts: &str) -> Result<()> {
     let status = Command::new("rclone")
         .args(prune_args(target, ts))
         .status()
-        .context("kunde inte starta rclone")?;
+        .context("could not start rclone")?;
     if !status.success() {
-        bail!("rclone purge misslyckades (exit {})", status.code().unwrap_or(-1));
+        bail!("rclone purge failed (exit {})", status.code().unwrap_or(-1));
     }
     Ok(())
 }

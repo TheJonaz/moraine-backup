@@ -1,10 +1,10 @@
-//! Config: läser och validerar `backup.toml`.
+//! Config: reads and validates `backup.toml`.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Hela config-filen: mål och scheman.
+/// The entire config file: targets and schedules.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default, rename = "target")]
@@ -13,7 +13,7 @@ pub struct Config {
     pub schedules: Vec<Schedule>,
 }
 
-/// Hur ofta ett schema körs.
+/// How often a schedule runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Frequency {
@@ -23,7 +23,7 @@ pub enum Frequency {
 }
 
 impl Frequency {
-    /// Alla varianter, för väljare i UI:t.
+    /// All variants, for pickers in the UI.
     pub const ALL: [Frequency; 3] = [Frequency::Hourly, Frequency::Daily, Frequency::Weekly];
 }
 
@@ -38,31 +38,31 @@ impl std::fmt::Display for Frequency {
     }
 }
 
-/// Ett schema: vilket mål som ska backas upp och när.
+/// A schedule: which target to back up and when.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Schedule {
-    /// Kort namn för schemat.
+    /// Short name for the schedule.
     pub name: String,
-    /// Namnet på målet (matchar ett `[[target]]`) som ska backas upp.
+    /// The name of the target (matches a `[[target]]`) to back up.
     pub target: String,
-    /// Frekvens.
+    /// Frequency.
     pub frequency: Frequency,
-    /// Minut (0–59). Används av alla frekvenser.
+    /// Minute (0–59). Used by all frequencies.
     #[serde(default)]
     pub minute: u8,
-    /// Timme (0–23). Används av Daily och Weekly.
+    /// Hour (0–23). Used by Daily and Weekly.
     #[serde(default)]
     pub hour: u8,
-    /// Veckodag (0 = söndag … 6 = lördag). Används av Weekly.
+    /// Weekday (0 = Sunday … 6 = Saturday). Used by Weekly.
     #[serde(default)]
     pub weekday: u8,
-    /// Om schemat är aktivt.
+    /// Whether the schedule is active.
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
 impl Schedule {
-    /// cron-uttryck (5 fält) som motsvarar schemat.
+    /// cron expression (5 fields) that corresponds to the schedule.
     pub fn cron(&self) -> String {
         let m = self.minute.min(59);
         let h = self.hour.min(23);
@@ -79,16 +79,16 @@ fn default_true() -> bool {
     true
 }
 
-/// Transport-backend för ett mål.
+/// Transport backend for a target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    /// rsync över SSH (default) — hårdlänkade snapshots.
+    /// rsync over SSH (default) — hardlinked snapshots.
     #[default]
     Ssh,
-    /// rclone — moln/objektlagring, snapshots via `--copy-dest`.
+    /// rclone — cloud/object storage, snapshots via `--copy-dest`.
     Rclone,
-    /// FTP (via rclones on-the-fly FTP-backend) — värd/user/lösenord i appen.
+    /// FTP (via rclone's on-the-fly FTP backend) — host/user/password in the app.
     Ftp,
 }
 
@@ -97,7 +97,7 @@ impl Backend {
         matches!(self, Backend::Ssh)
     }
 
-    /// Alla varianter, för väljare i UI:t.
+    /// All variants, for pickers in the UI.
     pub const ALL: [Backend; 3] = [Backend::Ssh, Backend::Rclone, Backend::Ftp];
 }
 
@@ -111,59 +111,59 @@ impl std::fmt::Display for Backend {
     }
 }
 
-/// Ett backup-mål: vart filerna ska, hur man når dit, och vad som ska med.
+/// A backup target: where the files go, how to reach it, and what to include.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Target {
-    /// Kort namn, används som mapp på målet och i CLI (`--target`).
+    /// Short name, used as the folder on the target and in the CLI (`--target`).
     pub name: String,
-    /// Transport: `ssh` (default) eller `rclone`.
+    /// Transport: `ssh` (default) or `rclone`.
     #[serde(default, skip_serializing_if = "Backend::is_ssh")]
     pub backend: Backend,
-    /// SSH: IP/hostname. Rclone: remote-namn (tomt = lokal sökväg).
+    /// SSH: IP/hostname. Rclone: remote name (empty = local path).
     pub host: String,
-    /// SSH-användare (krävs för ssh-backend; ignoreras av rclone).
+    /// SSH user (required for the ssh backend; ignored by rclone).
     #[serde(default)]
     pub user: String,
-    /// SSH-port. Default 22.
+    /// SSH port. Default 22.
     #[serde(default = "default_port")]
     pub port: u16,
-    /// Sökväg till privat SSH-nyckel. Valfri — annars används ssh-agent.
+    /// Path to the private SSH key. Optional — otherwise ssh-agent is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    /// Lösenord (används av FTP-backenden). Lagras i klartext i config.
+    /// Password (used by the FTP backend). Stored in plaintext in the config.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
-    /// Rotkatalog på målet där `<name>/<timestamp>/` skapas.
+    /// Root directory on the target where `<name>/<timestamp>/` is created.
     pub dest: String,
-    /// Filer/kataloger på klienten som ska backas upp.
+    /// Files/directories on the client to back up.
     pub sources: Vec<String>,
-    /// rsync exclude-mönster. Valfri.
+    /// rsync exclude patterns. Optional.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<String>,
-    /// Retention-policy. Utelämnad = behåll alla snapshots.
+    /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
 }
 
-/// Hur många snapshots som behålls vid pruning (GFS-stil). Alla 0 = behåll alla.
+/// How many snapshots are kept when pruning (GFS-style). All 0 = keep all.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Retention {
-    /// Behåll de N senaste oavsett ålder.
+    /// Keep the N most recent regardless of age.
     #[serde(default)]
     pub keep_last: u32,
-    /// Behåll nyaste snapshot per dag, för N dagar.
+    /// Keep the newest snapshot per day, for N days.
     #[serde(default)]
     pub keep_daily: u32,
-    /// Behåll nyaste snapshot per ISO-vecka, för N veckor.
+    /// Keep the newest snapshot per ISO week, for N weeks.
     #[serde(default)]
     pub keep_weekly: u32,
-    /// Behåll nyaste snapshot per månad, för N månader.
+    /// Keep the newest snapshot per month, for N months.
     #[serde(default)]
     pub keep_monthly: u32,
 }
 
 impl Retention {
-    /// Sant om ingen tier är satt (då görs ingen pruning).
+    /// True if no tier is set (in which case no pruning is done).
     pub fn is_empty(&self) -> bool {
         self.keep_last == 0
             && self.keep_daily == 0
@@ -177,60 +177,60 @@ fn default_port() -> u16 {
 }
 
 impl Config {
-    /// Läs och parsa en config-fil.
+    /// Read and parse a config file.
     pub fn load(path: &Path) -> Result<Config> {
         let text = std::fs::read_to_string(path)
-            .with_context(|| format!("kunde inte läsa config: {}", path.display()))?;
+            .with_context(|| format!("could not read config: {}", path.display()))?;
         let config: Config =
-            toml::from_str(&text).with_context(|| format!("ogiltig TOML i {}", path.display()))?;
+            toml::from_str(&text).with_context(|| format!("invalid TOML in {}", path.display()))?;
         config.validate()?;
         Ok(config)
     }
 
-    /// Skriv config till TOML-fil.
+    /// Write the config to a TOML file.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let text = toml::to_string_pretty(self).context("kunde inte serialisera config")?;
+        let text = toml::to_string_pretty(self).context("could not serialize config")?;
         std::fs::write(path, text)
-            .with_context(|| format!("kunde inte skriva {}", path.display()))?;
+            .with_context(|| format!("could not write {}", path.display()))?;
         Ok(())
     }
 
     fn validate(&self) -> Result<()> {
         if self.targets.is_empty() {
-            bail!("config saknar [[target]]-block");
+            bail!("config has no [[target]] block");
         }
         for t in &self.targets {
             if t.sources.is_empty() {
-                bail!("mål '{}' saknar 'sources'", t.name);
+                bail!("target '{}' is missing 'sources'", t.name);
             }
-            // Dubbletter av namn skapar kollision i snapshot-mappar.
+            // Duplicate names create a collision in snapshot folders.
             let dupes = self.targets.iter().filter(|o| o.name == t.name).count();
             if dupes > 1 {
-                bail!("flera mål delar namnet '{}'", t.name);
+                bail!("multiple targets share the name '{}'", t.name);
             }
         }
         Ok(())
     }
 
-    /// Hitta ett mål på namn.
+    /// Find a target by name.
     pub fn target(&self, name: &str) -> Option<&Target> {
         self.targets.iter().find(|t| t.name == name)
     }
 }
 
 impl Target {
-    /// "user@host" för rsync/ssh.
+    /// "user@host" for rsync/ssh.
     pub fn ssh_dest(&self) -> String {
         format!("{}@{}", self.user, self.host)
     }
 
-    /// Nyckelns sökväg med `~` expanderat, om en nyckel är angiven.
+    /// The key's path with `~` expanded, if a key is specified.
     pub fn key_path(&self) -> Option<PathBuf> {
         self.key.as_deref().map(expand_tilde)
     }
 }
 
-/// Expanderar inledande `~/` mot $HOME. Lämnar övrigt orört.
+/// Expands a leading `~/` against $HOME. Leaves everything else untouched.
 pub fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {

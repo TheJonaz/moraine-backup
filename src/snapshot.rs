@@ -1,46 +1,46 @@
-//! Snapshot-namngivning och `latest`-hantering på målet.
+//! Snapshot naming and `latest` handling on the target.
 //!
-//! Layout på målet:
+//! Layout on the target:
 //! ```text
 //! <dest>/<name>/
-//!   2026-06-24T20-30-00/      ← full trädstruktur
-//!   2026-06-24T21-30-00/      ← oförändrade filer är hårdlänkar mot förra
+//!   2026-06-24T20-30-00/      ← full tree structure
+//!   2026-06-24T21-30-00/      ← unchanged files are hardlinks against the previous
 //!   latest -> 2026-06-24T21-30-00
 //! ```
 
 use crate::config::Target;
 use chrono::Local;
 
-/// Tidsstämpel för en ny snapshot-mapp, t.ex. `2026-06-24T20-30-00`.
-/// `:` undviks så namnet är säkert på alla filsystem.
+/// Timestamp for a new snapshot folder, e.g. `2026-06-24T20-30-00`.
+/// `:` is avoided so the name is safe on all filesystems.
 pub fn timestamp() -> String {
     Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
 }
 
-/// Baskatalogen för ett mål: `<dest>/<name>` (utan avslutande slash).
+/// The base directory for a target: `<dest>/<name>` (without trailing slash).
 pub fn base_dir(target: &Target) -> String {
     format!("{}/{}", target.dest.trim_end_matches('/'), target.name)
 }
 
-/// Destination för en ny snapshot: `<dest>/<name>/<timestamp>/`.
-/// Slutar på `/` så rsync skriver *in i* katalogen.
+/// Destination for a new snapshot: `<dest>/<name>/<timestamp>/`.
+/// Ends with `/` so rsync writes *into* the directory.
 pub fn snapshot_dir(target: &Target, timestamp: &str) -> String {
     format!("{}/{}/", base_dir(target), timestamp)
 }
 
-/// Remote-kommando som listar snapshots (en per rad) under målets baskatalog.
-/// `2>/dev/null` så en tom/saknad katalog inte ger fel-utskrift.
+/// Remote command that lists snapshots (one per line) under the target's base directory.
+/// `2>/dev/null` so an empty/missing directory doesn't produce error output.
 pub fn list_cmd(target: &Target) -> String {
     format!("ls -1 {} 2>/dev/null", shell_quote(&base_dir(target)))
 }
 
-/// Remote-kommando som läser ut vad `<base>/latest` pekar på (tom om saknas).
+/// Remote command that reads out what `<base>/latest` points to (empty if missing).
 pub fn latest_cmd(target: &Target) -> String {
     format!("readlink {}/latest 2>/dev/null", shell_quote(&base_dir(target)))
 }
 
-/// Remote-kommando som rapporterar om dest går att skriva till:
-/// `writable` / `readonly` om den finns, annars `parent-writable` / `no-access`.
+/// Remote command that reports whether dest is writable:
+/// `writable` / `readonly` if it exists, otherwise `parent-writable` / `no-access`.
 pub fn dest_check_cmd(target: &Target) -> String {
     let d = shell_quote(&target.dest);
     format!(
@@ -49,8 +49,8 @@ pub fn dest_check_cmd(target: &Target) -> String {
     )
 }
 
-/// Remote-kommando som raderar givna snapshot-mappar (`rm -rf`).
-/// Tidsstämplarna kommer från listningen, så sökvägarna är välformade.
+/// Remote command that deletes the given snapshot folders (`rm -rf`).
+/// The timestamps come from the listing, so the paths are well-formed.
 pub fn prune_cmd(target: &Target, timestamps: &[String]) -> String {
     let base = base_dir(target);
     let dirs: Vec<String> = timestamps
@@ -60,8 +60,8 @@ pub fn prune_cmd(target: &Target, timestamps: &[String]) -> String {
     format!("rm -rf {}", dirs.join(" "))
 }
 
-/// Remote-kommando som listar innehållet i en snapshot, en post per rad
-/// som `<typ>\t<relativ sökväg>` (typ d/f/l), relativt snapshot-roten.
+/// Remote command that lists the contents of a snapshot, one entry per line
+/// as `<type>\t<relative path>` (type d/f/l), relative to the snapshot root.
 pub fn tree_cmd(target: &Target, timestamp: &str) -> String {
     let dir = format!("{}/{}", base_dir(target), timestamp);
     format!(
@@ -70,14 +70,14 @@ pub fn tree_cmd(target: &Target, timestamp: &str) -> String {
     )
 }
 
-/// Remote-kommando som pekar om `<base>/latest` till den nya snapshoten.
-/// `latest` blir en relativ symlänk (bara timestamp) så trädet kan flyttas.
+/// Remote command that repoints `<base>/latest` to the new snapshot.
+/// `latest` becomes a relative symlink (just the timestamp) so the tree can be moved.
 pub fn update_latest_cmd(target: &Target, timestamp: &str) -> String {
     let link = format!("{}/latest", base_dir(target));
     format!("ln -sfn {} {}", shell_quote(timestamp), shell_quote(&link))
 }
 
-/// Single-quote:ar en sträng för säker användning i ett remote shell-kommando.
+/// Single-quotes a string for safe use in a remote shell command.
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
