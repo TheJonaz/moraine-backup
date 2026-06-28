@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1fe3b3"/>
+      <stop offset="1" stop-color="#0f9e78"/>
+    </linearGradient>
+    <linearGradient id="disk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E6FBF4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- bakgrund -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- staplade snapshots (cylindrar) -->
+  <g transform="translate(256 286)">
+    <!-- nedre -->
+    <ellipse cx="0" cy="64" rx="118" ry="34" fill="#0b7a5c"/>
+    <rect x="-118" y="32" width="236" height="32" fill="#0b7a5c"/>
+    <ellipse cx="0" cy="32" rx="118" ry="34" fill="url(#disk)"/>
+    <!-- mellan -->
+    <ellipse cx="0" cy="6" rx="118" ry="34" fill="#0b7a5c"/>
+    <rect x="-118" y="-26" width="236" height="32" fill="#0b7a5c"/>
+    <ellipse cx="0" cy="-26" rx="118" ry="34" fill="url(#disk)"/>
+    <!-- övre -->
+    <ellipse cx="0" cy="-58" rx="118" ry="34" fill="url(#disk)"/>
+  </g>
+
+  <!-- backup-/restore-pil (cirkulär) ovanför stapeln -->
+  <g transform="translate(256 150)" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round">
+    <path d="M -52 14 A 54 54 0 1 1 -38 50"/>
+  </g>
+  <polygon points="256,236 220,206 264,196" fill="#FFFFFF"/>
+</svg>

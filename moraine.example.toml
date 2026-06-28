@@ -1,0 +1,56 @@
+# moraine.toml — ett eller flera [[target]]-block.
+# Kör `moraine run --dry-run` när du redigerat klart.
+
+[[target]]
+# Kort namn. Används som mapp på målet och med --target.
+name = "nas"
+
+# IP eller hostname.
+host = "192.168.1.50"
+
+# SSH-användare.
+user = "backup"
+
+# SSH-port. Valfri, default 22.
+port = 22
+
+# Sökväg till privat SSH-nyckel. Valfri — utelämna för att använda ssh-agent.
+key = "~/.ssh/backup_ed25519"
+
+# Rotkatalog på målet. Snapshots hamnar i <dest>/<name>/<timestamp>/.
+dest = "/volume1/backups"
+
+# Filer och kataloger på klienten som ska backas upp.
+sources = [
+    "/home/jonaz/dokument",
+    "/home/jonaz/bilder",
+]
+
+# rsync exclude-mönster. Valfri.
+exclude = [
+    "*.tmp",
+    "node_modules",
+    ".cache",
+]
+
+# Lägg till fler mål genom att kopiera blocket:
+# [[target]]
+# name = "offsite"
+# host = "backup.example.com"
+# user = "jonaz"
+# dest = "/srv/backups"
+# sources = ["/home/jonaz/dokument"]
+
+# rclone-backend (moln, FTP, SMB, WebDAV ...). Kör först `rclone config` för
+# att skapa ett remote, sätt sedan backend = "rclone" och host = remote-namnet.
+# Fungerar med t.ex. ftp, sftp, smb, webdav, s3, drive, b2, ...
+# [[target]]
+# name = "ftp"
+# backend = "rclone"
+# host = "myftp"          # rclone-remote (tomt = lokal sökväg)
+# dest = "backups"        # sökväg i remoten
+# sources = ["/home/jonaz/dokument"]
+#
+# [target.retention]
+# keep_last = 7
+# keep_monthly = 6

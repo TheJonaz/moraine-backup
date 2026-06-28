@@ -1,0 +1,13 @@
+# Rust build output
+/target
+
+# Lokal användar-config och körningslogg (ej i repo)
+/moraine.toml
+/history.jsonl
+*.bak
+
+# Lokala verktygsinställningar
+/.claude/
+
+# Separat webbsida / artefakter
+/site/

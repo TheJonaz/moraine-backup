@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Moraine Backup
+GenericName=Backup Tool
+Comment=Snapshot backups over SSH and rclone
+Exec=moraine-gui
+Icon=moraine
+Terminal=false
+Categories=Utility;Archiving;
+Keywords=backup;snapshot;rsync;rclone;ssh;restore;moraine;
+StartupWMClass=moraine-gui

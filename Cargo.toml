@@ -1,0 +1,61 @@
+[package]
+name = "moraine"
+version = "0.1.0"
+edition = "2021"
+description = "Moraine — snapshot-baserad backup över SSH/rsync och rclone"
+license = "MIT"
+build = "build.rs"
+
+[lib]
+name = "moraine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "moraine"
+path = "src/main.rs"
+
+[[bin]]
+name = "moraine-gui"
+path = "src/bin/gui.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# Desktop-klient (iced) + async-körning av rsync (tokio).
+iced = { version = "0.13", features = ["tokio", "image"] }
+tokio = { version = "1", features = ["process", "io-util"] }
+# Systemets ljus/mörk-tema + öppna länk i webbläsaren.
+dark-light = "1"
+open = "5"
+# Native fildialog (välj SSH-nyckel) via xdg-desktop-portal.
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+
+# ─────────────────────────── paketering (.deb) ───────────────────────────
+[package.metadata.deb]
+maintainer = "Jonaz Thern <jonaz.thern@gmail.com>"
+copyright = "2026, Jonaz Thern"
+section = "utils"
+priority = "optional"
+extended-description = """\
+Moraine — snapshot-baserad backup med hårdlänkade snapshots, retention/pruning, \
+selektiv restore och schemaläggning. Backends: rsync över SSH och rclone \
+(moln, FTP, SMB, WebDAV, S3, Drive, B2 ...). Innehåller både CLI:t `moraine` \
+och desktop-klienten `moraine-gui`."""
+depends = "$auto, rsync, openssh-client"
+recommends = "rclone, xdg-desktop-portal"
+assets = [
+    ["target/release/moraine", "usr/bin/", "755"],
+    ["target/release/moraine-gui", "usr/bin/", "755"],
+    ["assets/moraine-gui.desktop", "usr/share/applications/", "644"],
+    ["assets/moraine.svg", "usr/share/icons/hicolor/scalable/apps/moraine.svg", "644"],
+    ["assets/moraine-256.png", "usr/share/icons/hicolor/256x256/apps/moraine.png", "644"],
+    ["assets/moraine-128.png", "usr/share/icons/hicolor/128x128/apps/moraine.png", "644"],
+    ["assets/moraine-64.png", "usr/share/icons/hicolor/64x64/apps/moraine.png", "644"],
+    ["assets/moraine-48.png", "usr/share/icons/hicolor/48x48/apps/moraine.png", "644"],
+    ["CHANGELOG.md", "usr/share/doc/moraine/", "644"],
+]
