@@ -15,14 +15,14 @@ use std::process::Stdio;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
-use moraine::config::{Backend, Config, Frequency, Retention, Schedule, Target};
-use moraine::history::{self, LogEntry};
-use moraine::{prune, rclone, rsync, snapshot, ssh};
 use iced::widget::{
     button, checkbox, column, container, pick_list, row, scrollable, text, text_input, Column, Row,
     Space,
 };
 use iced::{Background, Border, Color, Element, Length, Shadow, Task, Theme, Vector};
+use moraine::config::{Backend, Config, Frequency, Retention, Schedule, Target};
+use moraine::history::{self, LogEntry};
+use moraine::{prune, rclone, rsync, snapshot, ssh};
 
 const CONFIG_PATH: &str = "moraine.toml";
 const AUTHOR: &str = "by Jonaz Thern";
@@ -133,8 +133,8 @@ fn pal(theme: &Theme) -> Pal {
             border: rgb(78, 104, 142),  // clear border
             text: rgb(238, 243, 249),
             muted: rgb(176, 190, 208),
-            accent,                      // teal #0fd4a0
-            accent2: rgb(46, 139, 224),  // blue --blue-2
+            accent,                     // teal #0fd4a0
+            accent2: rgb(46, 139, 224), // blue --blue-2
             accent_hover: rgb(46, 224, 179),
             on_accent: rgb(255, 255, 255), // white text on the blue→teal gradient
             selected: with_alpha(accent, 0.18),
@@ -262,7 +262,10 @@ fn input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
 
 fn picklist_style(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
     let p = pal(theme);
-    let active = matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened);
+    let active = matches!(
+        status,
+        pick_list::Status::Hovered | pick_list::Status::Opened
+    );
     pick_list::Style {
         text_color: p.text,
         placeholder_color: p.muted,
@@ -390,11 +393,9 @@ fn tab_style(theme: &Theme, status: button::Status, active: bool) -> button::Sty
 
 /// Small muted label text.
 fn muted_text<'a>(s: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
-    text(s)
-        .size(12)
-        .style(|theme: &Theme| text::Style {
-            color: Some(pal(theme).muted),
-        })
+    text(s).size(12).style(|theme: &Theme| text::Style {
+        color: Some(pal(theme).muted),
+    })
 }
 
 // ───────────────────────────── models ─────────────────────────────
@@ -597,6 +598,9 @@ struct App {
     running: bool,
 }
 
+// A few variants carry whole records (e.g. a loaded Config); boxing every one
+// to equalize size would only add indirection to the hot message path.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 enum Message {
     SwitchTab(Tab),
@@ -772,7 +776,8 @@ impl App {
     }
 
     fn current_sched_mut(&mut self) -> Option<&mut ScheduleForm> {
-        self.selected_schedule.and_then(|i| self.schedules.get_mut(i))
+        self.selected_schedule
+            .and_then(|i| self.schedules.get_mut(i))
     }
 
     /// Looks up a target by name and converts it to a `Target`.
@@ -1008,8 +1013,11 @@ impl App {
             Message::SchedEnabled(b) => set(self.current_sched_mut(), |s| s.enabled = b),
             Message::InstallCron => {
                 let _ = self.build_config().save(&PathBuf::from(CONFIG_PATH));
-                let scheds: Vec<Schedule> =
-                    self.schedules.iter().map(ScheduleForm::to_schedule).collect();
+                let scheds: Vec<Schedule> = self
+                    .schedules
+                    .iter()
+                    .map(ScheduleForm::to_schedule)
+                    .collect();
                 self.status = match install_crontab(&scheds) {
                     Ok(n) => format!("Installed {n} schedule(s) to crontab"),
                     Err(e) => format!("Crontab error: {e}"),
@@ -1139,11 +1147,7 @@ impl App {
                         self.tree = entries
                             .into_iter()
                             .map(|(is_dir, path)| {
-                                let name = path
-                                    .rsplit('/')
-                                    .next()
-                                    .unwrap_or(&path)
-                                    .to_string();
+                                let name = path.rsplit('/').next().unwrap_or(&path).to_string();
                                 TreeEntry {
                                     path,
                                     name,
@@ -1272,7 +1276,10 @@ impl App {
                     let mut c = vec![("rsync".to_string(), args)];
                     if !dry_run {
                         let latest = snapshot::update_latest_cmd(&target, &ts);
-                        c.push(("ssh".to_string(), ssh::remote_command_args(&target, &latest)));
+                        c.push((
+                            "ssh".to_string(),
+                            ssh::remote_command_args(&target, &latest),
+                        ));
                     }
                     c
                 } else {
@@ -1283,7 +1290,11 @@ impl App {
                 self.pending_op = if dry_run {
                     None
                 } else {
-                    Some(("backup".into(), target.name.clone(), format!("snapshot {ts}")))
+                    Some((
+                        "backup".into(),
+                        target.name.clone(),
+                        format!("snapshot {ts}"),
+                    ))
                 };
                 self.log = format!("snapshot {ts}\n");
                 return Task::run(run_stream(cmds), map_prog);
@@ -1344,7 +1355,11 @@ impl App {
     fn build_config(&self) -> Config {
         Config {
             targets: self.targets.iter().map(TargetForm::to_target).collect(),
-            schedules: self.schedules.iter().map(ScheduleForm::to_schedule).collect(),
+            schedules: self
+                .schedules
+                .iter()
+                .map(ScheduleForm::to_schedule)
+                .collect(),
         }
     }
 
@@ -1377,7 +1392,10 @@ impl App {
     fn view(&self) -> Element<'_, Message> {
         let header = column![
             text("Moraine").size(28).font(semibold()),
-            muted_text(format!("Snapshot backups over SSH & rclone · v{}", moraine::VERSION)),
+            muted_text(format!(
+                "Snapshot backups over SSH & rclone · v{}",
+                moraine::VERSION
+            )),
         ]
         .spacing(2);
 
@@ -1558,9 +1576,17 @@ impl App {
         ));
         let connection = section("Connection", conn);
 
-        let run_label = if self.running { "Running…" } else { "Run backup" };
-        let mut run_btn = button(text(run_label)).padding([10.0, 18.0]).style(primary_btn);
-        let mut dry_btn = button(text("Dry run")).padding([10.0, 16.0]).style(ghost_btn);
+        let run_label = if self.running {
+            "Running…"
+        } else {
+            "Run backup"
+        };
+        let mut run_btn = button(text(run_label))
+            .padding([10.0, 18.0])
+            .style(primary_btn);
+        let mut dry_btn = button(text("Dry run"))
+            .padding([10.0, 16.0])
+            .style(ghost_btn);
         let mut verify_btn = button(text("Test connection"))
             .padding([10.0, 16.0])
             .style(ghost_btn);
@@ -1637,9 +1663,16 @@ impl App {
             }
             Backend::Ftp => {
                 details = details.push(field("User", &form.user, Message::User));
-                details =
-                    details.push(password_field("Password", &form.password, Message::Password));
-                details = details.push(field("Destination (path on server)", &form.dest, Message::Dest));
+                details = details.push(password_field(
+                    "Password",
+                    &form.password,
+                    Message::Password,
+                ));
+                details = details.push(field(
+                    "Destination (path on server)",
+                    &form.dest,
+                    Message::Dest,
+                ));
             }
         }
         let connection = section("Connection details", details);
@@ -1667,7 +1700,9 @@ impl App {
             .spacing(18),
         );
 
-        let mut prune_btn = button(text("Prune now")).padding([10.0, 16.0]).style(ghost_btn);
+        let mut prune_btn = button(text("Prune now"))
+            .padding([10.0, 16.0])
+            .style(ghost_btn);
         if !self.running {
             prune_btn = prune_btn.on_press(Message::PruneNow);
         }
@@ -1701,8 +1736,7 @@ impl App {
         ]
         .spacing(10);
 
-        let content =
-            column![header, connection, files, schedule, retention, footer].spacing(20);
+        let content = column![header, connection, files, schedule, retention, footer].spacing(20);
 
         // Right padding so the scrollbar doesn't clip fields/✕ buttons.
         let inner_pad = iced::Padding {
@@ -1711,13 +1745,12 @@ impl App {
             bottom: 0.0,
             left: 0.0,
         };
-        let card = container(
-            scrollable(container(content).padding(inner_pad)).height(Length::Fill),
-        )
-        .style(card_style)
-        .padding(24)
-        .width(Length::Fixed(840.0))
-        .max_height(660.0);
+        let card =
+            container(scrollable(container(content).padding(inner_pad)).height(Length::Fill))
+                .style(card_style)
+                .padding(24)
+                .width(Length::Fixed(840.0))
+                .max_height(660.0);
 
         let overlay = container(card)
             .center_x(Length::Fill)
@@ -1924,7 +1957,12 @@ impl App {
         .spacing(14);
 
         if form.frequency == Frequency::Hourly {
-            col = col.push(fixed_field("Minute (0-59)", &form.minute, Message::SchedMinute, 120.0));
+            col = col.push(fixed_field(
+                "Minute (0-59)",
+                &form.minute,
+                Message::SchedMinute,
+                120.0,
+            ));
         } else {
             col = col.push(
                 row![
@@ -1946,7 +1984,11 @@ impl App {
             ));
         }
 
-        col = col.push(checkbox("Enabled", form.enabled).on_toggle(Message::SchedEnabled).style(checkbox_style));
+        col = col.push(
+            checkbox("Enabled", form.enabled)
+                .on_toggle(Message::SchedEnabled)
+                .style(checkbox_style),
+        );
         col = col.push(cron_chip(&form.to_schedule().cron()));
         col = col.push(muted_text(
             "Click \"Install to crontab\" to activate all enabled schedules.",
@@ -1978,7 +2020,9 @@ impl App {
 
         let mut list = Column::new().spacing(4);
         if self.snapshots.is_empty() {
-            list = list.push(muted_text("No snapshots loaded.\nClick \"List snapshots\"."));
+            list = list.push(muted_text(
+                "No snapshots loaded.\nClick \"List snapshots\".",
+            ));
         } else {
             for (i, s) in self.snapshots.iter().enumerate() {
                 let label = if i == 0 {
@@ -2096,7 +2140,9 @@ impl App {
         }))
         .padding([10.0, 18.0])
         .style(primary_btn);
-        let mut dry_btn = button(text("Dry run")).padding([10.0, 16.0]).style(ghost_btn);
+        let mut dry_btn = button(text("Dry run"))
+            .padding([10.0, 16.0])
+            .style(ghost_btn);
         if !self.running {
             browse_btn = browse_btn.on_press(Message::BrowseFiles);
             restore_btn = restore_btn.on_press(Message::RunRestore(false));
@@ -2245,7 +2291,10 @@ impl App {
             .padding(10)
             .width(Length::Fill);
 
-        section("Browse snapshot", column![crumbs, header, tree_box].spacing(8))
+        section(
+            "Browse snapshot",
+            column![crumbs, header, tree_box].spacing(8),
+        )
     }
 }
 
@@ -2306,11 +2355,11 @@ fn rclone_guide(remotes: &[String]) -> Element<'static, Message> {
 /// A row in the run log.
 fn history_row(e: &LogEntry) -> Element<'static, Message> {
     let ok = e.ok;
-    let status = text(if ok { "✓" } else { "✗" }).size(14).style(move |t: &Theme| {
-        text::Style {
+    let status = text(if ok { "✓" } else { "✗" })
+        .size(14)
+        .style(move |t: &Theme| text::Style {
             color: Some(if ok { pal(t).accent } else { pal(t).danger }),
-        }
-    });
+        });
     let top = row![
         status,
         text(e.op.clone()).size(13).font(semibold()),
@@ -2422,9 +2471,7 @@ fn cron_chip(cron: &str) -> Element<'static, Message> {
     container(
         row![
             muted_text("CRON"),
-            text(cron.to_string())
-                .size(13)
-                .font(iced::Font::MONOSPACE),
+            text(cron.to_string()).size(13).font(iced::Font::MONOSPACE),
         ]
         .spacing(10),
     )
@@ -2638,7 +2685,10 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
         .unwrap_or_else(|_| CONFIG_PATH.to_string());
 
     let mut count = 0;
-    for s in schedules.iter().filter(|s| s.enabled && !s.target.is_empty()) {
+    for s in schedules
+        .iter()
+        .filter(|s| s.enabled && !s.target.is_empty())
+    {
         lines.push(format!(
             "{} {} -c {} run --target {} >/dev/null 2>&1 {MARKER}:{}",
             s.cron(),
@@ -2667,7 +2717,10 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
     if status.success() {
         Ok(count)
     } else {
-        Err(format!("crontab exited with {}", status.code().unwrap_or(-1)))
+        Err(format!(
+            "crontab exited with {}",
+            status.code().unwrap_or(-1)
+        ))
     }
 }
 
@@ -2825,6 +2878,9 @@ enum Prog {
 }
 
 /// State for the stream that runs a sequence of commands.
+// The Read variant owns a live tokio Child; this enum is short-lived stream
+// state, not a hot path, so boxing to equalize variant size buys nothing.
+#[allow(clippy::large_enum_variant)]
 enum Phase {
     Next(std::collections::VecDeque<(String, Vec<String>)>),
     Read {
@@ -2895,10 +2951,7 @@ fn run_stream(cmds: Vec<(String, Vec<String>)>) -> impl iced::futures::Stream<It
                     mut lines,
                 } => match lines.next_line().await {
                     Ok(Some(line)) => {
-                        return Some((
-                            Prog::Line(line),
-                            Phase::Read { rest, child, lines },
-                        ));
+                        return Some((Prog::Line(line), Phase::Read { rest, child, lines }));
                     }
                     _ => {
                         // stdout exhausted → read any error and check status.
@@ -2974,9 +3027,10 @@ async fn verify_target(target: Target) -> String {
             out.push_str(&line(p.exists(), &format!("source {}", p.display())));
         }
         match rclone_output(rclone::list_args(&target)).await {
-            Ok(o) if o.status.success() => {
-                out.push_str(&line(true, &format!("rclone reachable: {}", rclone::base(&target))))
-            }
+            Ok(o) if o.status.success() => out.push_str(&line(
+                true,
+                &format!("rclone reachable: {}", rclone::base(&target)),
+            )),
             Ok(_) => out.push_str(&format!(
                 "  · rclone base empty or new: {}\n",
                 rclone::base(&target)
@@ -3023,7 +3077,10 @@ async fn verify_target(target: Target) -> String {
                             (true, format!("dest will be created: {}", target.dest))
                         }
                         "readonly" => (false, format!("dest not writable: {}", target.dest)),
-                        other => (false, format!("dest not accessible ({other}): {}", target.dest)),
+                        other => (
+                            false,
+                            format!("dest not accessible ({other}): {}", target.dest),
+                        ),
                     };
                     out.push_str(&line(ok, &msg));
                 }

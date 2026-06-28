@@ -26,14 +26,22 @@ toml = "0.8"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-# Desktop-klient (iced) + async-körning av rsync (tokio).
+# Desktop client (iced) + async execution of rsync (tokio).
 iced = { version = "0.13", features = ["tokio", "image"] }
 tokio = { version = "1", features = ["process", "io-util"] }
-# Systemets ljus/mörk-tema + öppna länk i webbläsaren.
+# System light/dark theme + open a link in the browser.
 dark-light = "1"
 open = "5"
-# Native fildialog (välj SSH-nyckel) via xdg-desktop-portal.
+
+# Native file dialog (pick SSH key). The Linux backend differs from win/mac,
+# so the rfd features are split per target:
+#  * Linux: xdg-desktop-portal (no GTK runtime dependency).
+#  * Windows/macOS: the built-in win32/cocoa dialogs (no extra feature needed).
+[target.'cfg(target_os = "linux")'.dependencies]
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = { version = "0.15", default-features = false, features = ["tokio"] }
 
 # ─────────────────────────── paketering (.deb) ───────────────────────────
 [package.metadata.deb]

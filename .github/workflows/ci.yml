@@ -1,0 +1,51 @@
+name: CI
+
+# Build and test on every desktop OS we target, so a change that breaks the
+# Windows or macOS build is caught here rather than at release time.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # iced (winit) needs xkbcommon headers to build on Linux. The rfd
+      # xdg-portal backend is pure Rust (zbus), so no GTK packages are needed.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (CLI + GUI)
+        run: cargo build --workspace --all-targets --verbose
+
+      - name: Test
+        run: cargo test --workspace --verbose
+
+  lint:
+    name: fmt & clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build deps
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings

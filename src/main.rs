@@ -75,7 +75,7 @@ fn run() -> Result<()> {
     }
 }
 
-fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
+fn cmd_init(path: &Path, force: bool) -> Result<()> {
     if path.exists() && !force {
         anyhow::bail!(
             "{} already exists — use --force to overwrite",
@@ -89,7 +89,7 @@ fn cmd_init(path: &PathBuf, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_run(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
+fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
     let mut failures = 0;
@@ -103,7 +103,10 @@ fn cmd_run(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
         match result {
             Ok(ts) => {
                 if !dry_run {
-                    log(path, LogEntry::new("backup", &t.name, true, format!("snapshot {ts}")));
+                    log(
+                        path,
+                        LogEntry::new("backup", &t.name, true, format!("snapshot {ts}")),
+                    );
                 }
                 // Auto-prune after a successful backup if the target has retention.
                 if let Err(e) = prune_target(path, t, dry_run) {
@@ -125,7 +128,7 @@ fn cmd_run(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_verify(path: &PathBuf, target: Option<&str>) -> Result<()> {
+fn cmd_verify(path: &Path, target: Option<&str>) -> Result<()> {
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
     let mut all_ok = true;
@@ -194,22 +197,18 @@ fn verify_target(t: &config::Target) -> bool {
 
     // Dest writable? (remote)
     match ssh_probe(t, &snapshot::dest_check_cmd(t)).output() {
-        Ok(out) if out.status.success() => {
-            match String::from_utf8_lossy(&out.stdout).trim() {
-                "writable" => check(true, &format!("dest writable: {}", t.dest)),
-                "parent-writable" => {
-                    check(true, &format!("dest will be created: {}", t.dest))
-                }
-                "readonly" => {
-                    ok = false;
-                    check(false, &format!("dest not writable: {}", t.dest));
-                }
-                other => {
-                    ok = false;
-                    check(false, &format!("dest not accessible ({other}): {}", t.dest));
-                }
+        Ok(out) if out.status.success() => match String::from_utf8_lossy(&out.stdout).trim() {
+            "writable" => check(true, &format!("dest writable: {}", t.dest)),
+            "parent-writable" => check(true, &format!("dest will be created: {}", t.dest)),
+            "readonly" => {
+                ok = false;
+                check(false, &format!("dest not writable: {}", t.dest));
             }
-        }
+            other => {
+                ok = false;
+                check(false, &format!("dest not accessible ({other}): {}", t.dest));
+            }
+        },
         _ => {
             ok = false;
             check(false, "dest check failed");
@@ -254,7 +253,7 @@ fn list_snapshots(t: &config::Target) -> Result<Vec<String>> {
     Ok(snaps)
 }
 
-fn cmd_list(path: &PathBuf, target_name: &str) -> Result<()> {
+fn cmd_list(path: &Path, target_name: &str) -> Result<()> {
     let config = Config::load(path)?;
     let t = config
         .target(target_name)
@@ -293,7 +292,7 @@ fn verify_rclone(t: &config::Target) -> bool {
     ok
 }
 
-fn cmd_prune(path: &PathBuf, target: Option<&str>, dry_run: bool) -> Result<()> {
+fn cmd_prune(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
     for t in targets {

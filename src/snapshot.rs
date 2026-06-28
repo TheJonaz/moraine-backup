@@ -36,7 +36,10 @@ pub fn list_cmd(target: &Target) -> String {
 
 /// Remote command that reads out what `<base>/latest` points to (empty if missing).
 pub fn latest_cmd(target: &Target) -> String {
-    format!("readlink {}/latest 2>/dev/null", shell_quote(&base_dir(target)))
+    format!(
+        "readlink {}/latest 2>/dev/null",
+        shell_quote(&base_dir(target))
+    )
 }
 
 /// Remote command that reports whether dest is writable:

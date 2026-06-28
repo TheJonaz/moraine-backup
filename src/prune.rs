@@ -40,7 +40,7 @@ pub fn plan(timestamps: &[String], policy: &Retention) -> Plan {
             }
         }
     }
-    valid.sort_by(|a, b| b.1.cmp(&a.1));
+    valid.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // Always keep the newest (protects, among other things, the `latest` symlink).
     if let Some((ts, _)) = valid.first() {
@@ -53,8 +53,16 @@ pub fn plan(timestamps: &[String], policy: &Retention) -> Plan {
     keep_tier(&valid, policy.keep_monthly as usize, month_key, &mut keep);
 
     Plan {
-        keep: timestamps.iter().filter(|t| keep.contains(*t)).cloned().collect(),
-        delete: timestamps.iter().filter(|t| !keep.contains(*t)).cloned().collect(),
+        keep: timestamps
+            .iter()
+            .filter(|t| keep.contains(*t))
+            .cloned()
+            .collect(),
+        delete: timestamps
+            .iter()
+            .filter(|t| !keep.contains(*t))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -167,7 +175,11 @@ mod tests {
 
     #[test]
     fn unparseable_timestamps_are_kept() {
-        let snaps = vec!["not-a-timestamp".to_string(), ts("2026-01-01"), ts("2026-01-02")];
+        let snaps = vec![
+            "not-a-timestamp".to_string(),
+            ts("2026-01-01"),
+            ts("2026-01-02"),
+        ];
         let p = plan(&snaps, &ret(1, 0, 0, 0));
         assert!(p.keep.contains(&"not-a-timestamp".to_string()));
     }

@@ -1,0 +1,75 @@
+name: Release
+
+# On a version tag (e.g. v0.1.0) build release binaries for each desktop OS
+# and attach them to a GitHub Release. Linux also ships a .deb.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: moraine-linux-x86_64
+          - os: macos-latest
+            artifact: moraine-macos-arm64
+          - os: windows-latest
+            artifact: moraine-windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --bins
+
+      # ── package: a single archive per OS with both binaries + docs ──
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/${{ matrix.artifact }}
+          cp target/release/moraine target/release/moraine-gui dist/${{ matrix.artifact }}/
+          cp README.md CHANGELOG.md LICENSE moraine.example.toml dist/${{ matrix.artifact }}/
+          tar -C dist -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/${{ matrix.artifact }} | Out-Null
+          Copy-Item target/release/moraine.exe,target/release/moraine-gui.exe dist/${{ matrix.artifact }}/
+          Copy-Item README.md,CHANGELOG.md,LICENSE,moraine.example.toml dist/${{ matrix.artifact }}/
+          Compress-Archive -Path dist/${{ matrix.artifact }} -DestinationPath ${{ matrix.artifact }}.zip
+
+      # ── Linux also gets a .deb ──
+      - name: Build .deb
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build -o moraine_${{ github.ref_name }}_amd64.deb
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.zip
+            moraine_*_amd64.deb
+          fail_on_unmatched_files: false
+          generate_release_notes: true

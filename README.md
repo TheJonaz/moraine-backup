@@ -40,6 +40,24 @@ cargo build --release
 ```
 Build a `.deb`: `cargo install cargo-deb && cargo deb`.
 
+## Platform support
+
+Both binaries are pure Rust and build on Linux, macOS and Windows; CI builds and
+tests all three on every push, and tagged releases ship a binary archive per OS
+(plus a `.deb` for Linux). What each platform needs at runtime:
+
+| Platform    | Build | rsync/SSH backend         | rclone backend | Scheduling          |
+|-------------|:-----:|---------------------------|----------------|---------------------|
+| Linux       |  ✅   | `rsync` + `openssh-client`| `rclone`       | `crontab` ✅        |
+| macOS       |  ✅   | `rsync` + `ssh` (bundled) | `rclone` (brew)| `crontab` ✅        |
+| Windows     |  ✅   | needs `rsync`/`ssh`¹      | `rclone`       | not yet² (use rclone)|
+
+¹ Windows has no bundled rsync; install via WSL, MSYS2 or Git-for-Windows, or
+use the rclone backend (SFTP/FTP/SMB/cloud), which needs only the `rclone`
+binary on `PATH`.
+² The Schedule tab installs to `crontab`, which Windows lacks. Windows Task
+Scheduler integration is planned; until then schedule via an external tool.
+
 ## CLI
 
 ```bash
