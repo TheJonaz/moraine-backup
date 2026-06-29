@@ -1,7 +1,7 @@
 Source: moraine
 Section: utils
 Priority: optional
-Maintainer: Jonaz Thern <jonaz.thern@gmail.com>
+Maintainer: Jonaz Thern <info@thern.io>
 Build-Depends:
  debhelper-compat (= 13),
  dh-cargo (>= 25),

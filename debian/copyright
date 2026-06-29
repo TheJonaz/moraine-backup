@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: moraine
-Upstream-Contact: Jonaz Thern <jonaz.thern@gmail.com>
+Upstream-Contact: Jonaz Thern <info@thern.io>
 Source: https://github.com/TheJonaz/moraine-backup
 Comment: Cargo dependencies are not vendored in this source package; in Debian
  they are provided by the separate librust-* packages and are covered by their
@@ -8,11 +8,11 @@ Comment: Cargo dependencies are not vendored in this source package; in Debian
  source, assets and packaging.
 
 Files: *
-Copyright: 2026 Jonaz Thern <jonaz.thern@gmail.com>
+Copyright: 2026 Jonaz Thern <info@thern.io>
 License: MIT
 
 Files: debian/*
-Copyright: 2026 Jonaz Thern <jonaz.thern@gmail.com>
+Copyright: 2026 Jonaz Thern <info@thern.io>
 License: MIT
 
 License: MIT

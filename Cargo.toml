@@ -55,7 +55,7 @@ rfd = { version = "0.15", default-features = false, features = ["tokio"], option
 
 # ─────────────────────────── paketering (.deb) ───────────────────────────
 [package.metadata.deb]
-maintainer = "Jonaz Thern <jonaz.thern@gmail.com>"
+maintainer = "Jonaz Thern <info@thern.io>"
 copyright = "2026, Jonaz Thern"
 section = "utils"
 priority = "optional"
