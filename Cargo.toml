@@ -18,13 +18,12 @@ path = "src/main.rs"
 name = "moraine-gui"
 path = "src/bin/gui.rs"
 # The GUI binary needs the `gui` feature (on by default). With
-# `--no-default-features` only the `moraine` CLI builds — useful for Debian,
-# which packages the CLI without the iced/wgpu stack.
+# `--no-default-features` only the `moraine` CLI builds.
 required-features = ["gui"]
 
 [features]
 default = ["gui"]
-gui = ["dep:iced", "dep:tokio", "dep:dark-light", "dep:open", "dep:rfd"]
+gui = ["dep:gtk4", "dep:async-channel"]
 
 [dependencies]
 # ── CLI + library core (small, all packaged in Debian) ──
@@ -36,22 +35,11 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # ── GUI-only, gated behind the `gui` feature ──
-# Desktop client (iced) + async execution of rsync (tokio).
-iced = { version = "0.13", features = ["tokio", "image"], optional = true }
-tokio = { version = "1", features = ["process", "io-util"], optional = true }
-# System light/dark theme + open a link in the browser.
-dark-light = { version = "1", optional = true }
-open = { version = "5", optional = true }
-
-# Native file dialog (pick SSH key), GUI-only. The Linux backend differs from
-# win/mac, so the rfd features are split per target:
-#  * Linux: xdg-desktop-portal (no GTK runtime dependency).
-#  * Windows/macOS: the built-in win32/cocoa dialogs (no extra feature needed).
-[target.'cfg(target_os = "linux")'.dependencies]
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"], optional = true }
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-rfd = { version = "0.15", default-features = false, features = ["tokio"], optional = true }
+# Desktop client built on GTK 4 (native file dialogs, theme, browser-open all
+# come from GTK/gio). async-channel streams command output to the main loop.
+# Both crates are packaged in Debian, so the GUI can ship in official Debian.
+gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
+async-channel = { version = "2", optional = true }
 
 # ─────────────────────────── paketering (.deb) ───────────────────────────
 [package.metadata.deb]
