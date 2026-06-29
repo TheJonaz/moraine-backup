@@ -1,0 +1,4 @@
+assets/moraine-gui.desktop usr/share/applications
+assets/moraine.svg usr/share/icons/hicolor/scalable/apps
+assets/moraine-64.png usr/share/moraine/assets
+assets/moraine-256.png usr/share/moraine/assets

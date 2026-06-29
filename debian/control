@@ -8,8 +8,10 @@ Build-Depends:
  cargo:native,
  rustc:native,
  librust-anyhow-1+default-dev,
+ librust-async-channel-2+default-dev,
  librust-chrono-0.4+clock-dev,
  librust-clap-4+derive-dev,
+ librust-gtk4-0.11+v4-10-dev,
  librust-serde-1+derive-dev,
  librust-serde-json-1+default-dev,
  librust-toml-1+default-dev,
@@ -28,7 +30,7 @@ Depends:
  openssh-client,
 Recommends:
  rclone,
-Description: snapshot backup over SSH/rsync and rclone
+Description: snapshot backup over SSH/rsync and rclone (CLI + GTK desktop app)
  Moraine creates timestamped, hard-linked snapshots: each backup run looks like
  a complete tree, but unchanged files share disk via hard links, so history
  costs almost nothing. It restores individual files or whole trees, prunes old
@@ -36,6 +38,5 @@ Description: snapshot backup over SSH/rsync and rclone
  .
  Backends: rsync over SSH, and rclone (cloud, SFTP, SMB, WebDAV, S3, ...).
  .
- This package provides the command-line client. The optional desktop app
- (moraine-gui), built on the iced toolkit, is distributed separately because its
- graphics stack is not yet packaged in Debian.
+ This package provides both the command-line client (moraine) and the GTK 4
+ desktop application (moraine-gui) — run whichever you prefer.

@@ -21,28 +21,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # iced (winit) needs xkbcommon headers to build on Linux. The rfd
-      # xdg-portal backend is pure Rust (zbus), so no GTK packages are needed.
-      - name: Install Linux build deps
+      # The GTK 4 GUI links the system GTK libraries.
+      - name: Install GTK (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+      - name: Install GTK (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gtk4 pkgconf
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # Linux/macOS build the full app (CLI + GTK GUI). Windows builds the CLI
+      # only for now — bundling GTK on Windows is a separate effort.
       - name: Build (CLI + GUI)
+        if: runner.os != 'Windows'
         run: cargo build --workspace --all-targets --verbose
+      - name: Build (CLI only)
+        if: runner.os == 'Windows'
+        run: cargo build --no-default-features --bin moraine --verbose
 
+      # The test suite lives in the library and is feature-independent.
       - name: Test
-        run: cargo test --workspace --verbose
+        run: cargo test --no-default-features --verbose
 
   lint:
     name: fmt & clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Linux build deps
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+      - name: Install GTK
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

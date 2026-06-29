@@ -2,20 +2,9 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
+# Build the whole crate with default features (the `gui` feature on), so both
+# the `moraine` CLI and the GTK 4 `moraine-gui` binaries are built and
+# installed. dh-cargo installs both to /usr/bin; the .desktop file, icon and
+# in-app logo are added via debian/moraine.install.
 %:
 	dh $@ --buildsystem cargo
-
-# Build only the `moraine` CLI. The desktop binary (moraine-gui) needs the
-# iced/wgpu stack, which is not packaged in Debian, so disable the default
-# `gui` feature; the gui binary's required-features then exclude it from the
-# build entirely.
-override_dh_auto_build:
-	dh_auto_build -- --no-default-features
-
-override_dh_auto_test:
-	dh_auto_test -- --no-default-features
-
-# The install step runs `cargo install`, which must also skip the gui feature;
-# otherwise it tries to rebuild with defaults (iced/wgpu) and fails.
-override_dh_auto_install:
-	dh_auto_install -- --no-default-features --bin moraine

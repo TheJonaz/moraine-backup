@@ -25,11 +25,18 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ### Changed
 - Source comments and CLI messages are now fully English.
 
+### Desktop app
+- The GUI is rewritten on **GTK 4** (was iced/wgpu). GTK 4 and async-channel are
+  packaged in Debian, so the desktop app can now ship in official Debian
+  alongside the CLI — in the **same package** (`moraine` provides both
+  `/usr/bin/moraine` and `/usr/bin/moraine-gui`). Run whichever you prefer.
+
 ### Packaging
-- The desktop dependencies (iced, tokio, rfd, dark-light, open) are now behind a
-  default `gui` feature, so `cargo build --no-default-features` builds just the
-  `moraine` CLI. Its dependency tree is small and every crate is already in
-  Debian — the basis for pursuing official Debian inclusion of the CLI.
+- The desktop dependencies are behind a default `gui` feature, so
+  `cargo build --no-default-features` builds just the `moraine` CLI.
+- Full Debian packaging (dh-cargo): builds both binaries against Debian's GTK 4
+  crates; ships the `.desktop` entry, icon and manpages; verified with sbuild,
+  lintian and autopkgtest.
 - Bumped `toml` 0.8 → 1, matching the version in Debian.
 
 ## [0.1.0]
