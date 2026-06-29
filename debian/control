@@ -1,0 +1,41 @@
+Source: moraine
+Section: utils
+Priority: optional
+Maintainer: Jonaz Thern <jonaz.thern@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-cargo (>= 25),
+ cargo:native,
+ rustc:native,
+ librust-anyhow-1+default-dev,
+ librust-chrono-0.4+clock-dev,
+ librust-clap-4+derive-dev,
+ librust-serde-1+derive-dev,
+ librust-serde-json-1+default-dev,
+ librust-toml-1+default-dev,
+Standards-Version: 4.7.0
+Vcs-Git: https://github.com/TheJonaz/moraine-backup.git
+Vcs-Browser: https://github.com/TheJonaz/moraine-backup
+Homepage: https://github.com/TheJonaz/moraine-backup
+Rules-Requires-Root: no
+
+Package: moraine
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ rsync,
+ openssh-client,
+Recommends:
+ rclone,
+Description: snapshot backup over SSH/rsync and rclone
+ Moraine creates timestamped, hard-linked snapshots: each backup run looks like
+ a complete tree, but unchanged files share disk via hard links, so history
+ costs almost nothing. It restores individual files or whole trees, prunes old
+ snapshots with a GFS retention policy, and keeps a run log.
+ .
+ Backends: rsync over SSH, and rclone (cloud, SFTP, SMB, WebDAV, S3, ...).
+ .
+ This package provides the command-line client. The optional desktop app
+ (moraine-gui), built on the iced toolkit, is distributed separately because its
+ graphics stack is not yet packaged in Debian.

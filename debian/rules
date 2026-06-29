@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem cargo
+
+# Build only the `moraine` CLI. The desktop binary (moraine-gui) needs the
+# iced/wgpu stack, which is not packaged in Debian, so disable the default
+# `gui` feature; the gui binary's required-features then exclude it from the
+# build entirely.
+override_dh_auto_build:
+	dh_auto_build -- --no-default-features
+
+override_dh_auto_test:
+	dh_auto_test -- --no-default-features

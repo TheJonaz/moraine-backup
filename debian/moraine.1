@@ -1,0 +1,59 @@
+.TH MORAINE 1 "2026-06-29" "moraine 0.1.0" "User Commands"
+.SH NAME
+moraine \- snapshot backup over SSH/rsync and rclone
+.SH SYNOPSIS
+.B moraine
+.RB [ \-c
+.IR CONFIG ]
+.I COMMAND
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B moraine
+creates timestamped, hard-linked snapshots of local files on a remote target.
+Each run looks like a complete tree, but files that have not changed share disk
+with the previous snapshot through hard links, so keeping history costs almost
+nothing. Snapshots can be listed, pruned with a GFS retention policy, and
+individual files or whole trees restored.
+.PP
+Two backends are supported: rsync over SSH, and rclone (cloud, SFTP, SMB,
+WebDAV, S3 and more). Targets and schedules are described in a TOML
+configuration file.
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fICONFIG\fR
+Path to the configuration file (default:
+.IR moraine.toml ).
+.TP
+.BR \-h ", " \-\-help
+Print help.
+.TP
+.BR \-V ", " \-\-version
+Print version, including the git hash and build date.
+.SH COMMANDS
+.TP
+.B init
+Write an example configuration file to start from.
+.TP
+.B verify
+Check the SSH connection, key, sources and that the target is writable.
+.TP
+.B run \fR[\fB\-\-dry\-run\fR] [\fB\-\-target\fR \fINAME\fR]
+Run a backup for all targets, or a selected one.
+.TP
+.B list \fB\-\-target\fR \fINAME\fR
+List the snapshots on a target.
+.TP
+.B prune \fR[\fB\-\-dry\-run\fR] [\fB\-\-target\fR \fINAME\fR]
+Delete old snapshots according to the target's retention policy.
+.SH FILES
+.TP
+.I moraine.toml
+Configuration file: one
+.RI [[ target ]]
+block per backup destination.
+.SH SEE ALSO
+.BR rsync (1),
+.BR ssh (1),
+.BR rclone (1)
+.SH AUTHOR
+Jonaz Thern <jonaz.thern@gmail.com>

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Minimal smoke test: the binary runs and can write/parse a config.
+set -e
+moraine --version
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+moraine -c "$tmp/moraine.toml" init
+test -s "$tmp/moraine.toml"
+# A second init without --force must refuse to overwrite.
+if moraine -c "$tmp/moraine.toml" init 2>/dev/null; then
+    echo "init overwrote without --force" >&2
+    exit 1
+fi
+echo "smoke test passed"
