@@ -1,9 +1,9 @@
 name: Release
 
-# On a version tag (e.g. v0.1.0) build release binaries for each desktop OS
-# and attach them to a GitHub Release. Linux also ships a .deb, macOS a .dmg.
-# Can also be dispatched manually against an existing tag to (re)build/add
-# assets without moving the published tag.
+# On a version tag (e.g. v0.1.1) build release artifacts and attach them to a
+# GitHub Release. Linux ships the full app (CLI + GTK GUI) plus a .deb; macOS
+# and Windows ship the CLI for now (bundling GTK there is separate work).
+# Can also be dispatched manually against an existing tag.
 on:
   push:
     tags: ['v*']
@@ -18,7 +18,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The release tag: the pushed tag, or the manually supplied one.
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
@@ -40,82 +39,51 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Install Linux build deps
+      # The GTK GUI is built on Linux only; macOS/Windows build the CLI.
+      - name: Install GTK (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build release
+      - name: Build (Linux — CLI + GUI)
+        if: runner.os == 'Linux'
         run: cargo build --release --bins
 
-      # ── package: a single archive per OS with both binaries + docs ──
-      - name: Package (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build (macOS/Windows — CLI)
+        if: runner.os != 'Linux'
+        run: cargo build --release --no-default-features --bin moraine
+
+      # ── Linux: both binaries + docs, plus a .deb ──
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist/${{ matrix.artifact }}
           cp target/release/moraine target/release/moraine-gui dist/${{ matrix.artifact }}/
           cp README.md CHANGELOG.md LICENSE moraine.example.toml dist/${{ matrix.artifact }}/
           tar -C dist -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+          cargo install cargo-deb --locked
+          cargo deb --no-build -o moraine_${{ env.RELEASE_TAG }}_amd64.deb
 
+      # ── macOS: CLI binary + docs ──
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/${{ matrix.artifact }}
+          cp target/release/moraine dist/${{ matrix.artifact }}/
+          cp README.md CHANGELOG.md LICENSE moraine.example.toml dist/${{ matrix.artifact }}/
+          tar -C dist -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+
+      # ── Windows: CLI binary + docs ──
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/${{ matrix.artifact }} | Out-Null
-          Copy-Item target/release/moraine.exe,target/release/moraine-gui.exe dist/${{ matrix.artifact }}/
+          Copy-Item target/release/moraine.exe dist/${{ matrix.artifact }}/
           Copy-Item README.md,CHANGELOG.md,LICENSE,moraine.example.toml dist/${{ matrix.artifact }}/
           Compress-Archive -Path dist/${{ matrix.artifact }} -DestinationPath ${{ matrix.artifact }}.zip
-
-      # ── Linux also gets a .deb ──
-      - name: Build .deb
-        if: runner.os == 'Linux'
-        run: |
-          cargo install cargo-deb --locked
-          cargo deb --no-build -o moraine_${{ env.RELEASE_TAG }}_amd64.deb
-
-      # ── macOS also gets a double-clickable Moraine.app inside a .dmg ──
-      - name: Build .app and .dmg
-        if: runner.os == 'macOS'
-        run: |
-          set -e
-          VERSION="${RELEASE_TAG#v}"
-          APP="Moraine.app"
-          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp target/release/moraine-gui "$APP/Contents/MacOS/moraine-gui"
-          cp target/release/moraine     "$APP/Contents/MacOS/moraine"
-
-          # Build a .icns from the SVG-rendered PNG.
-          ICONSET="moraine.iconset"; mkdir -p "$ICONSET"
-          for s in 16 32 128 256 512; do
-            sips -z $s $s assets/moraine-512.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
-            sips -z $((s*2)) $((s*2)) assets/moraine-512.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
-          done
-          iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/moraine.icns"
-
-          # Info.plist (line-by-line to avoid heredoc indentation pitfalls).
-          PL="$APP/Contents/Info.plist"
-          {
-            echo '<?xml version="1.0" encoding="UTF-8"?>'
-            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
-            echo '<plist version="1.0"><dict>'
-            echo '<key>CFBundleName</key><string>Moraine</string>'
-            echo '<key>CFBundleDisplayName</key><string>Moraine</string>'
-            echo '<key>CFBundleIdentifier</key><string>io.thern.moraine</string>'
-            echo "<key>CFBundleVersion</key><string>${VERSION}</string>"
-            echo "<key>CFBundleShortVersionString</key><string>${VERSION}</string>"
-            echo '<key>CFBundleExecutable</key><string>moraine-gui</string>'
-            echo '<key>CFBundleIconFile</key><string>moraine</string>'
-            echo '<key>CFBundlePackageType</key><string>APPL</string>'
-            echo '<key>LSMinimumSystemVersion</key><string>11.0</string>'
-            echo '<key>NSHighResolutionCapable</key><true/>'
-            echo '</dict></plist>'
-          } > "$PL"
-
-          # .dmg with a drag-to-Applications layout.
-          mkdir -p dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
-          hdiutil create -volname Moraine -srcfolder dmg -ov -format UDZO "${{ matrix.artifact }}.dmg"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
@@ -124,7 +92,6 @@ jobs:
           files: |
             ${{ matrix.artifact }}.tar.gz
             ${{ matrix.artifact }}.zip
-            ${{ matrix.artifact }}.dmg
             moraine_*_amd64.deb
           fail_on_unmatched_files: false
           generate_release_notes: true
