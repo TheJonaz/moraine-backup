@@ -25,6 +25,13 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ### Changed
 - Source comments and CLI messages are now fully English.
 
+### Packaging
+- The desktop dependencies (iced, tokio, rfd, dark-light, open) are now behind a
+  default `gui` feature, so `cargo build --no-default-features` builds just the
+  `moraine` CLI. Its dependency tree is small and every crate is already in
+  Debian — the basis for pursuing official Debian inclusion of the CLI.
+- Bumped `toml` 0.8 → 1, matching the version in Debian.
+
 ## [0.1.0]
 
 ### Core

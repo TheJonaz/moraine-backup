@@ -17,31 +17,41 @@ path = "src/main.rs"
 [[bin]]
 name = "moraine-gui"
 path = "src/bin/gui.rs"
+# The GUI binary needs the `gui` feature (on by default). With
+# `--no-default-features` only the `moraine` CLI builds — useful for Debian,
+# which packages the CLI without the iced/wgpu stack.
+required-features = ["gui"]
+
+[features]
+default = ["gui"]
+gui = ["dep:iced", "dep:tokio", "dep:dark-light", "dep:open", "dep:rfd"]
 
 [dependencies]
+# ── CLI + library core (small, all packaged in Debian) ──
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
+# ── GUI-only, gated behind the `gui` feature ──
 # Desktop client (iced) + async execution of rsync (tokio).
-iced = { version = "0.13", features = ["tokio", "image"] }
-tokio = { version = "1", features = ["process", "io-util"] }
+iced = { version = "0.13", features = ["tokio", "image"], optional = true }
+tokio = { version = "1", features = ["process", "io-util"], optional = true }
 # System light/dark theme + open a link in the browser.
-dark-light = "1"
-open = "5"
+dark-light = { version = "1", optional = true }
+open = { version = "5", optional = true }
 
-# Native file dialog (pick SSH key). The Linux backend differs from win/mac,
-# so the rfd features are split per target:
+# Native file dialog (pick SSH key), GUI-only. The Linux backend differs from
+# win/mac, so the rfd features are split per target:
 #  * Linux: xdg-desktop-portal (no GTK runtime dependency).
 #  * Windows/macOS: the built-in win32/cocoa dialogs (no extra feature needed).
 [target.'cfg(target_os = "linux")'.dependencies]
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"], optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-rfd = { version = "0.15", default-features = false, features = ["tokio"] }
+rfd = { version = "0.15", default-features = false, features = ["tokio"], optional = true }
 
 # ─────────────────────────── paketering (.deb) ───────────────────────────
 [package.metadata.deb]
