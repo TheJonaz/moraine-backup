@@ -1,4 +1,11 @@
-# Getting Moraine (CLI) into Debian
+# Packaging the Moraine CLI for Debian
+
+Moraine ships two binaries: the `moraine` command-line client and the
+`moraine-gui` desktop app (built on iced/wgpu). **Only the CLI is submitted to
+Debian.** The desktop app's graphics stack is not packaged in Debian, so the
+GUI stays in the upstream release archives and the self-hosted apt repo; getting
+it into Debian would first require that whole crate tree to be packaged. Every
+step below concerns the CLI package only.
 
 Status of the packaging (phases 0–3, all done):
 
