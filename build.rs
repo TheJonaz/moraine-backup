@@ -1,5 +1,7 @@
-//! Build script: embeds the git hash and build date into the binary via env
-//! variables that become available with `env!("GIT_HASH")` / `env!("BUILD_DATE")`.
+//! Build script: assembles the full version string and exposes it as
+//! `env!("MORAINE_VERSION")`. In a git checkout it includes the short hash; in
+//! a source tarball (no `.git`, e.g. a Debian build) the hash is simply omitted
+//! rather than shown as "nogit".
 
 use std::process::Command;
 
@@ -10,9 +12,7 @@ fn main() {
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "nogit".to_string());
-    println!("cargo:rustc-env=GIT_HASH={git_hash}");
+        .filter(|s| !s.is_empty());
 
     let build_date = Command::new("date")
         .arg("+%Y-%m-%d")
@@ -21,7 +21,13 @@ fn main() {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    println!("cargo:rustc-env=BUILD_DATE={build_date}");
+
+    let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    let version = match &git_hash {
+        Some(hash) => format!("{pkg_version} ({hash}, {build_date})"),
+        None => format!("{pkg_version} ({build_date})"),
+    };
+    println!("cargo:rustc-env=MORAINE_VERSION={version}");
 
     // Re-run when the checked-out commit changes. HEAD itself does NOT change
     // on a new commit to the same branch — the branch ref does — so watch HEAD,

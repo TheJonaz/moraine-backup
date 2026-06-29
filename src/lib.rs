@@ -8,13 +8,6 @@ pub mod rsync;
 pub mod snapshot;
 pub mod ssh;
 
-/// Full version string: semver + git hash + build date.
-/// Set by `build.rs` (GIT_HASH/BUILD_DATE) at compile time.
-pub const VERSION: &str = concat!(
-    env!("CARGO_PKG_VERSION"),
-    " (",
-    env!("GIT_HASH"),
-    ", ",
-    env!("BUILD_DATE"),
-    ")"
-);
+/// Full version string: semver, plus the git short hash (when built from a
+/// checkout) and the build date. Assembled by `build.rs`.
+pub const VERSION: &str = env!("MORAINE_VERSION");
