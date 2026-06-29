@@ -11,3 +11,10 @@
 
 # Separat webbsida / artefakter
 /site/
+
+# Debian packaging build artifacts
+*.orig.tar.gz
+*.debian.tar.*
+*.dsc
+*.buildinfo
+*.changes
