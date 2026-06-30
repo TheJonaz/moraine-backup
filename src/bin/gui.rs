@@ -270,7 +270,13 @@ fn main() -> glib::ExitCode {
 
 fn load_css() {
     let provider = gtk::CssProvider::new();
-    provider.load_from_data(CSS);
+    // Inject the hero background image (navy + grid + glow), resolving its path
+    // at runtime (installed vs source tree).
+    let hero = asset("hero-bg.png");
+    let css = format!(
+        "{CSS}\nwindow {{ background-image: url(\"{hero}\"); background-size: cover; background-position: top center; }}\n"
+    );
+    provider.load_from_data(&css);
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
@@ -282,9 +288,9 @@ fn load_css() {
 
 const CSS: &str = r#"
 window { background-color: #0b1a2c; color: #e8eef6; }
-.card { background-color: #14273f; border: 1px solid #1f3a59; border-radius: 12px; padding: 14px; }
-.title { font-size: 22px; font-weight: 800; }
-.subtitle { color: #8aa0bd; font-size: 12px; }
+.card { background-color: rgba(20, 39, 63, 0.94); border: 1px solid #213a59; border-radius: 14px; padding: 14px; }
+.appname { font-size: 26px; font-weight: 800; color: #eaf1fa; }
+.appsub { color: #8aa0bd; font-size: 12px; }
 .muted { color: #8aa0bd; font-size: 12px; }
 .section { font-weight: 700; }
 .accent { background-image: none; background-color: #0fd4a0; color: #06231b; font-weight: 700; }
@@ -292,6 +298,23 @@ window { background-color: #0b1a2c; color: #e8eef6; }
 .danger { color: #ff6b6b; }
 button { border-radius: 8px; }
 entry { border-radius: 8px; }
+/* Pill tab bar (StackSwitcher styled like the old iced tabs). */
+.tabs { padding: 2px 0; }
+.tabs button {
+    border-radius: 10px;
+    padding: 7px 18px;
+    margin-right: 6px;
+    background: #14273f;
+    border: 1px solid #213a59;
+    color: #9fb3cc;
+    font-weight: 700;
+}
+.tabs button:hover { background: #1b3552; }
+.tabs button:checked {
+    background: linear-gradient(to right, #2e8be0, #0fd4a0);
+    color: #06231b;
+    border-color: transparent;
+}
 row.selected-target { background-color: #0fd4a0; color: #06231b; border-radius: 8px; }
 .crumb { color: #8aa0bd; font-family: monospace; font-size: 12px; }
 textview, textview text { background-color: #0a1626; color: #cfe6dd; font-family: monospace; font-size: 12px; }
@@ -309,23 +332,12 @@ fn build_ui(app: &gtk::Application) {
         .default_height(720)
         .build();
 
-    // Header: logo + title + tab switcher.
-    let header = gtk::HeaderBar::new();
-    let logo = gtk::Image::from_file(asset("moraine-64.png"));
-    logo.set_pixel_size(28);
-    let title_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    title_box.append(&logo);
-    let title = gtk::Label::new(Some("Moraine"));
-    title.add_css_class("title");
-    title_box.append(&title);
-    header.set_title_widget(Some(&title_box));
-
+    // The Stack holds the four tab pages. The switcher that drives it is placed
+    // in the content as a pill bar (not in the window titlebar), to match the
+    // original layout.
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    let switcher = gtk::StackSwitcher::new();
-    switcher.set_stack(Some(&stack));
-    header.pack_end(&switcher);
-    window.set_titlebar(Some(&header));
+    stack.set_vexpand(true);
 
     // Build the Ui struct (widgets shared with handlers).
     let ui = Rc::new(Ui {
@@ -353,12 +365,40 @@ fn build_ui(app: &gtk::Application) {
     stack.add_titled(&build_restore_tab(&state, &ui), Some("restore"), "Restore");
     stack.add_titled(&build_history_tab(&ui), Some("history"), "History");
 
-    // Status bar + footer.
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    root.set_margin_top(12);
-    root.set_margin_bottom(12);
-    root.set_margin_start(12);
-    root.set_margin_end(12);
+    // In-content header: logo + name + subtitle.
+    let logo = gtk::Image::from_file(asset("moraine-64.png"));
+    logo.set_pixel_size(44);
+    logo.set_valign(gtk::Align::Center);
+    let titlecol = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    titlecol.set_valign(gtk::Align::Center);
+    let appname = gtk::Label::new(Some("Moraine"));
+    appname.add_css_class("appname");
+    appname.set_halign(gtk::Align::Start);
+    let appsub = gtk::Label::new(Some(&format!(
+        "Snapshot backups over SSH & rclone · v{}",
+        moraine::VERSION
+    )));
+    appsub.add_css_class("appsub");
+    appsub.set_halign(gtk::Align::Start);
+    titlecol.append(&appname);
+    titlecol.append(&appsub);
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 14);
+    header.append(&logo);
+    header.append(&titlecol);
+
+    // Pill tab bar (drives the stack).
+    let switcher = gtk::StackSwitcher::new();
+    switcher.set_stack(Some(&stack));
+    switcher.add_css_class("tabs");
+    switcher.set_halign(gtk::Align::Start);
+
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    root.set_margin_top(14);
+    root.set_margin_bottom(14);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+    root.append(&header);
+    root.append(&switcher);
     root.append(&stack);
 
     ui.status.add_css_class("statusbar");

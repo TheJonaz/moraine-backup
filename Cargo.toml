@@ -63,5 +63,8 @@ assets = [
     ["assets/moraine-128.png", "usr/share/icons/hicolor/128x128/apps/moraine.png", "644"],
     ["assets/moraine-64.png", "usr/share/icons/hicolor/64x64/apps/moraine.png", "644"],
     ["assets/moraine-48.png", "usr/share/icons/hicolor/48x48/apps/moraine.png", "644"],
+    ["assets/hero-bg.png", "usr/share/moraine/assets/", "644"],
+    ["assets/moraine-64.png", "usr/share/moraine/assets/", "644"],
+    ["assets/moraine-256.png", "usr/share/moraine/assets/", "644"],
     ["CHANGELOG.md", "usr/share/doc/moraine/", "644"],
 ]
