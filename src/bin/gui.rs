@@ -1663,16 +1663,19 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     );
 }
 
-/// Run a one-shot command in a thread and deliver its Result to a callback.
-fn run_oneshot<F>(
+/// Run a one-shot job in a thread and deliver its result to a callback on the
+/// main loop. Generic over the result type so callers can return whatever they
+/// need (e.g. `Result<String, String>` or `(bool, String)`).
+fn run_oneshot<T, F>(
     ui: &Rc<Ui>,
     state: &Shared,
-    work: impl FnOnce() -> Result<String, String> + Send + 'static,
+    work: impl FnOnce() -> T + Send + 'static,
     done: F,
 ) where
-    F: Fn(&Shared, &Rc<Ui>, Result<String, String>) + 'static,
+    T: Send + 'static,
+    F: Fn(&Shared, &Rc<Ui>, T) + 'static,
 {
-    let (tx, rx) = async_channel::unbounded::<Result<String, String>>();
+    let (tx, rx) = async_channel::unbounded::<T>();
     std::thread::spawn(move || {
         let _ = tx.send_blocking(work());
     });
@@ -1697,11 +1700,18 @@ fn test_connection(state: &Shared, ui: &Rc<Ui>) {
         state,
         move || verify_target(&target),
         |_st, ui, res| match res {
-            Ok(msg) => {
+            Ok((ok, msg)) => {
                 set_log(ui, &msg);
-                set_status(ui, "Connection test done");
+                set_status(
+                    ui,
+                    if ok {
+                        "Connection OK ✓"
+                    } else {
+                        "Connection FAILED ✗ — see the log"
+                    },
+                );
             }
-            Err(e) => set_status(ui, &format!("Test failed: {e}")),
+            Err(e) => set_status(ui, &format!("Test error: {e}")),
         },
     );
 }
@@ -1860,48 +1870,80 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
     }
 }
 
-fn verify_target(target: &Target) -> Result<String, String> {
-    let mut out = String::new();
+/// Runs the connection checks. Returns (overall_ok, human-readable report).
+fn verify_target(target: &Target) -> Result<(bool, String), String> {
+    let mut out = format!("Testing target \"{}\"\n\n", target.name);
+    let mut ok_all = true;
+
+    // Local sources exist?
+    for src in &target.sources {
+        let p = moraine::config::expand_tilde(src);
+        let ok = p.exists();
+        ok_all &= ok;
+        out.push_str(&format!("{} source {}\n", mark(ok), p.display()));
+    }
+
     if target.backend.is_ssh() {
-        for src in &target.sources {
-            let p = moraine::config::expand_tilde(src);
-            out.push_str(&format!("{} source {}\n", check(p.exists()), p.display()));
-        }
         let probe = ssh_probe(target, "echo ok")
             .output()
-            .map_err(|e| format!("ssh: {e}"))?;
-        out.push_str(&format!(
-            "{} SSH connection\n",
-            check(probe.status.success())
-        ));
-        if probe.status.success() {
+            .map_err(|e| format!("could not start ssh: {e}"))?;
+        let cok = probe.status.success();
+        ok_all &= cok;
+        if cok {
+            out.push_str(&format!(
+                "{} SSH connection to {}\n",
+                mark(true),
+                target.host
+            ));
             let dest = ssh_probe(target, &snapshot::dest_check_cmd(target))
                 .output()
-                .map_err(|e| format!("ssh: {e}"))?;
-            let txt = String::from_utf8_lossy(&dest.stdout);
-            let ok = matches!(txt.trim(), "writable" | "parent-writable");
-            out.push_str(&format!("{} dest writable: {}\n", check(ok), target.dest));
+                .map_err(|e| format!("could not start ssh: {e}"))?;
+            let dok = matches!(
+                String::from_utf8_lossy(&dest.stdout).trim(),
+                "writable" | "parent-writable"
+            );
+            ok_all &= dok;
+            out.push_str(&format!(
+                "{} destination writable: {}\n",
+                mark(dok),
+                target.dest
+            ));
+        } else {
+            // Show why it failed (first stderr line: timeout, auth, host key, ...).
+            let err = String::from_utf8_lossy(&probe.stderr);
+            let reason = err.lines().next().unwrap_or("connection failed").trim();
+            out.push_str(&format!(
+                "{} SSH connection to {} — {}\n",
+                mark(false),
+                target.host,
+                reason
+            ));
         }
     } else {
-        for src in &target.sources {
-            let p = moraine::config::expand_tilde(src);
-            out.push_str(&format!("{} source {}\n", check(p.exists()), p.display()));
-        }
         let ok = Command::new("rclone")
             .arg("version")
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
-        out.push_str(&format!("{} rclone available\n", check(ok)));
+        ok_all &= ok;
+        out.push_str(&format!("{} rclone available\n", mark(ok)));
     }
-    Ok(out)
+
+    out.push('\n');
+    out.push_str(if ok_all {
+        "==> RESULT: connection OK"
+    } else {
+        "==> RESULT: connection FAILED (see lines marked [FAIL] above)"
+    });
+    out.push('\n');
+    Ok((ok_all, out))
 }
 
-fn check(ok: bool) -> &'static str {
+fn mark(ok: bool) -> &'static str {
     if ok {
-        "✓"
+        "[OK]  "
     } else {
-        "✗"
+        "[FAIL]"
     }
 }
 
