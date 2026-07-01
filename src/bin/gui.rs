@@ -18,7 +18,7 @@ use gtk::prelude::*;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufReader, Write as _};
+use std::io::{BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -1761,17 +1761,19 @@ fn confirm_delete_target(state: &Shared, ui: &Rc<Ui>) {
     });
 }
 
-/// Spawn a worker thread that runs the (prog,args) sequence streaming stdout,
-/// and drive a glib future that appends each line to the log.
-/// Parses an rsync `--info=progress2` line into (fraction, display text).
-/// Example: "  512.00K  48%    2.34MB/s    0:00:03" → (0.48, "512.00K · 48% · 2.34MB/s · ETA 0:00:03").
+/// Turns one progress line — rsync `--info=progress2` or rclone
+/// `--stats-one-line` — into (fraction 0..1, display text). None otherwise.
 fn parse_progress(line: &str) -> Option<(f64, String)> {
+    parse_rclone_progress(line).or_else(|| parse_rsync_progress(line))
+}
+
+/// rsync `--info=progress2`: "  512.00K  48%  2.34MB/s  0:00:03".
+fn parse_rsync_progress(line: &str) -> Option<(f64, String)> {
     let toks: Vec<&str> = line.split_whitespace().collect();
     let pct_idx = toks
         .iter()
         .position(|t| t.ends_with('%') && t.trim_end_matches('%').parse::<f64>().is_ok())?;
     let pct: f64 = toks[pct_idx].trim_end_matches('%').parse().ok()?;
-
     let transferred = toks
         .get(pct_idx.wrapping_sub(1))
         .filter(|_| pct_idx > 0)
@@ -1784,10 +1786,45 @@ fn parse_progress(line: &str) -> Option<(f64, String)> {
         .copied()
         .unwrap_or("");
     let eta = toks.iter().find(|t| is_time(t)).copied().unwrap_or("");
+    Some((pct / 100.0, progress_text(transferred, pct, rate, eta)))
+}
 
+/// rclone `-v --stats-one-line`, e.g.
+/// "2026/... INFO  :  20.09 MiB / 286.10 MiB, 7%, 12 MiB/s, ETA 1m2s".
+/// The " / " (done/total) distinguishes it from rsync's progress2 line.
+fn parse_rclone_progress(line: &str) -> Option<(f64, String)> {
+    if !(line.contains('%') && line.contains(" / ") && line.contains("/s")) {
+        return None;
+    }
+    let segs: Vec<&str> = line.split(',').map(str::trim).collect();
+    let pct_seg = segs
+        .iter()
+        .find(|s| s.ends_with('%') && s.trim_end_matches('%').parse::<f64>().is_ok())?;
+    let pct: f64 = pct_seg.trim_end_matches('%').parse().ok()?;
+    // done/total is the segment with " / "; drop any "timestamp INFO :" prefix
+    // by keeping only what's after the last colon.
+    let transferred = segs
+        .iter()
+        .find(|s| s.contains(" / "))
+        .map(|s| s.rsplit(':').next().unwrap_or(s).trim())
+        .unwrap_or("");
+    let rate = segs
+        .iter()
+        .find(|s| s.contains("/s"))
+        .copied()
+        .unwrap_or("");
+    let eta = segs
+        .iter()
+        .find(|s| s.contains("ETA"))
+        .map(|s| s.rsplit("ETA").next().unwrap_or("").trim())
+        .unwrap_or("");
+    Some((pct / 100.0, progress_text(transferred, pct, rate, eta)))
+}
+
+fn progress_text(transferred: &str, pct: f64, rate: &str, eta: &str) -> String {
     let mut text = String::new();
     if !transferred.is_empty() {
-        text.push_str(&format!("{transferred} transferred · "));
+        text.push_str(&format!("{transferred} · "));
     }
     text.push_str(&format!("{}%", pct as i64));
     if !rate.is_empty() {
@@ -1796,7 +1833,7 @@ fn parse_progress(line: &str) -> Option<(f64, String)> {
     if !eta.is_empty() {
         text.push_str(&format!(" · ETA {eta}"));
     }
-    Some((pct / 100.0, text))
+    text
 }
 
 /// True for time tokens like "0:03", "1:23:45".
@@ -1806,6 +1843,46 @@ fn is_time(t: &str) -> bool {
         && parts
             .iter()
             .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Reads a child stream in a thread, splitting on `\n` and `\r`, sending each
+/// line as a progress update or a log line. `collect` gathers non-progress
+/// lines (used to build the stderr error detail).
+fn pump<R: std::io::Read + Send + 'static>(
+    reader: R,
+    tx: async_channel::Sender<Worker>,
+    collect: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut byte = [0u8; 1];
+        let mut buf: Vec<u8> = Vec::new();
+        while let Ok(1) = reader.read(&mut byte) {
+            if byte[0] == b'\n' || byte[0] == b'\r' {
+                let line = String::from_utf8_lossy(&buf).trim_end().to_string();
+                buf.clear();
+                if line.is_empty() {
+                    continue;
+                }
+                match parse_progress(&line) {
+                    Some((frac, text)) => {
+                        let _ = tx.send_blocking(Worker::Progress(frac, text));
+                    }
+                    None => {
+                        if let Some(c) = &collect {
+                            if let Ok(mut s) = c.lock() {
+                                s.push_str(&line);
+                                s.push('\n');
+                            }
+                        }
+                        let _ = tx.send_blocking(Worker::Line(line));
+                    }
+                }
+            } else {
+                buf.push(byte[0]);
+            }
+        }
+    })
 }
 
 fn run_stream(
@@ -1844,41 +1921,24 @@ fn run_stream(
                     return;
                 }
             };
-            if let Some(out) = child.stdout.take() {
-                use std::io::Read;
-                // Split on BOTH \n and \r so rsync's --info=progress2 line
-                // (updated with carriage returns) streams live.
-                let mut reader = BufReader::new(out);
-                let mut byte = [0u8; 1];
-                let mut buf: Vec<u8> = Vec::new();
-                while let Ok(1) = reader.read(&mut byte) {
-                    if byte[0] == b'\n' || byte[0] == b'\r' {
-                        let line = String::from_utf8_lossy(&buf).trim_end().to_string();
-                        buf.clear();
-                        if line.is_empty() {
-                            continue;
-                        }
-                        match parse_progress(&line) {
-                            Some((frac, text)) => {
-                                let _ = tx.send_blocking(Worker::Progress(frac, text));
-                            }
-                            None => {
-                                let _ = tx.send_blocking(Worker::Line(line));
-                            }
-                        }
-                    } else {
-                        buf.push(byte[0]);
-                    }
-                }
+            // Read stdout and stderr concurrently so progress streams live from
+            // either (rsync writes progress to stdout, rclone to stderr).
+            let err_buf = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let h_out = child.stdout.take().map(|o| pump(o, tx.clone(), None));
+            let h_err = child
+                .stderr
+                .take()
+                .map(|e| pump(e, tx.clone(), Some(err_buf.clone())));
+            if let Some(h) = h_out {
+                let _ = h.join();
             }
-            let mut err = String::new();
-            if let Some(mut e) = child.stderr.take() {
-                use std::io::Read;
-                let _ = e.read_to_string(&mut err);
+            if let Some(h) = h_err {
+                let _ = h.join();
             }
             let ok = child.wait().map(|s| s.success()).unwrap_or(false);
             if !ok {
-                let _ = tx.send_blocking(Worker::Done(false, err, None));
+                let detail = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
+                let _ = tx.send_blocking(Worker::Done(false, detail, None));
                 return;
             }
         }
@@ -1950,7 +2010,7 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     }
     let _ = state.borrow().save();
     let ts = snapshot::timestamp();
-    let cmds = if target.backend.is_ssh() {
+    let mut cmds = if target.backend.is_ssh() {
         let dest = snapshot::snapshot_dir(&target, &ts);
         let mut args = rsync::build_args(&target, &dest, Some(rsync::LINK_DEST), dry_run);
         ensure_verbose(&mut args);
@@ -1966,6 +2026,9 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     } else {
         rclone::backup_cmds(&target, &ts, None, dry_run)
     };
+    for (prog, args) in &mut cmds {
+        add_rclone_progress(prog, args);
+    }
     let pending = if dry_run {
         None
     } else {
@@ -1998,6 +2061,20 @@ fn ensure_verbose(args: &mut Vec<String>) {
     }
 }
 
+/// Adds a one-line live-stats flag to an rclone command (no-op for others), so
+/// its progress streams the same way rsync's does. parse_progress() reads it.
+fn add_rclone_progress(prog: &str, args: &mut Vec<String>) {
+    if prog == "rclone" && !args.iter().any(|a| a.starts_with("--stats")) {
+        let at = args.len().min(1); // after the subcommand (e.g. "copy")
+        args.insert(at, "--stats-one-line".to_string());
+        args.insert(at, "--stats=1s".to_string());
+        // Stats only print at INFO level, so ensure -v is present.
+        if !args.iter().any(|a| a == "-v" || a == "--verbose") {
+            args.insert(at, "-v".to_string());
+        }
+    }
+}
+
 fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     if state.borrow().running {
         return;
@@ -2026,7 +2103,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     }
     let target = f.to_target();
     let selected = checked_paths(ui);
-    let cmd = if target.backend.is_ssh() {
+    let mut cmd = if target.backend.is_ssh() {
         let mut args = if selected.is_empty() {
             rsync::restore_args(&target, &ts, &dest, dry_run)
         } else {
@@ -2040,6 +2117,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             rclone::restore_args(&target, &ts, &selected, &dest, dry_run),
         )
     };
+    add_rclone_progress(&cmd.0, &mut cmd.1);
     let pending = if dry_run {
         None
     } else {
