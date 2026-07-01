@@ -18,7 +18,7 @@ use gtk::prelude::*;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write as _};
+use std::io::{BufReader, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -230,8 +230,10 @@ struct Ui {
     backend: gtk::DropDown,
     host: gtk::Entry,
     port: gtk::Entry,
-    // Log + status
+    // Log + progress + status
     log: gtk::TextView,
+    progress: gtk::ProgressBar,
+    progress_lbl: gtk::Label,
     status: gtk::Label,
     run_btn: gtk::Button,
     dry_btn: gtk::Button,
@@ -252,6 +254,7 @@ type Shared = Rc<RefCell<State>>;
 // Messages streamed from a worker thread to the main loop.
 enum Worker {
     Line(String),
+    Progress(f64, String), // fraction 0..1, "transferred · rate · ETA"
     Done(bool, String, Option<(String, String, String)>), // ok, detail, (op,target,info)
 }
 
@@ -320,6 +323,8 @@ row.selected-target { background-color: #0fd4a0; color: #06231b; border-radius: 
 textview, textview text { background-color: #0a1626; color: #cfe6dd; font-family: monospace; font-size: 12px; }
 .statusbar { color: #8aa0bd; }
 .linkbtn { background: none; border: none; color: #2e8be0; padding: 2px; }
+progressbar trough { background-color: #0a1626; border-radius: 6px; min-height: 10px; }
+progressbar progress { background-color: #0fd4a0; border-radius: 6px; }
 "#;
 
 fn build_ui(app: &gtk::Application) {
@@ -348,6 +353,8 @@ fn build_ui(app: &gtk::Application) {
         host: gtk::Entry::new(),
         port: gtk::Entry::new(),
         log: gtk::TextView::new(),
+        progress: gtk::ProgressBar::new(),
+        progress_lbl: gtk::Label::new(None),
         status: gtk::Label::new(Some("Ready")),
         run_btn: gtk::Button::with_label("Run backup"),
         dry_btn: gtk::Button::with_label("Dry run"),
@@ -585,10 +592,19 @@ fn build_quick_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     top.append(&conn);
     outer.append(&top);
 
-    // Log
-    let log_card = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    // Log (+ live progress)
+    let log_card = gtk::Box::new(gtk::Orientation::Vertical, 6);
     log_card.add_css_class("card");
     log_card.set_vexpand(true);
+
+    // Progress row (hidden until a run streams progress).
+    ui.progress_lbl.add_css_class("muted");
+    ui.progress_lbl.set_halign(gtk::Align::Start);
+    ui.progress_lbl.set_visible(false);
+    ui.progress.set_visible(false);
+    log_card.append(&ui.progress_lbl);
+    log_card.append(&ui.progress);
+
     ui.log.set_editable(false);
     ui.log.set_monospace(true);
     ui.log.set_wrap_mode(gtk::WrapMode::WordChar);
@@ -1747,6 +1763,51 @@ fn confirm_delete_target(state: &Shared, ui: &Rc<Ui>) {
 
 /// Spawn a worker thread that runs the (prog,args) sequence streaming stdout,
 /// and drive a glib future that appends each line to the log.
+/// Parses an rsync `--info=progress2` line into (fraction, display text).
+/// Example: "  512.00K  48%    2.34MB/s    0:00:03" → (0.48, "512.00K · 48% · 2.34MB/s · ETA 0:00:03").
+fn parse_progress(line: &str) -> Option<(f64, String)> {
+    let toks: Vec<&str> = line.split_whitespace().collect();
+    let pct_idx = toks
+        .iter()
+        .position(|t| t.ends_with('%') && t.trim_end_matches('%').parse::<f64>().is_ok())?;
+    let pct: f64 = toks[pct_idx].trim_end_matches('%').parse().ok()?;
+
+    let transferred = toks
+        .get(pct_idx.wrapping_sub(1))
+        .filter(|_| pct_idx > 0)
+        .filter(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .copied()
+        .unwrap_or("");
+    let rate = toks
+        .iter()
+        .find(|t| t.ends_with("/s"))
+        .copied()
+        .unwrap_or("");
+    let eta = toks.iter().find(|t| is_time(t)).copied().unwrap_or("");
+
+    let mut text = String::new();
+    if !transferred.is_empty() {
+        text.push_str(&format!("{transferred} transferred · "));
+    }
+    text.push_str(&format!("{}%", pct as i64));
+    if !rate.is_empty() {
+        text.push_str(&format!(" · {rate}"));
+    }
+    if !eta.is_empty() {
+        text.push_str(&format!(" · ETA {eta}"));
+    }
+    Some((pct / 100.0, text))
+}
+
+/// True for time tokens like "0:03", "1:23:45".
+fn is_time(t: &str) -> bool {
+    let parts: Vec<&str> = t.split(':').collect();
+    (parts.len() == 2 || parts.len() == 3)
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
 fn run_stream(
     ui: &Rc<Ui>,
     state: &Shared,
@@ -1758,6 +1819,9 @@ fn run_stream(
     state.borrow_mut().running = true;
     set_running(ui, true);
     set_status(ui, start_msg);
+    ui.progress.set_fraction(0.0);
+    ui.progress.set_visible(false);
+    ui.progress_lbl.set_visible(false);
 
     let (tx, rx) = async_channel::unbounded::<Worker>();
     std::thread::spawn(move || {
@@ -1781,8 +1845,30 @@ fn run_stream(
                 }
             };
             if let Some(out) = child.stdout.take() {
-                for line in BufReader::new(out).lines().map_while(Result::ok) {
-                    let _ = tx.send_blocking(Worker::Line(line));
+                use std::io::Read;
+                // Split on BOTH \n and \r so rsync's --info=progress2 line
+                // (updated with carriage returns) streams live.
+                let mut reader = BufReader::new(out);
+                let mut byte = [0u8; 1];
+                let mut buf: Vec<u8> = Vec::new();
+                while let Ok(1) = reader.read(&mut byte) {
+                    if byte[0] == b'\n' || byte[0] == b'\r' {
+                        let line = String::from_utf8_lossy(&buf).trim_end().to_string();
+                        buf.clear();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        match parse_progress(&line) {
+                            Some((frac, text)) => {
+                                let _ = tx.send_blocking(Worker::Progress(frac, text));
+                            }
+                            None => {
+                                let _ = tx.send_blocking(Worker::Line(line));
+                            }
+                        }
+                    } else {
+                        buf.push(byte[0]);
+                    }
                 }
             }
             let mut err = String::new();
@@ -1805,9 +1891,17 @@ fn run_stream(
         while let Ok(msg) = rx.recv().await {
             match msg {
                 Worker::Line(l) => append_log(&ui, &l),
+                Worker::Progress(frac, text) => {
+                    ui.progress.set_visible(true);
+                    ui.progress_lbl.set_visible(true);
+                    ui.progress.set_fraction(frac.clamp(0.0, 1.0));
+                    ui.progress_lbl.set_text(&text);
+                }
                 Worker::Done(ok, detail, pending) => {
                     state.borrow_mut().running = false;
                     set_running(&ui, false);
+                    ui.progress.set_visible(false);
+                    ui.progress_lbl.set_visible(false);
                     if ok {
                         set_status(&ui, "Done");
                         if let Some((op, target, info)) = pending {
@@ -1896,6 +1990,11 @@ fn ensure_verbose(args: &mut Vec<String>) {
         .any(|a| a == "-v" || a == "--verbose" || a.starts_with("-v"))
     {
         args.insert(0, "-v".to_string());
+    }
+    // Live aggregate progress (transferred / speed / % / ETA) via one updating
+    // line, parsed by parse_progress().
+    if !args.iter().any(|a| a.starts_with("--info")) {
+        args.insert(0, "--info=progress2".to_string());
     }
 }
 
