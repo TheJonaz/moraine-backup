@@ -16,13 +16,18 @@
       <stop offset="0" stop-color="#1e6fb7" stop-opacity="0.10"/>
       <stop offset="1" stop-color="#1e6fb7" stop-opacity="0"/>
     </radialGradient>
-    <!-- diskret rutnät -->
+    <!-- rutnät: tydligare men fortfarande diskret -->
     <pattern id="grid" width="46" height="46" patternUnits="userSpaceOnUse">
-      <path d="M46 0 H0 V46" fill="none" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1"/>
+      <path d="M46 0 H0 V46" fill="none" stroke="#bcd6f0" stroke-opacity="0.11" stroke-width="1"/>
+    </pattern>
+    <!-- grövre rutnät var 5:e cell, ger struktur utan att bli plottrigt -->
+    <pattern id="grid-major" width="230" height="230" patternUnits="userSpaceOnUse">
+      <path d="M230 0 H0 V230" fill="none" stroke="#bcd6f0" stroke-opacity="0.14" stroke-width="1.4"/>
     </pattern>
   </defs>
   <rect width="1600" height="1000" fill="url(#base)"/>
   <rect width="1600" height="1000" fill="url(#grid)"/>
+  <rect width="1600" height="1000" fill="url(#grid-major)"/>
   <rect width="1600" height="1000" fill="url(#glow1)"/>
   <rect width="1600" height="1000" fill="url(#glow2)"/>
 </svg>
