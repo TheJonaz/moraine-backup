@@ -1610,6 +1610,104 @@ fn set_log(ui: &Rc<Ui>, text: &str) {
     ui.log.buffer().set_text(text);
 }
 
+/// The full current log text (for post-mortem diagnosis).
+fn log_text(ui: &Rc<Ui>) -> String {
+    let buf = ui.log.buffer();
+    buf.text(&buf.start_iter(), &buf.end_iter(), false)
+        .to_string()
+}
+
+/// Recognises common backup/restore failures and returns a clear explanation
+/// plus how to fix it, ready to append to the log.
+fn diagnose_failure(out: &str) -> Option<String> {
+    let l = out.to_lowercase();
+    let hint = |problem: &str, fix: &str| {
+        Some(format!(
+            "──────────── WHAT WENT WRONG ────────────\nProblem: {problem}\nFix:     {fix}"
+        ))
+    };
+
+    // rsync/rclone missing (remote or local).
+    if l.contains("rsync: command not found")
+        || (l.contains("rsync") && l.contains("command not found"))
+    {
+        return hint(
+            "rsync is not installed on the destination server.",
+            "Log in to the server and install it — e.g.  apt install rsync  (or your \
+             server's package manager). rsync must be present on BOTH this computer and \
+             the server. Alternatively, switch this target to the rclone backend (SFTP), \
+             which needs nothing installed on the server.",
+        );
+    }
+    if l.contains("could not start rsync") || l.contains("rsync — is it installed") {
+        return hint(
+            "rsync is not installed on this computer.",
+            "Install it:  sudo apt install rsync",
+        );
+    }
+    if l.contains("could not start rclone") || l.contains("rclone: command not found") {
+        return hint(
+            "rclone is not installed on this computer.",
+            "Install it:  sudo apt install rclone  (or from rclone.org).",
+        );
+    }
+
+    // SSH problems.
+    if l.contains("permission denied (publickey") || l.contains("authentication failed") {
+        return hint(
+            "SSH authentication was rejected by the server.",
+            "Check the SSH key path and that the key is authorized on the server. If the \
+             key has a passphrase, set it under the target's ⚙ Settings.",
+        );
+    }
+    if l.contains("host key verification failed") {
+        return hint(
+            "The server's SSH host key is unknown or has changed.",
+            "If this change is expected, remove the old line from ~/.ssh/known_hosts and \
+             retry; otherwise verify you are connecting to the right host.",
+        );
+    }
+    if l.contains("connection timed out")
+        || l.contains("connection refused")
+        || l.contains("could not resolve")
+        || l.contains("no route to host")
+        || l.contains("network is unreachable")
+    {
+        return hint(
+            "Could not reach the server.",
+            "Check the host/IP and port, that the server is online, and (if it's on a \
+             private network) that your VPN is connected.",
+        );
+    }
+
+    // Destination / sources.
+    if l.contains("permission denied")
+        && (l.contains("mkpath") || l.contains("mkdir") || l.contains("failed to"))
+    {
+        return hint(
+            "The destination directory is not writable by the login user.",
+            "Check the destination path in the target's ⚙ Settings and that the SSH user \
+             may write there.",
+        );
+    }
+    if l.contains("no such file or directory") && l.contains("rsync") {
+        return hint(
+            "A source path does not exist on this computer.",
+            "Check the Sources list in the target's ⚙ Settings.",
+        );
+    }
+
+    // Generic rsync transport failure (often remote-side).
+    if l.contains("connection unexpectedly closed") || l.contains("protocol data stream") {
+        return hint(
+            "The SSH connection closed unexpectedly during transfer.",
+            "This usually means rsync is missing on the server, or the remote shell \
+             printed unexpected output. Confirm rsync is installed on the server.",
+        );
+    }
+    None
+}
+
 fn set_running(ui: &Rc<Ui>, running: bool) {
     ui.run_btn.set_sensitive(!running);
     ui.dry_btn.set_sensitive(!running);
@@ -1717,7 +1815,14 @@ fn run_stream(
                         }
                     } else {
                         append_log(&ui, &detail);
-                        set_status(&ui, "Failed");
+                        // Scan the whole run output for a known problem and
+                        // print a clear explanation + fix.
+                        let full = format!("{}\n{detail}", log_text(&ui));
+                        if let Some(hint) = diagnose_failure(&full) {
+                            append_log(&ui, "");
+                            append_log(&ui, &hint);
+                        }
+                        set_status(&ui, "Failed — see the log for details");
                     }
                     refresh_history(&state, &ui);
                 }
