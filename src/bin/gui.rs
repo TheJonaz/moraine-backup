@@ -1614,12 +1614,23 @@ fn set_status(ui: &Rc<Ui>, msg: &str) {
 
 fn append_log(ui: &Rc<Ui>, line: &str) {
     let buf = ui.log.buffer();
+    // Cap the buffer: a huge file list must not grow it unbounded (which makes
+    // every insert/scroll O(n) and can freeze the main loop). Keep recent lines.
+    const MAX_LINES: i32 = 4000;
+    let lines = buf.line_count();
+    if lines > MAX_LINES {
+        let mut start = buf.start_iter();
+        if let Some(mut cut) = buf.iter_at_line(lines - MAX_LINES) {
+            buf.delete(&mut start, &mut cut);
+        }
+    }
     let mut end = buf.end_iter();
     buf.insert(&mut end, line);
     buf.insert(&mut end, "\n");
-    // autoscroll
-    let mark = buf.create_mark(None, &buf.end_iter(), false);
-    ui.log.scroll_mark_onscreen(&mark);
+    // Autoscroll via the buffer's built-in insert mark — do NOT create a new
+    // mark each call (that leaks and slows down over a long run).
+    buf.place_cursor(&buf.end_iter());
+    ui.log.scroll_mark_onscreen(&buf.get_insert());
 }
 
 fn set_log(ui: &Rc<Ui>, text: &str) {
@@ -1816,7 +1827,7 @@ fn parse_rclone_progress(line: &str) -> Option<(f64, String)> {
     let eta = segs
         .iter()
         .find(|s| s.contains("ETA"))
-        .map(|s| s.rsplit("ETA").next().unwrap_or("").trim())
+        .and_then(|s| s.rsplit("ETA").next()?.split_whitespace().next())
         .unwrap_or("");
     Some((pct / 100.0, progress_text(transferred, pct, rate, eta)))
 }
@@ -2013,7 +2024,7 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     let mut cmds = if target.backend.is_ssh() {
         let dest = snapshot::snapshot_dir(&target, &ts);
         let mut args = rsync::build_args(&target, &dest, Some(rsync::LINK_DEST), dry_run);
-        ensure_verbose(&mut args);
+        add_rsync_progress(&mut args);
         let mut c = vec![("rsync".to_string(), args)];
         if !dry_run {
             let latest = snapshot::update_latest_cmd(&target, &ts);
@@ -2047,31 +2058,31 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     run_stream(ui, state, cmds, ssh::askpass_env(&target), pending, &msg);
 }
 
-fn ensure_verbose(args: &mut Vec<String>) {
-    if !args
-        .iter()
-        .any(|a| a == "-v" || a == "--verbose" || a.starts_with("-v"))
-    {
-        args.insert(0, "-v".to_string());
-    }
-    // Live aggregate progress (transferred / speed / % / ETA) via one updating
-    // line, parsed by parse_progress().
+/// Adds live aggregate progress to rsync. Deliberately NOT `-v`: on a large
+/// source, listing every file floods the log and freezes the UI. --info=progress2
+/// gives one updating progress line (parsed by parse_progress); --stats (already
+/// in build_args) prints the final summary.
+fn add_rsync_progress(args: &mut Vec<String>) {
+    // Drop the per-file listing (added by the shared lib for the CLI) — in the
+    // GUI it floods the log; the progress line + final stats are enough.
+    args.retain(|a| a != "-v" && a != "--verbose");
     if !args.iter().any(|a| a.starts_with("--info")) {
         args.insert(0, "--info=progress2".to_string());
     }
 }
 
-/// Adds a one-line live-stats flag to an rclone command (no-op for others), so
-/// its progress streams the same way rsync's does. parse_progress() reads it.
+/// Adds live one-line stats to an rclone command (no-op for others). Uses
+/// --stats-log-level NOTICE (not `-v`) so the summary shows without logging
+/// every transferred file — which would flood the log like `-v` does.
 fn add_rclone_progress(prog: &str, args: &mut Vec<String>) {
     if prog == "rclone" && !args.iter().any(|a| a.starts_with("--stats")) {
+        // Drop -v (per-file logging) that the shared lib adds for the CLI.
+        args.retain(|a| a != "-v" && a != "--verbose");
         let at = args.len().min(1); // after the subcommand (e.g. "copy")
+        args.insert(at, "--stats-log-level".to_string());
+        args.insert(at + 1, "NOTICE".to_string());
         args.insert(at, "--stats-one-line".to_string());
         args.insert(at, "--stats=1s".to_string());
-        // Stats only print at INFO level, so ensure -v is present.
-        if !args.iter().any(|a| a == "-v" || a == "--verbose") {
-            args.insert(at, "-v".to_string());
-        }
     }
 }
 
@@ -2109,7 +2120,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         } else {
             rsync::restore_selected_args(&target, &ts, &selected, &dest, dry_run)
         };
-        ensure_verbose(&mut args);
+        add_rsync_progress(&mut args);
         ("rsync".to_string(), args)
     } else {
         (
