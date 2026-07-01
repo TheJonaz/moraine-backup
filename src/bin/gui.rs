@@ -44,6 +44,7 @@ struct TargetForm {
     dest: String,
     sources: Vec<String>,
     exclude: Vec<String>,
+    vpn: String,
     keep_last: String,
     keep_daily: String,
     keep_weekly: String,
@@ -64,6 +65,7 @@ impl TargetForm {
             dest: t.dest.clone(),
             sources: t.sources.clone(),
             exclude: t.exclude.clone(),
+            vpn: t.vpn.clone(),
             keep_last: r.keep_last.to_string(),
             keep_daily: r.keep_daily.to_string(),
             keep_weekly: r.keep_weekly.to_string(),
@@ -98,6 +100,7 @@ impl TargetForm {
             dest: self.dest.trim().to_string(),
             sources: clean(&self.sources),
             exclude: clean(&self.exclude),
+            vpn: self.vpn.trim().to_string(),
             retention: if retention.is_empty() {
                 None
             } else {
@@ -157,6 +160,29 @@ fn clean(items: &[String]) -> Vec<String> {
         .iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// NetworkManager connections that look like VPNs (type `vpn` or `wireguard`),
+/// for the target VPN dropdown. Empty if nmcli is unavailable.
+fn list_vpn_connections() -> Vec<String> {
+    let out = match Command::new("nmcli")
+        .args(["-t", "-f", "NAME,TYPE", "connection", "show"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&out)
+        .lines()
+        .filter_map(|line| {
+            // `-t` output is `NAME:TYPE`; literal ':' inside NAME is escaped `\:`,
+            // and TYPE never contains ':', so the last ':' is the field separator.
+            let (name, kind) = line.rsplit_once(':')?;
+            let kind = kind.to_ascii_lowercase();
+            (kind.contains("vpn") || kind.contains("wireguard"))
+                .then(|| name.replace("\\:", ":"))
+        })
         .collect()
 }
 
@@ -792,6 +818,41 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     {
         let st = state.clone();
         dest.connect_changed(move |e| st.borrow_mut().targets[i].dest = e.text().to_string());
+    }
+
+    // VPN — pick one of the machine's NetworkManager connections to bring up
+    // before the backup (and down after). Covers any VPN configured in the DE.
+    {
+        let mut items: Vec<String> = vec!["None (no VPN)".to_string()];
+        let mut conns = list_vpn_connections();
+        // Keep a saved value even if nmcli is missing or the VPN was renamed.
+        if !f.vpn.is_empty() && !conns.contains(&f.vpn) {
+            conns.insert(0, f.vpn.clone());
+        }
+        items.extend(conns);
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        let vpn_dd = gtk::DropDown::from_strings(&refs);
+        vpn_dd.set_selected(if f.vpn.is_empty() {
+            0
+        } else {
+            items.iter().position(|s| *s == f.vpn).unwrap_or(0) as u32
+        });
+        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        let vl = gtk::Label::new(Some("VPN (NetworkManager connection, up before / down after)"));
+        vl.add_css_class("muted");
+        vl.set_halign(gtk::Align::Start);
+        vbox.append(&vl);
+        vbox.append(&vpn_dd);
+        body.append(&vbox);
+        let st = state.clone();
+        vpn_dd.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            st.borrow_mut().targets[i].vpn = if idx == 0 {
+                String::new()
+            } else {
+                items.get(idx).cloned().unwrap_or_default()
+            };
+        });
     }
 
     // Sources + exclude list editors
@@ -1912,6 +1973,7 @@ fn run_stream(
     env: Vec<(String, String)>,
     pending: Option<(String, String, String)>,
     start_msg: &str,
+    vpn: String,
 ) {
     state.borrow_mut().running = true;
     set_running(ui, true);
@@ -1922,6 +1984,35 @@ fn run_stream(
 
     let (tx, rx) = async_channel::unbounded::<Worker>();
     std::thread::spawn(move || {
+        // Bring the chosen VPN up first; if it fails, abort before touching data.
+        if !vpn.is_empty() {
+            let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection up {vpn}")));
+            match Command::new("nmcli").args(["connection", "up", &vpn]).output() {
+                Ok(o) if o.status.success() => {
+                    let _ = tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
+                }
+                Ok(o) => {
+                    let e = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    let _ = tx.send_blocking(Worker::Done(
+                        false,
+                        format!("could not bring up VPN \"{vpn}\": {e}"),
+                        None,
+                    ));
+                    return;
+                }
+                Err(e) => {
+                    let _ = tx.send_blocking(Worker::Done(
+                        false,
+                        format!("could not run nmcli for VPN \"{vpn}\": {e} \
+                                 (is NetworkManager installed?)"),
+                        None,
+                    ));
+                    return;
+                }
+            }
+        }
+
+        let mut failed: Option<String> = None;
         for (prog, args) in &cmds {
             let _ = tx.send_blocking(Worker::Line(format!("$ {prog} {}", rsync::render(args))));
             let child = Command::new(prog)
@@ -1933,12 +2024,8 @@ fn run_stream(
             let mut child = match child {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = tx.send_blocking(Worker::Done(
-                        false,
-                        format!("could not start {prog}: {e}"),
-                        None,
-                    ));
-                    return;
+                    failed = Some(format!("could not start {prog}: {e}"));
+                    break;
                 }
             };
             // Read stdout and stderr concurrently so progress streams live from
@@ -1957,12 +2044,27 @@ fn run_stream(
             }
             let ok = child.wait().map(|s| s.success()).unwrap_or(false);
             if !ok {
-                let detail = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
-                let _ = tx.send_blocking(Worker::Done(false, detail, None));
-                return;
+                failed = Some(err_buf.lock().map(|s| s.clone()).unwrap_or_default());
+                break;
             }
         }
-        let _ = tx.send_blocking(Worker::Done(true, String::new(), pending));
+
+        // Always tear the VPN down afterwards (best effort), success or not.
+        if !vpn.is_empty() {
+            let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection down {vpn}")));
+            let _ = Command::new("nmcli")
+                .args(["connection", "down", &vpn])
+                .output();
+        }
+
+        match failed {
+            Some(detail) => {
+                let _ = tx.send_blocking(Worker::Done(false, detail, None));
+            }
+            None => {
+                let _ = tx.send_blocking(Worker::Done(true, String::new(), pending));
+            }
+        }
     });
 
     let ui = ui.clone();
@@ -2064,7 +2166,15 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     } else {
         format!("Backing up {}…", target.name)
     };
-    run_stream(ui, state, cmds, ssh::askpass_env(&target), pending, &msg);
+    run_stream(
+        ui,
+        state,
+        cmds,
+        ssh::askpass_env(&target),
+        pending,
+        &msg,
+        target.vpn.clone(),
+    );
 }
 
 /// Adds live aggregate progress to rsync. Deliberately NOT `-v`: on a large
@@ -2151,6 +2261,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         ssh::askpass_env(&target),
         pending,
         "Restoring…",
+        target.vpn.clone(),
     );
 }
 

@@ -142,6 +142,12 @@ pub struct Target {
     /// rsync exclude patterns. Optional.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<String>,
+    /// NetworkManager connection to bring up before the backup and down after
+    /// (e.g. a WireGuard/OpenVPN VPN). Empty/omitted = no VPN. Activated via
+    /// `nmcli connection up/down`, so it works with whatever VPNs you have
+    /// configured in your desktop's network settings.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vpn: String,
     /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
