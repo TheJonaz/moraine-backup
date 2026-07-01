@@ -180,8 +180,7 @@ fn list_vpn_connections() -> Vec<String> {
             // and TYPE never contains ':', so the last ':' is the field separator.
             let (name, kind) = line.rsplit_once(':')?;
             let kind = kind.to_ascii_lowercase();
-            (kind.contains("vpn") || kind.contains("wireguard"))
-                .then(|| name.replace("\\:", ":"))
+            (kind.contains("vpn") || kind.contains("wireguard")).then(|| name.replace("\\:", ":"))
         })
         .collect()
 }
@@ -838,7 +837,9 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
             items.iter().position(|s| *s == f.vpn).unwrap_or(0) as u32
         });
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        let vl = gtk::Label::new(Some("VPN (NetworkManager connection, up before / down after)"));
+        let vl = gtk::Label::new(Some(
+            "VPN (NetworkManager connection, up before / down after)",
+        ));
         vl.add_css_class("muted");
         vl.set_halign(gtk::Align::Start);
         vbox.append(&vl);
@@ -1616,6 +1617,58 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     cfg.append(&btns);
     outer.append(&cfg);
 
+    // ── Startup ──
+    let startup = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    startup.add_css_class("card");
+    let st_title = gtk::Label::new(Some("Startup"));
+    st_title.add_css_class("section");
+    st_title.set_halign(gtk::Align::Start);
+    startup.append(&st_title);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let toggle = gtk::Switch::new();
+    toggle.set_active(autostart_enabled());
+    toggle.set_valign(gtk::Align::Center);
+    let tl = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let tl_main = gtk::Label::new(Some("Start Moraine when I log in"));
+    tl_main.set_halign(gtk::Align::Start);
+    let tl_sub = gtk::Label::new(Some(
+        "Adds a desktop autostart entry so the app launches automatically at login.",
+    ));
+    tl_sub.add_css_class("muted");
+    tl_sub.set_halign(gtk::Align::Start);
+    tl_sub.set_wrap(true);
+    tl.append(&tl_main);
+    tl.append(&tl_sub);
+    tl.set_hexpand(true);
+    row.append(&tl);
+    row.append(&toggle);
+    startup.append(&row);
+    {
+        let ui2 = ui.clone();
+        toggle.connect_state_set(move |sw, want| {
+            match set_autostart(want) {
+                Ok(()) => set_status(
+                    &ui2,
+                    if want {
+                        "Autostart enabled — Moraine will start at login"
+                    } else {
+                        "Autostart disabled"
+                    },
+                ),
+                Err(e) => {
+                    set_status(&ui2, &format!("Could not change autostart: {e}"));
+                    // Revert the visual state so it reflects reality.
+                    sw.set_state(!want);
+                    return glib::Propagation::Stop;
+                }
+            }
+            sw.set_state(want);
+            glib::Propagation::Stop
+        });
+    }
+    outer.append(&startup);
+
     // ── About ──
     let about = gtk::Box::new(gtk::Orientation::Vertical, 6);
     about.add_css_class("card");
@@ -1987,7 +2040,10 @@ fn run_stream(
         // Bring the chosen VPN up first; if it fails, abort before touching data.
         if !vpn.is_empty() {
             let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection up {vpn}")));
-            match Command::new("nmcli").args(["connection", "up", &vpn]).output() {
+            match Command::new("nmcli")
+                .args(["connection", "up", &vpn])
+                .output()
+            {
                 Ok(o) if o.status.success() => {
                     let _ = tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
                 }
@@ -2003,8 +2059,10 @@ fn run_stream(
                 Err(e) => {
                     let _ = tx.send_blocking(Worker::Done(
                         false,
-                        format!("could not run nmcli for VPN \"{vpn}\": {e} \
-                                 (is NetworkManager installed?)"),
+                        format!(
+                            "could not run nmcli for VPN \"{vpn}\": {e} \
+                                 (is NetworkManager installed?)"
+                        ),
                         None,
                     ));
                     return;
@@ -2611,6 +2669,47 @@ fn gpg_with_passphrase(args: &[&str], passphrase: &str) -> Result<Vec<u8>, Strin
             .to_string());
     }
     Ok(out.stdout)
+}
+
+/// Path to the desktop-autostart entry that launches the GUI at login.
+fn autostart_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(Path::new(&home).join(".config/autostart/moraine-gui.desktop"))
+}
+
+/// True if the autostart entry currently exists.
+fn autostart_enabled() -> bool {
+    autostart_path().map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Create or remove the autostart entry. On enable, `Exec` points at the running
+/// binary so it works for both an installed copy and a locally-built one.
+fn set_autostart(enabled: bool) -> std::io::Result<()> {
+    let path = autostart_path()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME is not set"))?;
+    if enabled {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let exec = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_else(|| "moraine-gui".to_string());
+        let entry = format!(
+            "[Desktop Entry]\n\
+             Type=Application\n\
+             Name=Moraine\n\
+             Comment=Snapshot backup over SSH/rsync and rclone\n\
+             Exec={exec}\n\
+             Icon=moraine\n\
+             Terminal=false\n\
+             X-GNOME-Autostart-enabled=true\n"
+        );
+        std::fs::write(&path, entry)?;
+    } else if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    Ok(())
 }
 
 /// Symmetrically encrypts the current config to `dest` (AES-256, password-based).

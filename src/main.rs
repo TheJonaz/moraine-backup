@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{prune, rclone, rsync, snapshot, ssh};
+use moraine::{prune, rclone, rsync, snapshot, ssh, vpn};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -95,11 +95,28 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let mut failures = 0;
     for t in targets {
         println!("== {} ({}) ==", t.name, backend_dest(t));
+        // Bring the target's VPN up first (if any); skip the target if it fails.
+        let has_vpn = !t.vpn.trim().is_empty();
+        if has_vpn {
+            println!("  VPN: connecting {}…", t.vpn);
+            if let Err(e) = vpn::up(&t.vpn) {
+                failures += 1;
+                eprintln!("  {e:#}");
+                if !dry_run {
+                    log(path, LogEntry::new("backup", &t.name, false, e.to_string()));
+                }
+                continue;
+            }
+        }
         let result = if t.backend.is_ssh() {
             rsync::run_target(t, dry_run)
         } else {
             rclone::run_target(t, dry_run)
         };
+        // Tear the VPN down afterwards, whatever happened.
+        if has_vpn {
+            vpn::down(&t.vpn);
+        }
         match result {
             Ok(ts) => {
                 if !dry_run {
