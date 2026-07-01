@@ -306,10 +306,12 @@ fn load_css() {
     );
     provider.load_from_data(&css);
     if let Some(display) = gtk::gdk::Display::default() {
+        // USER priority (above the desktop theme) so our field/button colours
+        // win over themes that style widgets more aggressively.
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            gtk::STYLE_PROVIDER_PRIORITY_USER,
         );
     }
 }
@@ -321,11 +323,44 @@ window { background-color: #0b1a2c; color: #e8eef6; }
 .appsub { color: #8aa0bd; font-size: 12px; }
 .muted { color: #8aa0bd; font-size: 12px; }
 .section { font-weight: 700; }
-.accent { background-image: none; background-color: #0fd4a0; color: #06231b; font-weight: 700; }
+.accent { background-image: none; background-color: #0fd4a0; color: #06231b; font-weight: 700; border: 1px solid transparent; }
 .accent:hover { background-color: #1fe3b3; }
 .danger { color: #ff6b6b; }
-button { border-radius: 8px; }
-entry { border-radius: 8px; }
+/* Inputs + buttons: dark navy-blue (matches the screenshot), not the theme's
+   light fields. This theme paints the field on the inner `text` node, so we
+   override both the outer widget and its `text`/child nodes. */
+entry, spinbutton, passwordentry, dropdown, dropdown > button, button {
+    background-image: none;
+    background-color: #16304f;
+    color: #e8eef6;
+    border: 1px solid #2c4f78;
+    border-radius: 8px;
+}
+entry > text, spinbutton > text, passwordentry > text {
+    background-image: none;
+    background-color: #16304f;
+    color: #e8eef6;
+}
+entry:focus, spinbutton:focus, passwordentry:focus,
+entry:focus-within, passwordentry:focus-within,
+entry:focus > text, passwordentry:focus-within > text,
+dropdown > button:focus {
+    border-color: #2e8be0;
+}
+entry image, spinbutton button { color: #cfe0f2; }
+entry placeholder, entry > text placeholder { color: #7f96b4; }
+button:hover { background-color: #1d3d61; }
+button:disabled, entry:disabled, entry:disabled > text {
+    color: #6b809b;
+    background-color: #12263f;
+}
+selection { background-color: #2e8be0; color: #ffffff; }
+/* Lists (Targets, schedules, snapshots) sit inside dark cards — keep them
+   transparent instead of the theme's white. */
+list, listbox, scrolledwindow, list > row, listbox > row {
+    background-color: transparent;
+    color: #e8eef6;
+}
 /* Pill tab bar (StackSwitcher styled like the old iced tabs). */
 .tabs { padding: 2px 0; }
 .tabs button {
