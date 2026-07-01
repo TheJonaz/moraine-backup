@@ -53,7 +53,7 @@ selective restore and scheduling. Backends: rsync over SSH and rclone \
 (cloud, FTP, SMB, WebDAV, S3, Drive, B2 ...). Includes both the CLI `moraine` \
 and the desktop client `moraine-gui`."""
 depends = "$auto, rsync, openssh-client"
-recommends = "rclone, xdg-desktop-portal"
+recommends = "rclone, gnupg, xdg-desktop-portal"
 assets = [
     ["target/release/moraine", "usr/bin/", "755"],
     ["target/release/moraine-gui", "usr/bin/", "755"],

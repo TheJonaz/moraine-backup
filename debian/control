@@ -30,6 +30,7 @@ Depends:
  openssh-client,
 Recommends:
  rclone,
+ gnupg,
 Description: snapshot backup over SSH/rsync and rclone (CLI + GTK desktop app)
  Moraine creates timestamped, hard-linked snapshots: each backup run looks like
  a complete tree, but unchanged files share disk via hard links, so history

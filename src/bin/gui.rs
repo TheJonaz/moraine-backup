@@ -385,6 +385,83 @@ fn build_ui(app: &gtk::Application) {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 14);
     header.append(&logo);
     header.append(&titlecol);
+    let hspacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    hspacer.set_hexpand(true);
+    header.append(&hspacer);
+
+    // Encrypted config export / import.
+    let import_btn = gtk::Button::with_label("Import config…");
+    import_btn.set_valign(gtk::Align::Center);
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        let win = window.clone();
+        import_btn.connect_clicked(move |_| {
+            let dialog = gtk::FileDialog::builder()
+                .title("Import encrypted config")
+                .build();
+            let st2 = st.clone();
+            let ui3 = ui2.clone();
+            let win2 = win.clone();
+            dialog.open(Some(&win), gio::Cancellable::NONE, move |res| {
+                let Ok(file) = res else { return };
+                let Some(path) = file.path() else { return };
+                let st3 = st2.clone();
+                let ui4 = ui3.clone();
+                ask_password(
+                    &win2,
+                    "Import config",
+                    "Enter the password for the encrypted config.",
+                    false,
+                    move |pw| match import_config(&pw, &path) {
+                        Ok(()) => {
+                            reload_all(&st3, &ui4);
+                            set_status(&ui4, "Config imported");
+                        }
+                        Err(e) => set_status(&ui4, &format!("Import failed: {e}")),
+                    },
+                );
+            });
+        });
+    }
+    let export_btn = gtk::Button::with_label("Export config…");
+    export_btn.set_valign(gtk::Align::Center);
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        let win = window.clone();
+        export_btn.connect_clicked(move |_| {
+            let _ = st.borrow().save(); // export the latest edits
+            let ui3 = ui2.clone();
+            let win2 = win.clone();
+            ask_password(
+                &win,
+                "Export config",
+                "Set a password to encrypt the exported config. You'll need it to import it again.",
+                true,
+                move |pw| {
+                    let dialog = gtk::FileDialog::builder()
+                        .title("Export encrypted config")
+                        .initial_name("moraine-config.toml.gpg")
+                        .build();
+                    let ui4 = ui3.clone();
+                    dialog.save(Some(&win2), gio::Cancellable::NONE, move |res| {
+                        let Ok(file) = res else { return };
+                        let Some(path) = file.path() else { return };
+                        match export_config(&pw, &path) {
+                            Ok(()) => set_status(
+                                &ui4,
+                                &format!("Config exported (encrypted) → {}", path.display()),
+                            ),
+                            Err(e) => set_status(&ui4, &format!("Export failed: {e}")),
+                        }
+                    });
+                },
+            );
+        });
+    }
+    header.append(&import_btn);
+    header.append(&export_btn);
 
     // Pill tab bar (drives the stack).
     let switcher = gtk::StackSwitcher::new();
@@ -2019,6 +2096,175 @@ fn prune_target(target: &Target) -> Result<String, String> {
         plan.delete.len(),
         plan.keep.len()
     ))
+}
+
+// ─────────────────────── encrypted config export / import (gpg) ───────────────────────
+
+/// Runs gpg with the passphrase fed on stdin (never on the command line).
+fn gpg_with_passphrase(args: &[&str], passphrase: &str) -> Result<Vec<u8>, String> {
+    let mut child = Command::new("gpg")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start gpg — is gnupg installed? ({e})"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("no stdin for gpg")?
+        .write_all(format!("{passphrase}\n").as_bytes())
+        .map_err(|e| format!("gpg stdin: {e}"))?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(err
+            .lines()
+            .last()
+            .unwrap_or("gpg failed")
+            .trim()
+            .to_string());
+    }
+    Ok(out.stdout)
+}
+
+/// Symmetrically encrypts the current config to `dest` (AES-256, password-based).
+fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
+    let dest = dest.display().to_string();
+    gpg_with_passphrase(
+        &[
+            "--batch",
+            "--yes",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-fd",
+            "0",
+            "--symmetric",
+            "--cipher-algo",
+            "AES256",
+            "--output",
+            &dest,
+            CONFIG_PATH,
+        ],
+        passphrase,
+    )
+    .map(|_| ())
+}
+
+/// Decrypts `src`, validates it as a config, and replaces the current config.
+fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
+    let src = src.display().to_string();
+    let plaintext = gpg_with_passphrase(
+        &[
+            "--batch",
+            "--yes",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-fd",
+            "0",
+            "--decrypt",
+            &src,
+        ],
+        passphrase,
+    )?;
+    let text = String::from_utf8_lossy(&plaintext);
+    // Refuse to overwrite unless it parses as a Moraine config.
+    toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    std::fs::write(CONFIG_PATH, text.as_bytes())
+        .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;
+    Ok(())
+}
+
+/// Reloads all state from disk (after an import) and refreshes every view.
+fn reload_all(state: &Shared, ui: &Rc<Ui>) {
+    *state.borrow_mut() = State::load();
+    refresh_targets(state, ui);
+    refresh_connection(state, ui);
+    refresh_schedules(state, ui);
+    refresh_restore_targets(state, ui);
+    refresh_history(state, ui);
+}
+
+/// A small modal that asks for a password (optionally with confirmation) and
+/// calls `on_ok` with it. The password is never logged or shown.
+fn ask_password(
+    parent: &gtk::ApplicationWindow,
+    title: &str,
+    prompt: &str,
+    confirm: bool,
+    on_ok: impl Fn(String) + 'static,
+) {
+    let win = gtk::Window::builder()
+        .transient_for(parent)
+        .modal(true)
+        .title(title)
+        .default_width(400)
+        .build();
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    b.set_margin_top(16);
+    b.set_margin_bottom(16);
+    b.set_margin_start(16);
+    b.set_margin_end(16);
+    let lbl = gtk::Label::new(Some(prompt));
+    lbl.add_css_class("muted");
+    lbl.set_halign(gtk::Align::Start);
+    lbl.set_wrap(true);
+    b.append(&lbl);
+    let pw = gtk::PasswordEntry::new();
+    pw.set_show_peek_icon(true);
+    b.append(&pw);
+    let pw2 = if confirm {
+        let l2 = gtk::Label::new(Some("Confirm password"));
+        l2.add_css_class("muted");
+        l2.set_halign(gtk::Align::Start);
+        b.append(&l2);
+        let e = gtk::PasswordEntry::new();
+        e.set_show_peek_icon(true);
+        b.append(&e);
+        Some(e)
+    } else {
+        None
+    };
+    let err = gtk::Label::new(None);
+    err.add_css_class("danger");
+    err.set_halign(gtk::Align::Start);
+    b.append(&err);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let cancel = gtk::Button::with_label("Cancel");
+    {
+        let w = win.clone();
+        cancel.connect_clicked(move |_| w.close());
+    }
+    row.append(&cancel);
+    let ok = gtk::Button::with_label("OK");
+    ok.add_css_class("accent");
+    {
+        let win = win.clone();
+        let pw = pw.clone();
+        let err = err.clone();
+        ok.connect_clicked(move |_| {
+            let p = pw.text().to_string();
+            if p.is_empty() {
+                err.set_text("Enter a password.");
+                return;
+            }
+            if let Some(pw2) = &pw2 {
+                if p != *pw2.text() {
+                    err.set_text("Passwords don't match.");
+                    return;
+                }
+            }
+            win.close();
+            on_ok(p);
+        });
+    }
+    row.append(&ok);
+    b.append(&row);
+    win.set_child(Some(&b));
+    win.present();
 }
 
 // ─────────────────────────── scheduling (reused from CLI logic) ───────────────────────────
