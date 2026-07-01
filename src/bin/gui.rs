@@ -300,9 +300,12 @@ fn load_css() {
     let provider = gtk::CssProvider::new();
     // Inject the hero background image (navy + grid + glow), resolving its path
     // at runtime (installed vs source tree).
+    // GTK's CSS url() needs a real URI — a bare absolute path silently fails to
+    // load (with no warning), which left the grid background invisible.
     let hero = asset("hero-bg.png");
+    let hero_uri = format!("file://{hero}");
     let css = format!(
-        "{CSS}\nwindow {{ background-image: url(\"{hero}\"); background-size: cover; background-position: top center; }}\n"
+        "{CSS}\nwindow {{ background-image: url(\"{hero_uri}\"); background-size: cover; background-position: top center; }}\n"
     );
     provider.load_from_data(&css);
     if let Some(display) = gtk::gdk::Display::default() {
