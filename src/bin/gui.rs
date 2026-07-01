@@ -364,6 +364,11 @@ fn build_ui(app: &gtk::Application) {
     stack.add_titled(&build_schedule_tab(&state, &ui), Some("sched"), "Schedule");
     stack.add_titled(&build_restore_tab(&state, &ui), Some("restore"), "Restore");
     stack.add_titled(&build_history_tab(&ui), Some("history"), "History");
+    stack.add_titled(
+        &build_settings_tab(&state, &ui),
+        Some("settings"),
+        "Settings",
+    );
 
     // In-content header: logo + name + subtitle.
     let logo = gtk::Image::from_file(asset("moraine-64.png"));
@@ -385,83 +390,6 @@ fn build_ui(app: &gtk::Application) {
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 14);
     header.append(&logo);
     header.append(&titlecol);
-    let hspacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    hspacer.set_hexpand(true);
-    header.append(&hspacer);
-
-    // Encrypted config export / import.
-    let import_btn = gtk::Button::with_label("Import config…");
-    import_btn.set_valign(gtk::Align::Center);
-    {
-        let st = state.clone();
-        let ui2 = ui.clone();
-        let win = window.clone();
-        import_btn.connect_clicked(move |_| {
-            let dialog = gtk::FileDialog::builder()
-                .title("Import encrypted config")
-                .build();
-            let st2 = st.clone();
-            let ui3 = ui2.clone();
-            let win2 = win.clone();
-            dialog.open(Some(&win), gio::Cancellable::NONE, move |res| {
-                let Ok(file) = res else { return };
-                let Some(path) = file.path() else { return };
-                let st3 = st2.clone();
-                let ui4 = ui3.clone();
-                ask_password(
-                    &win2,
-                    "Import config",
-                    "Enter the password for the encrypted config.",
-                    false,
-                    move |pw| match import_config(&pw, &path) {
-                        Ok(()) => {
-                            reload_all(&st3, &ui4);
-                            set_status(&ui4, "Config imported");
-                        }
-                        Err(e) => set_status(&ui4, &format!("Import failed: {e}")),
-                    },
-                );
-            });
-        });
-    }
-    let export_btn = gtk::Button::with_label("Export config…");
-    export_btn.set_valign(gtk::Align::Center);
-    {
-        let st = state.clone();
-        let ui2 = ui.clone();
-        let win = window.clone();
-        export_btn.connect_clicked(move |_| {
-            let _ = st.borrow().save(); // export the latest edits
-            let ui3 = ui2.clone();
-            let win2 = win.clone();
-            ask_password(
-                &win,
-                "Export config",
-                "Set a password to encrypt the exported config. You'll need it to import it again.",
-                true,
-                move |pw| {
-                    let dialog = gtk::FileDialog::builder()
-                        .title("Export encrypted config")
-                        .initial_name("moraine-config.toml.gpg")
-                        .build();
-                    let ui4 = ui3.clone();
-                    dialog.save(Some(&win2), gio::Cancellable::NONE, move |res| {
-                        let Ok(file) = res else { return };
-                        let Some(path) = file.path() else { return };
-                        match export_config(&pw, &path) {
-                            Ok(()) => set_status(
-                                &ui4,
-                                &format!("Config exported (encrypted) → {}", path.display()),
-                            ),
-                            Err(e) => set_status(&ui4, &format!("Export failed: {e}")),
-                        }
-                    });
-                },
-            );
-        });
-    }
-    header.append(&import_btn);
-    header.append(&export_btn);
 
     // Pill tab bar (drives the stack).
     let switcher = gtk::StackSwitcher::new();
@@ -1496,6 +1424,150 @@ fn build_history_tab(ui: &Rc<Ui>) -> gtk::Widget {
     scroll.set_child(Some(&ui.history_list));
     card.append(&scroll);
     card.upcast()
+}
+
+// ─────────────────────────── Settings tab ───────────────────────────
+
+fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
+
+    // ── Configuration ──
+    let cfg = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    cfg.add_css_class("card");
+    let ct = gtk::Label::new(Some("Configuration"));
+    ct.add_css_class("section");
+    ct.set_halign(gtk::Align::Start);
+    cfg.append(&ct);
+
+    let path = std::fs::canonicalize(CONFIG_PATH)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| CONFIG_PATH.to_string());
+    let path_lbl = gtk::Label::new(Some(&format!("Config file: {path}")));
+    path_lbl.add_css_class("muted");
+    path_lbl.set_halign(gtk::Align::Start);
+    path_lbl.set_selectable(true);
+    path_lbl.set_wrap(true);
+    cfg.append(&path_lbl);
+
+    let sub = gtk::Label::new(Some("Encrypted config backup"));
+    sub.add_css_class("section");
+    sub.set_halign(gtk::Align::Start);
+    sub.set_margin_top(6);
+    cfg.append(&sub);
+    let desc = gtk::Label::new(Some(
+        "The config holds secrets (SSH keys, passwords, key passphrases). Export it as \
+         an encrypted, password-protected file to move it between machines or keep a \
+         safe backup. Import replaces the current config.",
+    ));
+    desc.add_css_class("muted");
+    desc.set_halign(gtk::Align::Start);
+    desc.set_wrap(true);
+    cfg.append(&desc);
+
+    let btns = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let export_btn = gtk::Button::with_label("Export config…");
+    export_btn.add_css_class("accent");
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        export_btn.connect_clicked(move |_| {
+            let _ = st.borrow().save(); // export the latest edits
+            let ui3 = ui2.clone();
+            let win = ui2.window.clone();
+            ask_password(
+                &ui2.window,
+                "Export config",
+                "Set a password to encrypt the exported config. You'll need it to import it again.",
+                true,
+                move |pw| {
+                    let dialog = gtk::FileDialog::builder()
+                        .title("Export encrypted config")
+                        .initial_name("moraine-config.toml.gpg")
+                        .build();
+                    let ui4 = ui3.clone();
+                    dialog.save(Some(&win), gio::Cancellable::NONE, move |res| {
+                        let Ok(file) = res else { return };
+                        let Some(path) = file.path() else { return };
+                        match export_config(&pw, &path) {
+                            Ok(()) => set_status(
+                                &ui4,
+                                &format!("Config exported (encrypted) → {}", path.display()),
+                            ),
+                            Err(e) => set_status(&ui4, &format!("Export failed: {e}")),
+                        }
+                    });
+                },
+            );
+        });
+    }
+    btns.append(&export_btn);
+    let import_btn = gtk::Button::with_label("Import config…");
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        import_btn.connect_clicked(move |_| {
+            let dialog = gtk::FileDialog::builder()
+                .title("Import encrypted config")
+                .build();
+            let st2 = st.clone();
+            let ui3 = ui2.clone();
+            let win = ui2.window.clone();
+            dialog.open(Some(&ui2.window), gio::Cancellable::NONE, move |res| {
+                let Ok(file) = res else { return };
+                let Some(path) = file.path() else { return };
+                let st3 = st2.clone();
+                let ui4 = ui3.clone();
+                ask_password(
+                    &win,
+                    "Import config",
+                    "Enter the password for the encrypted config.",
+                    false,
+                    move |pw| match import_config(&pw, &path) {
+                        Ok(()) => {
+                            reload_all(&st3, &ui4);
+                            set_status(&ui4, "Config imported");
+                        }
+                        Err(e) => set_status(&ui4, &format!("Import failed: {e}")),
+                    },
+                );
+            });
+        });
+    }
+    btns.append(&import_btn);
+    cfg.append(&btns);
+    outer.append(&cfg);
+
+    // ── About ──
+    let about = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    about.add_css_class("card");
+    let at = gtk::Label::new(Some("About"));
+    at.add_css_class("section");
+    at.set_halign(gtk::Align::Start);
+    about.append(&at);
+    let ver = gtk::Label::new(Some(&format!("Moraine {}", moraine::VERSION)));
+    ver.add_css_class("muted");
+    ver.set_halign(gtk::Align::Start);
+    about.append(&ver);
+    let links = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    for (label, url) in [
+        ("GitHub", "https://github.com/TheJonaz/moraine-backup"),
+        ("moraine.thern.io", "https://moraine.thern.io"),
+        ("by Jonaz Thern", "https://www.thern.io"),
+    ] {
+        let btn = gtk::Button::with_label(label);
+        btn.add_css_class("linkbtn");
+        btn.connect_clicked(move |_| {
+            let _ = gio::AppInfo::launch_default_for_uri(url, gio::AppLaunchContext::NONE);
+        });
+        links.append(&btn);
+    }
+    about.append(&links);
+    outer.append(&about);
+
+    scroll.set_child(Some(&outer));
+    scroll.upcast()
 }
 
 fn refresh_history(state: &Shared, ui: &Rc<Ui>) {
