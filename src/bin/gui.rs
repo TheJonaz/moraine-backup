@@ -1723,6 +1723,15 @@ fn diagnose_failure(out: &str) -> Option<String> {
             "Check the Sources list in the target's ⚙ Settings.",
         );
     }
+    if l.contains("opendir") && l.contains("permission denied") {
+        return hint(
+            "A source folder can't be read (permission denied), so it was skipped \
+             and --delete was disabled for safety.",
+            "Fix that folder's permissions (chown/chmod), or add it to the target's \
+             Exclude patterns. The '--link-dest ../latest does not exist' line is \
+             normal on the first run.",
+        );
+    }
 
     // Generic rsync transport failure (often remote-side).
     if l.contains("connection unexpectedly closed") || l.contains("protocol data stream") {
