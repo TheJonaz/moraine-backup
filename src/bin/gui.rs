@@ -2827,7 +2827,8 @@ fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
     let text = String::from_utf8_lossy(&plaintext);
     // Refuse to overwrite unless it parses as a Moraine config.
     toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
-    std::fs::write(CONFIG_PATH, text.as_bytes())
+    // Owner-only: the config holds plaintext secrets.
+    moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
         .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;
     Ok(())
 }

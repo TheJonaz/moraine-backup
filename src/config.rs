@@ -195,10 +195,10 @@ impl Config {
         Ok(config)
     }
 
-    /// Write the config to a TOML file.
+    /// Write the config to a TOML file, owner-readable only (it holds secrets).
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = toml::to_string_pretty(self).context("could not serialize config")?;
-        std::fs::write(path, text)
+        write_private(path, text.as_bytes())
             .with_context(|| format!("could not write {}", path.display()))?;
         Ok(())
     }
@@ -238,6 +238,31 @@ impl Target {
     }
 }
 
+/// Writes a file that only the owner can read/write (mode 0600 on Unix). The
+/// config and its encrypted-export counterpart hold plaintext secrets (SSH
+/// passwords / key passphrases), so they must not be world-readable. New files
+/// are created 0600 from the start (no race); a pre-existing world-readable
+/// file is also locked down.
+pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    #[cfg(unix)]
+    {
+        // Fix a file that already existed with looser permissions.
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    f.write_all(contents)?;
+    Ok(())
+}
+
 /// Expands a leading `~/` against $HOME. Leaves everything else untouched.
 pub fn expand_tilde(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
@@ -246,4 +271,34 @@ pub fn expand_tilde(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::write_private;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn mode(p: &std::path::Path) -> u32 {
+        std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn write_private_new_file_is_owner_only() {
+        let path = std::env::temp_dir().join(format!("moraine-priv-new-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        write_private(&path, b"secret").unwrap();
+        assert_eq!(mode(&path), 0o600, "new secret file must be 0600");
+        assert_eq!(std::fs::read(&path).unwrap(), b"secret");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_private_tightens_existing_world_readable() {
+        let path = std::env::temp_dir().join(format!("moraine-priv-old-{}", std::process::id()));
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, b"new").unwrap();
+        assert_eq!(mode(&path), 0o600, "pre-existing file must be tightened to 0600");
+        let _ = std::fs::remove_file(&path);
+    }
 }
