@@ -80,7 +80,8 @@ pub fn update_latest_cmd(target: &Target, timestamp: &str) -> String {
     format!("ln -sfn {} {}", shell_quote(timestamp), shell_quote(&link))
 }
 
-/// Single-quotes a string for safe use in a remote shell command.
-fn shell_quote(s: &str) -> String {
+/// Single-quotes a string for safe use in a POSIX shell command (remote
+/// commands here, and the local crontab line in the GUI).
+pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }

@@ -26,9 +26,13 @@ pub fn build_args(
         // -a archive (permissions/times/symlinks), -A ACLs, -X xattrs.
         // --delete mirrors away files that have been removed on the client.
         // --mkpath creates the destination path if it is missing (rsync ≥ 3.2.3).
+        // --protect-args: send remote paths verbatim, not through the remote
+        // shell — so spaces/metacharacters in dest or filenames can't break or
+        // inject the remote command.
         "-aAX".into(),
         "--delete".into(),
         "--mkpath".into(),
+        "--protect-args".into(),
         "--human-readable".into(),
     ];
 
@@ -69,7 +73,12 @@ pub fn restore_args(
     local_dest: &str,
     dry_run: bool,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-aAX".into(), "--mkpath".into(), "--human-readable".into()];
+    let mut args: Vec<String> = vec![
+        "-aAX".into(),
+        "--mkpath".into(),
+        "--protect-args".into(),
+        "--human-readable".into(),
+    ];
     if dry_run {
         args.push("--dry-run".into());
         args.push("--verbose".into());
@@ -103,6 +112,7 @@ pub fn restore_selected_args(
         "-aAX".into(),
         "-R".into(),
         "--mkpath".into(),
+        "--protect-args".into(),
         "--human-readable".into(),
     ];
     if dry_run {
@@ -138,8 +148,19 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         .envs(ssh::askpass_env(target))
         .status()
         .context("could not start rsync — is it installed?")?;
-    if !status.success() {
-        bail!("rsync failed (exit {})", status.code().unwrap_or(-1));
+    // rsync 23 (partial transfer) / 24 (source files vanished) mean *some*
+    // files were skipped, but the snapshot is still valid — treat as success
+    // (with a warning) so `latest` is still updated, like rsnapshot does.
+    let code = status.code();
+    if !status.success() && !matches!(code, Some(23) | Some(24)) {
+        bail!("rsync failed (exit {})", code.unwrap_or(-1));
+    }
+    if matches!(code, Some(23) | Some(24)) {
+        eprintln!(
+            "  warning: rsync partial transfer (exit {}) — some files were skipped; \
+             snapshot still created",
+            code.unwrap_or(-1)
+        );
     }
 
     if dry_run {

@@ -2173,10 +2173,22 @@ fn run_stream(
             if let Some(h) = h_err {
                 let _ = h.join();
             }
-            let ok = child.wait().map(|s| s.success()).unwrap_or(false);
-            if !ok {
+            let status = child.wait();
+            let code = status.as_ref().ok().and_then(|s| s.code());
+            let ok = status.map(|s| s.success()).unwrap_or(false);
+            // rsync 23/24 = partial transfer (some files skipped/vanished) but a
+            // valid snapshot — keep going so `latest` is still repointed.
+            let partial = prog == "rsync" && matches!(code, Some(23) | Some(24));
+            if !ok && !partial {
                 failed = Some(err_buf.lock().map(|s| s.clone()).unwrap_or_default());
                 break;
+            }
+            if partial {
+                let _ = tx.send_blocking(Worker::Line(format!(
+                    "⚠ rsync partial transfer (exit {}) — some files were skipped; \
+                     snapshot still created.",
+                    code.unwrap_or(-1)
+                )));
             }
         }
 
@@ -2963,6 +2975,18 @@ fn install_schedules(schedules: &[Schedule]) -> Result<usize, String> {
     }
 }
 
+/// Rejects control characters (newlines especially) in a scheduled field, so a
+/// crafted target/name can't break out of the crontab line / .cmd wrapper and
+/// inject extra commands.
+fn check_schedule_field(kind: &str, name: &str, v: &str) -> Result<(), String> {
+    if v.chars().any(|c| c.is_control()) {
+        return Err(format!(
+            "schedule '{name}': {kind} contains a control character — refusing to install"
+        ));
+    }
+    Ok(())
+}
+
 fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
     const MARKER: &str = "# moraine";
     let existing = match Command::new("crontab").arg("-l").output() {
@@ -2981,12 +3005,16 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
         .iter()
         .filter(|s| s.enabled && !s.target.is_empty())
     {
+        check_schedule_field("target", &s.name, &s.target)?;
+        check_schedule_field("name", &s.name, &s.name)?;
+        // Shell-quote every interpolated value so spaces/metacharacters in the
+        // path or target can't be interpreted by the shell that runs the job.
         lines.push(format!(
             "{} {} -c {} run --target {} >/dev/null 2>&1 {MARKER}:{}",
             s.cron(),
-            exe,
-            cfg,
-            s.target,
+            snapshot::shell_quote(&exe),
+            snapshot::shell_quote(&cfg),
+            snapshot::shell_quote(&s.target),
             s.name
         ));
         count += 1;
@@ -3027,10 +3055,17 @@ fn install_schtasks(schedules: &[Schedule]) -> Result<usize, String> {
         .iter()
         .filter(|s| s.enabled && !s.target.is_empty())
     {
+        check_schedule_field("target", &s.name, &s.target)?;
+        if s.target.contains(['"', '%']) {
+            return Err(format!(
+                "schedule '{}': target contains a character not allowed on Windows (\" or %)",
+                s.name
+            ));
+        }
         let safe = sanitize_task_name(&s.name);
         let wrapper = dir.join(format!("{safe}.cmd"));
         let body = format!(
-            "@echo off\r\n\"{exe}\" -c \"{cfg}\" run --target {}\r\n",
+            "@echo off\r\n\"{exe}\" -c \"{cfg}\" run --target \"{}\"\r\n",
             s.target
         );
         std::fs::write(&wrapper, body)
