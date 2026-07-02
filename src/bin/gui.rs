@@ -2227,6 +2227,14 @@ fn pump<R: std::io::Read + Send + 'static>(
     })
 }
 
+/// A closure that builds the command list inside the worker thread, *after*
+/// the VPN is up — for backends whose commands depend on a network lookup that
+/// itself needs the VPN (e.g. rclone's previous-snapshot check for --copy-dest).
+type Prepare = Box<dyn FnOnce() -> Vec<(String, Vec<String>)> + Send>;
+
+// Internal orchestration helper; the parameters are each distinct run inputs
+// and bundling them into a struct would only add indirection.
+#[allow(clippy::too_many_arguments)]
 fn run_stream(
     ui: &Rc<Ui>,
     state: &Shared,
@@ -2235,6 +2243,7 @@ fn run_stream(
     pending: Option<(String, String, String)>,
     start_msg: &str,
     vpn: String,
+    prepare: Option<Prepare>,
 ) {
     state.borrow_mut().running = true;
     set_running(ui, true);
@@ -2276,6 +2285,12 @@ fn run_stream(
                 }
             }
         }
+
+        // Build the commands now that the VPN is up (rclone --copy-dest lookup).
+        let cmds = match prepare {
+            Some(build) => build(),
+            None => cmds,
+        };
 
         let mut failed: Option<String> = None;
         for (prog, args) in &cmds {
@@ -2458,55 +2473,41 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             pending,
             &msg,
             target.vpn.clone(),
+            None,
         );
     } else {
         if let Err(e) = rclone::preflight(&target) {
             set_status(ui, &format!("{e:#}"));
             return;
         }
-        // Find the previous snapshot off the main thread (it's a network
-        // call), then run with --copy-dest so unchanged files are server-side
-        // copied instead of re-uploaded — same as the CLI. NOTE: this lookup
-        // runs before the VPN is raised (that happens in run_stream), so an
-        // rclone remote reachable *only* over the target's VPN falls back to a
-        // full copy (correct, just not incremental). Rare combo; acceptable.
-        // Mark the run busy
-        // NOW so a second click can't spawn a parallel prep (run_backup's top
-        // guard checks `running`); run_stream keeps it set and clears on Done.
-        state.borrow_mut().running = true;
-        set_running(ui, true);
-        set_status(ui, "Checking for a previous snapshot…");
-        let t2 = target.clone();
-        run_oneshot(
+        set_log(ui, &format!("snapshot {ts}\n"));
+        // The --copy-dest lookup is a network call that must run *after* the
+        // VPN is up (some rclone remotes are only reachable over it), so build
+        // the commands inside the worker via `prepare` rather than up front.
+        let env = rclone::env_for(&target);
+        let t = target.clone();
+        let prepare: Prepare = Box::new(move || {
+            let prev = rclone::list_snapshots(&t)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| snapshot::is_timestamp(s))
+                .max()
+                .filter(|_| rclone::supports_server_side_copy(&t));
+            let mut cmds = rclone::backup_cmds(&t, &ts, prev.as_deref(), dry_run);
+            for (prog, args) in &mut cmds {
+                add_rclone_progress(prog, args);
+            }
+            cmds
+        });
+        run_stream(
             ui,
             state,
-            move || {
-                let prev = rclone::list_snapshots(&t2)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|s| snapshot::is_timestamp(s))
-                    .max();
-                match prev {
-                    Some(p) if rclone::supports_server_side_copy(&t2) => Some(p),
-                    _ => None,
-                }
-            },
-            move |st, ui, prev| {
-                let mut cmds = rclone::backup_cmds(&target, &ts, prev.as_deref(), dry_run);
-                for (prog, args) in &mut cmds {
-                    add_rclone_progress(prog, args);
-                }
-                set_log(ui, &format!("snapshot {ts}\n"));
-                run_stream(
-                    ui,
-                    st,
-                    cmds,
-                    rclone::env_for(&target),
-                    pending.clone(),
-                    &msg,
-                    target.vpn.clone(),
-                );
-            },
+            Vec::new(),
+            env,
+            pending,
+            &msg,
+            target.vpn.clone(),
+            Some(prepare),
         );
     }
 }
@@ -2611,6 +2612,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         pending,
         "Restoring…",
         target.vpn.clone(),
+        None,
     );
 }
 

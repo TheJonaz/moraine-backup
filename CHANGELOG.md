@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.6] — 2026-07-02
+
+### Fixed
+- **rclone backups over a VPN are incremental again.** The previous-snapshot
+  lookup for `--copy-dest` now runs inside the worker thread *after* the VPN is
+  raised, so a remote reachable only over the target's VPN no longer silently
+  falls back to a full re-upload. (Removes the known limitation noted in 0.1.5.)
+
 ## [0.1.5] — 2026-07-02
 
 Fourth review pass — two parallel reviews (regression review of the 0.1.3/0.1.4

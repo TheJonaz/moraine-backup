@@ -28,7 +28,7 @@ prune old snapshots automatically with a retention policy.
 
 ### Debian / Ubuntu / Linux Mint
 ```bash
-sudo apt install ./moraine_0.1.5-1_amd64.deb
+sudo apt install ./moraine_0.1.6-1_amd64.deb
 ```
 Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
@@ -137,6 +137,12 @@ Moraine handles credentials for your backup destinations. How they are protected
   host/user/password to rclone via `RCLONE_FTP_*` environment variables (the
   environment is private to the process owner), not in the connection string
   on the command line.
+- **Configs are validated (including on import).** A target name can't traverse
+  outside the destination (`/`, `..`, `latest` are rejected), and a
+  key/host/user can't smuggle extra flags into rsync/ssh (leading `-` or
+  whitespace is rejected); positional paths are passed after `--`. So importing
+  an encrypted config from an untrusted source can't run commands or touch data
+  outside its own destination.
 
 ## License
 
