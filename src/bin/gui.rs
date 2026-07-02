@@ -995,6 +995,9 @@ fn retention_field(
 }
 
 /// A simple add/remove list editor bound to a target's sources or exclude list.
+/// A rebuild closure, stored in a cell so the row's ✕ buttons can call it.
+type RebuildCell = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
+
 fn list_editor(
     state: &Shared,
     i: usize,
@@ -1010,11 +1013,16 @@ fn list_editor(
     let listbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
     outer.append(&listbox);
 
-    let rebuild = Rc::new({
+    // `rebuild` needs to call itself (the ✕ buttons re-render the list after
+    // removing a row), so store it in a cell and hand the row handlers a Weak
+    // ref back to it. No strong cycle: the closure only holds a Weak.
+    let rebuild_cell: RebuildCell = Rc::new(RefCell::new(None));
+    let rebuild: Rc<dyn Fn()> = {
         let state = state.clone();
         let listbox = listbox.clone();
         let win = win.clone();
-        move || {
+        let cell_weak = Rc::downgrade(&rebuild_cell);
+        Rc::new(move || {
             while let Some(c) = listbox.first_child() {
                 listbox.remove(&c);
             }
@@ -1067,25 +1075,52 @@ fn list_editor(
                     row.append(&browse);
                 }
                 let rm = gtk::Button::with_label("✕");
+                {
+                    let st = state.clone();
+                    let cw = cell_weak.clone();
+                    rm.connect_clicked(move |_| {
+                        {
+                            let mut s = st.borrow_mut();
+                            let v = if is_sources {
+                                &mut s.targets[i].sources
+                            } else {
+                                &mut s.targets[i].exclude
+                            };
+                            if j < v.len() {
+                                v.remove(j);
+                            }
+                        }
+                        // Re-render so the remaining rows get correct indices.
+                        if let Some(f) = cw.upgrade().and_then(|c| c.borrow().clone()) {
+                            f();
+                        }
+                    });
+                }
                 row.append(&rm);
                 listbox.append(&row);
             }
-        }
-    });
+        })
+    };
+    *rebuild_cell.borrow_mut() = Some(rebuild.clone());
 
     let add = gtk::Button::with_label("+ Add");
     {
         let state = state.clone();
-        let rebuild = rebuild.clone();
+        // Hold a strong ref to the cell so it (and the closure) outlives this
+        // function, for as long as the modal's buttons exist.
+        let cell = rebuild_cell.clone();
         add.connect_clicked(move |_| {
-            let mut s = state.borrow_mut();
-            if is_sources {
-                s.targets[i].sources.push(String::new());
-            } else {
-                s.targets[i].exclude.push(String::new());
+            {
+                let mut s = state.borrow_mut();
+                if is_sources {
+                    s.targets[i].sources.push(String::new());
+                } else {
+                    s.targets[i].exclude.push(String::new());
+                }
             }
-            drop(s);
-            rebuild();
+            if let Some(f) = cell.borrow().clone() {
+                f();
+            }
         });
     }
     outer.append(&add);
