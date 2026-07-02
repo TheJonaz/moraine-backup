@@ -14,8 +14,20 @@ fn main() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty());
 
+    // Honor SOURCE_DATE_EPOCH (reproducible-builds.org): two builds of the same
+    // source then embed the same date. Fall back to the wall clock.
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+    let date_args: Vec<String> = match std::env::var("SOURCE_DATE_EPOCH") {
+        Ok(epoch) => vec![
+            "-u".into(),
+            "-d".into(),
+            format!("@{epoch}"),
+            "+%Y-%m-%d".into(),
+        ],
+        Err(_) => vec!["+%Y-%m-%d".into()],
+    };
     let build_date = Command::new("date")
-        .arg("+%Y-%m-%d")
+        .args(&date_args)
         .output()
         .ok()
         .filter(|o| o.status.success())

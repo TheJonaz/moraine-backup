@@ -71,7 +71,29 @@ pub fn append(config_path: &Path, entry: &LogEntry) -> Result<()> {
         let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
     }
     writeln!(file, "{line}").context("could not write log line")?;
+    drop(file);
+    compact_if_large(&path);
     Ok(())
+}
+
+/// Caps the log: when the file grows past ~1 MiB, keep only the newest 2000
+/// lines. Cheap size check on every append; the rewrite is rare.
+fn compact_if_large(path: &Path) {
+    const MAX_BYTES: u64 = 1_000_000;
+    const KEEP_LINES: usize = 2000;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    if meta.len() <= MAX_BYTES {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(KEEP_LINES);
+    let kept = format!("{}\n", lines[start..].join("\n"));
+    let _ = crate::config::write_private(path, kept.as_bytes());
 }
 
 /// Reads all log entries, newest first. Corrupt lines are skipped.

@@ -7,6 +7,52 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.3] — 2026-07-02
+
+Third security/bug review pass (two independent reviews of the GUI and the
+engine, findings verified before fixing).
+
+### Security
+- **Target names are validated**: a name is used as a folder under `dest` and
+  interpolated into remote commands, so `../`, `\`, control characters and the
+  reserved names `.`, `..`, `latest` are now rejected (they could traverse
+  outside the destination or hijack the `latest` pointer). For FTP targets,
+  `,`/`:` in host/user are rejected — they could inject rclone options into the
+  connection string. Unit-tested; an imported config is validated too.
+- Restore file trees are sanitized: entries from the server containing `..` or
+  absolute paths are dropped (a malicious server could otherwise steer a
+  selective restore outside the chosen folder).
+- `moraine init` writes the example config owner-only (0600) — users add
+  passwords to that file in place.
+- The encrypted config export is written 0600 (gpg's own output mode wasn't).
+- `nmcli` is invoked with an explicit `id` argument so a VPN name starting
+  with `-` can't be parsed as an option.
+- Reproducible builds: the embedded build date honors `SOURCE_DATE_EPOCH`.
+
+### Fixed
+- **"+ New schedule" crashed the app** (RefCell double-borrow) — fixed.
+- **SSH restore tree was unusable**: the file listing was parsed in the wrong
+  format, so folders didn't expand and selective restore built wrong paths.
+- GUI rclone backups are now **incremental** (`--copy-dest`), like the CLI —
+  previously every GUI rclone backup re-uploaded everything.
+- The previous-snapshot lookup ignores stray directories (only real timestamps
+  qualify), so `--copy-dest` can't silently point at garbage.
+- Failed runs are now recorded in History (previously only successes), and
+  prune entries include the target name.
+- Prune/test/load-snapshots won't start while a backup is running.
+- A VPN that was already connected before a run is left up afterwards.
+- The Startup autostart entry pins the working directory, so a login-started
+  instance finds the same `moraine.toml`.
+- Dry runs show the file list again (aggregate progress had hidden it).
+- rclone selective restore escapes glob characters in file names.
+- FTP: a broken/missing rclone now gives a clear error instead of a silent
+  anonymous-login attempt (obscure preflight).
+- CLI `prune` continues past a failing target and logs the failure; history
+  entries keep the full error chain.
+- The run log (`history.jsonl`) is capped (~1 MiB → newest 2000 entries kept).
+- `~` alone now expands in paths; the GUI keeps a rolling `moraine.toml.bak`
+  before every save.
+
 ## [0.1.2] — 2026-07-02
 
 ### Desktop app

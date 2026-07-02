@@ -82,7 +82,8 @@ fn cmd_init(path: &Path, force: bool) -> Result<()> {
             path.display()
         );
     }
-    std::fs::write(path, EXAMPLE_CONFIG)
+    // Owner-only from the start: users add passwords to this file in place.
+    config::write_private(path, EXAMPLE_CONFIG.as_bytes())
         .with_context(|| format!("could not write {}", path.display()))?;
     println!("Wrote example config to {}", path.display());
     println!("Edit it, then run: moraine run --dry-run");
@@ -95,26 +96,37 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let mut failures = 0;
     for t in targets {
         println!("== {} ({}) ==", t.name, backend_dest(t));
-        // Bring the target's VPN up first (if any); skip the target if it fails.
+        // The destination is used to build remote paths (and prune runs
+        // `rm -rf` under it) — refuse to run against an empty one.
+        if t.dest.trim().is_empty() {
+            failures += 1;
+            eprintln!("  target '{}' has an empty 'dest' — skipping", t.name);
+            continue;
+        }
+        // Bring the target's VPN up first (if any); skip the target if it
+        // fails. A VPN the user already brought up is left untouched.
         let has_vpn = !t.vpn.trim().is_empty();
-        if has_vpn {
+        let vpn_ours = has_vpn && !vpn::is_active(&t.vpn);
+        if vpn_ours {
             println!("  VPN: connecting {}…", t.vpn);
             if let Err(e) = vpn::up(&t.vpn) {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(path, LogEntry::new("backup", &t.name, false, e.to_string()));
+                    log(path, LogEntry::new("backup", &t.name, false, format!("{e:#}")));
                 }
                 continue;
             }
+        } else if has_vpn {
+            println!("  VPN: {} already connected", t.vpn);
         }
         let result = if t.backend.is_ssh() {
             rsync::run_target(t, dry_run)
         } else {
             rclone::run_target(t, dry_run)
         };
-        // Tear the VPN down afterwards, whatever happened.
-        if has_vpn {
+        // Tear the VPN down afterwards — only if we brought it up.
+        if vpn_ours {
             vpn::down(&t.vpn);
         }
         match result {
@@ -134,7 +146,7 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(path, LogEntry::new("backup", &t.name, false, e.to_string()));
+                    log(path, LogEntry::new("backup", &t.name, false, format!("{e:#}")));
                 }
             }
         }
@@ -312,12 +324,25 @@ fn verify_rclone(t: &config::Target) -> bool {
 fn cmd_prune(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
+    let mut failures = 0;
     for t in targets {
         println!("== {} ({}) ==", t.name, backend_dest(t));
         match &t.retention {
-            Some(p) if !p.is_empty() => prune_target(path, t, dry_run)?,
+            // One failing target shouldn't abort pruning of the rest.
+            Some(p) if !p.is_empty() => {
+                if let Err(e) = prune_target(path, t, dry_run) {
+                    failures += 1;
+                    eprintln!("  {e:#}");
+                    if !dry_run {
+                        log(path, LogEntry::new("prune", &t.name, false, format!("{e:#}")));
+                    }
+                }
+            }
             _ => println!("  no retention policy — keeping all snapshots"),
         }
+    }
+    if failures > 0 {
+        bail!("{failures} target(s) failed to prune");
     }
     Ok(())
 }

@@ -17,6 +17,13 @@ pub fn timestamp() -> String {
     Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
 }
 
+/// True if `s` parses exactly as a snapshot timestamp. Used to filter remote
+/// listings so stray entries (`latest`, other directories) are never mistaken
+/// for snapshots.
+pub fn is_timestamp(s: &str) -> bool {
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H-%M-%S").is_ok()
+}
+
 /// The base directory for a target: `<dest>/<name>` (without trailing slash).
 pub fn base_dir(target: &Target) -> String {
     format!("{}/{}", target.dest.trim_end_matches('/'), target.name)

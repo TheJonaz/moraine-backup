@@ -203,18 +203,54 @@ impl Config {
         Ok(())
     }
 
-    fn validate(&self) -> Result<()> {
+    /// Sanity- and safety-checks the config. Public so the GUI can validate an
+    /// imported config before replacing the current one.
+    pub fn validate(&self) -> Result<()> {
         if self.targets.is_empty() {
             bail!("config has no [[target]] block");
         }
         for t in &self.targets {
+            // The name becomes a folder under `dest` and is interpolated into
+            // remote commands (always shell-quoted, but quoting doesn't stop
+            // path traversal). Reject anything that could escape `<dest>/<name>`
+            // or collide with the `latest` pointer.
+            let name = t.name.trim();
+            if name.is_empty() {
+                bail!("a target is missing 'name'");
+            }
+            if name.contains(['/', '\\'])
+                || name.chars().any(|c| c.is_control())
+                || name == "."
+                || name == ".."
+                || name == "latest"
+            {
+                bail!(
+                    "target name '{}' is not allowed: it is used as a folder on the \
+                     destination, so it must not contain '/', '\\' or control \
+                     characters, and cannot be '.', '..' or 'latest'",
+                    t.name
+                );
+            }
+            // The FTP backend builds an rclone connection string
+            // (`:ftp,host=…,user=…,pass=…:`): a ',' would inject arbitrary
+            // rclone options and a ':' truncates the string.
+            if matches!(t.backend, Backend::Ftp) {
+                for (field, v) in [("host", &t.host), ("user", &t.user)] {
+                    if v.contains([',', ':']) {
+                        bail!(
+                            "target '{name}': {field} must not contain ',' or ':' \
+                             (it is embedded in the rclone FTP connection string)"
+                        );
+                    }
+                }
+            }
             if t.sources.is_empty() {
-                bail!("target '{}' is missing 'sources'", t.name);
+                bail!("target '{name}' is missing 'sources'");
             }
             // Duplicate names create a collision in snapshot folders.
             let dupes = self.targets.iter().filter(|o| o.name == t.name).count();
             if dupes > 1 {
-                bail!("multiple targets share the name '{}'", t.name);
+                bail!("multiple targets share the name '{name}'");
             }
         }
         Ok(())
@@ -263,10 +299,13 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Expands a leading `~/` against $HOME. Leaves everything else untouched.
+/// Expands `~` / a leading `~/` against $HOME. Leaves everything else untouched.
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
+    if let Ok(home) = std::env::var("HOME") {
+        if path == "~" {
+            return PathBuf::from(home);
+        }
+        if let Some(rest) = path.strip_prefix("~/") {
             return Path::new(&home).join(rest);
         }
     }
@@ -275,8 +314,53 @@ pub fn expand_tilde(path: &str) -> PathBuf {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::write_private;
+    use super::{write_private, Config};
     use std::os::unix::fs::PermissionsExt;
+
+    fn cfg_with_name(name: &str) -> Config {
+        toml::from_str(&format!(
+            r#"
+            [[target]]
+            name = "{name}"
+            host = "h"
+            user = "u"
+            dest = "/tmp/x"
+            sources = ["/tmp"]
+            "#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn validate_rejects_dangerous_target_names() {
+        // These become folders under dest and are embedded in remote rm -rf:
+        // traversal or reserved names must never pass.
+        for bad in ["../evil", "a/b", "a\\b", "latest", "..", ".", " "] {
+            assert!(
+                cfg_with_name(bad).validate().is_err(),
+                "name {bad:?} should be rejected"
+            );
+        }
+        assert!(cfg_with_name("nas-1.home").validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_ftp_option_injection() {
+        // ',' in host would inject rclone options into `:ftp,host=…:`.
+        let cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "ftp1"
+            backend = "ftp"
+            host = "h,tls=false"
+            user = "u"
+            dest = "backups"
+            sources = ["/tmp"]
+            "#,
+        )
+        .unwrap();
+        assert!(cfg.validate().is_err());
+    }
 
     fn mode(p: &std::path::Path) -> u32 {
         std::fs::metadata(p).unwrap().permissions().mode() & 0o777

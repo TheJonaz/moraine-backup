@@ -208,6 +208,10 @@ struct State {
     tree: Vec<TreeEntry>,
     cwd: String,
     running: bool,
+    /// True while widget models are being rebuilt — selection handlers that
+    /// would otherwise fire network calls (e.g. loading snapshots over SSH at
+    /// startup, before any user action) check this and stay quiet.
+    refreshing_ui: bool,
 }
 
 impl State {
@@ -236,8 +240,16 @@ impl State {
     }
 
     fn save(&self) -> Result<(), String> {
+        // Keep one rolling backup of the previous config. If loading ever
+        // failed (e.g. a config the stricter validation rejects), the GUI
+        // starts empty — this ensures a save can't silently destroy the old
+        // file. fs::copy preserves the 0600 permission bits.
+        let path = Path::new(CONFIG_PATH);
+        if path.exists() {
+            let _ = std::fs::copy(path, format!("{CONFIG_PATH}.bak"));
+        }
         self.build_config()
-            .save(Path::new(CONFIG_PATH))
+            .save(path)
             .map_err(|e| format!("{e:#}"))
     }
 
@@ -1157,8 +1169,11 @@ fn build_schedule_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
                 .first()
                 .map(|t| t.name.clone())
                 .unwrap_or_default();
+            // Compute the number BEFORE borrow_mut: the receiver of push() is
+            // evaluated first, so an inner borrow() here would panic.
+            let n = st.borrow().schedules.len() + 1;
             st.borrow_mut().schedules.push(ScheduleForm {
-                name: format!("schedule-{}", st.borrow().schedules.len() + 1),
+                name: format!("schedule-{n}"),
                 target,
                 frequency: Frequency::Daily,
                 hour: "2".to_string(),
@@ -1328,9 +1343,14 @@ fn build_restore_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         let ui2 = ui.clone();
         ui.restore_target.connect_selected_notify(move |d| {
             let names: Vec<String> = st.borrow().targets.iter().map(|t| t.name.clone()).collect();
+            let refreshing = st.borrow().refreshing_ui;
             if let Some(n) = names.get(d.selected() as usize) {
                 st.borrow_mut().restore_target = Some(n.clone());
-                load_snapshots(&st, &ui2);
+                // Only a real user selection triggers a network call — not a
+                // programmatic model rebuild (startup, import, save).
+                if !refreshing {
+                    load_snapshots(&st, &ui2);
+                }
             }
         });
     }
@@ -1433,11 +1453,15 @@ fn refresh_restore_targets(state: &Shared, ui: &Rc<Ui>) {
         .collect();
     let strs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
     let model = gtk::StringList::new(&strs);
+    // set_model/set_selected fire selected_notify; the flag keeps the handler
+    // from probing the server (SSH) without any user action.
+    state.borrow_mut().refreshing_ui = true;
     ui.restore_target.set_model(Some(&model));
     if !names.is_empty() {
         ui.restore_target.set_selected(0);
         state.borrow_mut().restore_target = Some(names[0].clone());
     }
+    state.borrow_mut().refreshing_ui = false;
 }
 
 fn refresh_snapshots(state: &Shared, ui: &Rc<Ui>) {
@@ -2110,35 +2134,31 @@ fn run_stream(
 
     let (tx, rx) = async_channel::unbounded::<Worker>();
     std::thread::spawn(move || {
-        // Bring the chosen VPN up first; if it fails, abort before touching data.
+        // Bring the chosen VPN up first; if it fails, abort before touching
+        // data. If the VPN is already connected (user brought it up manually),
+        // leave it alone — and leave it up afterwards.
+        let mut vpn_was_ours = false;
         if !vpn.is_empty() {
-            let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection up {vpn}")));
-            match Command::new("nmcli")
-                .args(["connection", "up", &vpn])
-                .output()
-            {
-                Ok(o) if o.status.success() => {
-                    let _ = tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
-                }
-                Ok(o) => {
-                    let e = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                    let _ = tx.send_blocking(Worker::Done(
-                        false,
-                        format!("could not bring up VPN \"{vpn}\": {e}"),
-                        None,
-                    ));
-                    return;
-                }
-                Err(e) => {
-                    let _ = tx.send_blocking(Worker::Done(
-                        false,
-                        format!(
-                            "could not run nmcli for VPN \"{vpn}\": {e} \
-                                 (is NetworkManager installed?)"
-                        ),
-                        None,
-                    ));
-                    return;
+            if moraine::vpn::is_active(&vpn) {
+                let _ = tx.send_blocking(Worker::Line(format!(
+                    "VPN \"{vpn}\" already connected — leaving it up afterwards"
+                )));
+            } else {
+                let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection up {vpn}")));
+                match moraine::vpn::up(&vpn) {
+                    Ok(()) => {
+                        vpn_was_ours = true;
+                        let _ =
+                            tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
+                    }
+                    Err(e) => {
+                        let _ = tx.send_blocking(Worker::Done(
+                            false,
+                            format!("{e:#}"),
+                            pending.clone(),
+                        ));
+                        return;
+                    }
                 }
             }
         }
@@ -2192,17 +2212,16 @@ fn run_stream(
             }
         }
 
-        // Always tear the VPN down afterwards (best effort), success or not.
-        if !vpn.is_empty() {
+        // Tear the VPN down afterwards (best effort) — but only if WE brought
+        // it up; a pre-existing connection stays.
+        if vpn_was_ours {
             let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection down {vpn}")));
-            let _ = Command::new("nmcli")
-                .args(["connection", "down", &vpn])
-                .output();
+            moraine::vpn::down(&vpn);
         }
 
         match failed {
             Some(detail) => {
-                let _ = tx.send_blocking(Worker::Done(false, detail, None));
+                let _ = tx.send_blocking(Worker::Done(false, detail, pending));
             }
             None => {
                 let _ = tx.send_blocking(Worker::Done(true, String::new(), pending));
@@ -2242,6 +2261,12 @@ fn run_stream(
                             append_log(&ui, &hint);
                         }
                         set_status(&ui, "Failed — see the log for details");
+                        // Record the failure in history too (first line only —
+                        // the full detail lives in the log).
+                        if let Some((op, target, _)) = pending {
+                            let short = detail.lines().next().unwrap_or("failed").to_string();
+                            log_entry(&state, &op, &target, false, short);
+                        }
                     }
                     refresh_history(&state, &ui);
                 }
@@ -2275,25 +2300,6 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     }
     let _ = state.borrow().save();
     let ts = snapshot::timestamp();
-    let mut cmds = if target.backend.is_ssh() {
-        let dest = snapshot::snapshot_dir(&target, &ts);
-        let mut args = rsync::build_args(&target, &dest, Some(rsync::LINK_DEST), dry_run);
-        add_rsync_progress(&mut args);
-        let mut c = vec![("rsync".to_string(), args)];
-        if !dry_run {
-            let latest = snapshot::update_latest_cmd(&target, &ts);
-            c.push((
-                "ssh".to_string(),
-                ssh::remote_command_args(&target, &latest),
-            ));
-        }
-        c
-    } else {
-        rclone::backup_cmds(&target, &ts, None, dry_run)
-    };
-    for (prog, args) in &mut cmds {
-        add_rclone_progress(prog, args);
-    }
     let pending = if dry_run {
         None
     } else {
@@ -2303,31 +2309,92 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             format!("snapshot {ts}"),
         ))
     };
-    set_log(ui, &format!("snapshot {ts}\n"));
     let msg = if dry_run {
         format!("Dry run against {}…", target.name)
     } else {
         format!("Backing up {}…", target.name)
     };
-    run_stream(
-        ui,
-        state,
-        cmds,
-        ssh::askpass_env(&target),
-        pending,
-        &msg,
-        target.vpn.clone(),
-    );
+
+    if target.backend.is_ssh() {
+        let dest = snapshot::snapshot_dir(&target, &ts);
+        let mut args = rsync::build_args(&target, &dest, Some(rsync::LINK_DEST), dry_run);
+        add_rsync_progress(&mut args);
+        let mut cmds = vec![("rsync".to_string(), args)];
+        if !dry_run {
+            let latest = snapshot::update_latest_cmd(&target, &ts);
+            cmds.push((
+                "ssh".to_string(),
+                ssh::remote_command_args(&target, &latest),
+            ));
+        }
+        set_log(ui, &format!("snapshot {ts}\n"));
+        run_stream(
+            ui,
+            state,
+            cmds,
+            ssh::askpass_env(&target),
+            pending,
+            &msg,
+            target.vpn.clone(),
+        );
+    } else {
+        if let Err(e) = rclone::preflight(&target) {
+            set_status(ui, &format!("{e:#}"));
+            return;
+        }
+        // Find the previous snapshot off the main thread (it's a network
+        // call), then run with --copy-dest so unchanged files are server-side
+        // copied instead of re-uploaded — same as the CLI.
+        set_status(ui, "Checking for a previous snapshot…");
+        let t2 = target.clone();
+        run_oneshot(
+            ui,
+            state,
+            move || {
+                let prev = rclone::list_snapshots(&t2)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|s| snapshot::is_timestamp(s))
+                    .max();
+                match prev {
+                    Some(p) if rclone::supports_server_side_copy(&t2) => Some(p),
+                    _ => None,
+                }
+            },
+            move |st, ui, prev| {
+                if st.borrow().running {
+                    return; // something else started meanwhile
+                }
+                let mut cmds = rclone::backup_cmds(&target, &ts, prev.as_deref(), dry_run);
+                for (prog, args) in &mut cmds {
+                    add_rclone_progress(prog, args);
+                }
+                set_log(ui, &format!("snapshot {ts}\n"));
+                run_stream(
+                    ui,
+                    st,
+                    cmds,
+                    Vec::new(),
+                    pending.clone(),
+                    &msg,
+                    target.vpn.clone(),
+                );
+            },
+        );
+    }
 }
 
-/// Adds live aggregate progress to rsync. Deliberately NOT `-v`: on a large
-/// source, listing every file floods the log and freezes the UI. --info=progress2
+/// Adds live aggregate progress to rsync. Deliberately NOT `-v` for real runs:
+/// on a large source, listing every file floods the log. --info=progress2
 /// gives one updating progress line (parsed by parse_progress); --stats (already
-/// in build_args) prints the final summary.
+/// in build_args) prints the final summary. Dry runs KEEP the file listing —
+/// seeing what would transfer is their whole point (the log buffer is capped).
 fn add_rsync_progress(args: &mut Vec<String>) {
-    // Drop the per-file listing (added by the shared lib for the CLI) — in the
-    // GUI it floods the log; the progress line + final stats are enough.
-    args.retain(|a| a != "-v" && a != "--verbose");
+    let dry = args.iter().any(|a| a == "--dry-run");
+    if !dry {
+        // Drop the per-file listing (added by the shared lib for the CLI).
+        args.retain(|a| a != "-v" && a != "--verbose");
+    }
     if !args.iter().any(|a| a.starts_with("--info")) {
         args.insert(0, "--info=progress2".to_string());
     }
@@ -2389,6 +2456,10 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         add_rsync_progress(&mut args);
         ("rsync".to_string(), args)
     } else {
+        if let Err(e) = rclone::preflight(&target) {
+            set_status(ui, &format!("{e:#}"));
+            return;
+        }
         (
             "rclone".to_string(),
             rclone::restore_args(&target, &ts, &selected, &dest, dry_run),
@@ -2438,6 +2509,10 @@ fn run_oneshot<T, F>(
 }
 
 fn test_connection(state: &Shared, ui: &Rc<Ui>) {
+    if state.borrow().running {
+        set_status(ui, "Busy — wait for the current run to finish");
+        return;
+    }
     let Some(f) = state.borrow().selected_target().cloned() else {
         set_status(ui, "No target selected");
         return;
@@ -2466,19 +2541,24 @@ fn test_connection(state: &Shared, ui: &Rc<Ui>) {
 }
 
 fn prune_now(state: &Shared, ui: &Rc<Ui>) {
+    if state.borrow().running {
+        set_status(ui, "Busy — wait for the current run to finish");
+        return;
+    }
     let Some(f) = state.borrow().selected_target().cloned() else {
         return;
     };
     let target = f.to_target();
+    let name = target.name.clone();
     set_status(ui, "Pruning…");
     run_oneshot(
         ui,
         state,
         move || prune_target(&target),
-        |st, ui, res| match res {
+        move |st, ui, res| match res {
             Ok(msg) => {
                 set_status(ui, &msg);
-                log_entry(st, "prune", "", true, msg);
+                log_entry(st, "prune", &name, true, msg);
                 refresh_history(st, ui);
             }
             Err(e) => set_status(ui, &format!("Prune failed: {e}")),
@@ -2487,6 +2567,9 @@ fn prune_now(state: &Shared, ui: &Rc<Ui>) {
 }
 
 fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
+    if state.borrow().running {
+        return;
+    }
     let Some(name) = state.borrow().restore_target.clone() else {
         return;
     };
@@ -2600,15 +2683,31 @@ fn list_snapshots(target: &Target) -> Result<String, String> {
     Ok(snaps.join("\n"))
 }
 
+/// Lists a snapshot's contents, normalized to one entry per line where
+/// directories end with `/` (rclone `lsf` format, which `load_tree` parses).
+/// The SSH backend's `find -printf '%y\t%P'` output is converted here.
+/// Entries are server-supplied: anything absolute or containing `..` is
+/// dropped so a malicious server can't traverse outside the restore dir.
 fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
-    if target.backend.is_ssh() {
+    let raw = if target.backend.is_ssh() {
         let out = ssh_probe(target, &snapshot::tree_cmd(target, ts))
             .output()
             .map_err(|e| format!("could not start ssh: {e}"))?;
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+        // `<type>\t<relative path>` → lsf-style (`dir/` with trailing slash).
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                let (ty, path) = l.split_once('\t')?;
+                Some(match ty {
+                    "d" => format!("{path}/"),
+                    _ => path.to_string(),
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     } else {
         let out = Command::new("rclone")
             .args(rclone::tree_args(target, ts))
@@ -2617,8 +2716,18 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
-    }
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    Ok(raw
+        .lines()
+        .filter(|l| {
+            !l.starts_with('/')
+                && !Path::new(l.trim_end_matches('/'))
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// Runs the connection checks. Returns (overall_ok, human-readable report).
@@ -2786,12 +2895,21 @@ fn set_autostart(enabled: bool) -> std::io::Result<()> {
             .ok()
             .and_then(|p| p.to_str().map(String::from))
             .unwrap_or_else(|| "moraine-gui".to_string());
+        // Pin the working directory: the config path is cwd-relative, so
+        // without Path= a login-started instance would look for (and create)
+        // a different moraine.toml in $HOME.
+        let cwd = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .map(|d| format!("Path={d}\n"))
+            .unwrap_or_default();
         let entry = format!(
             "[Desktop Entry]\n\
              Type=Application\n\
              Name=Moraine\n\
              Comment=Snapshot backup over SSH/rsync and rclone\n\
              Exec={exec}\n\
+             {cwd}\
              Icon=moraine\n\
              Terminal=false\n\
              X-GNOME-Autostart-enabled=true\n"
@@ -2804,9 +2922,10 @@ fn set_autostart(enabled: bool) -> std::io::Result<()> {
 }
 
 /// Symmetrically encrypts the current config to `dest` (AES-256, password-based).
+/// gpg writes to stdout and we save via write_private, so the export is 0600
+/// (gpg's own --output would create it with the default umask).
 fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
-    let dest = dest.display().to_string();
-    gpg_with_passphrase(
+    let encrypted = gpg_with_passphrase(
         &[
             "--batch",
             "--yes",
@@ -2818,12 +2937,13 @@ fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
             "--cipher-algo",
             "AES256",
             "--output",
-            &dest,
+            "-",
             CONFIG_PATH,
         ],
         passphrase,
-    )
-    .map(|_| ())
+    )?;
+    moraine::config::write_private(dest, &encrypted)
+        .map_err(|e| format!("could not write {}: {e}", dest.display()))
 }
 
 /// Decrypts `src`, validates it as a config, and replaces the current config.
@@ -2843,8 +2963,11 @@ fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
         passphrase,
     )?;
     let text = String::from_utf8_lossy(&plaintext);
-    // Refuse to overwrite unless it parses as a Moraine config.
-    toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    // Refuse to overwrite unless it parses AND validates as a Moraine config
+    // (validate() rejects e.g. traversal characters in target names).
+    let cfg =
+        toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    cfg.validate().map_err(|e| format!("invalid config: {e:#}"))?;
     // Owner-only: the config holds plaintext secrets.
     moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
         .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;

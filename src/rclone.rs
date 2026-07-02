@@ -76,6 +76,33 @@ pub fn snapshot_path(target: &Target, ts: &str) -> String {
     format!("{}/{ts}", base(target))
 }
 
+/// Checks that the FTP password can actually be obscured before any command
+/// embeds `pass=` in a connection string. Without this, an obscure failure
+/// (rclone missing/broken) would silently produce `pass=` → a confusing
+/// anonymous-login error instead of the real cause.
+pub fn preflight(target: &Target) -> Result<()> {
+    if matches!(target.backend, Backend::Ftp)
+        && !target.password.is_empty()
+        && obscure(&target.password).is_empty()
+    {
+        bail!("could not obscure the FTP password — is rclone installed and working?");
+    }
+    Ok(())
+}
+
+/// Escapes rclone filter-pattern metacharacters so a literal file name can be
+/// used in `--include` (otherwise `*?[]{}` in names match too much/nothing).
+fn escape_filter(p: &str) -> String {
+    let mut out = String::with_capacity(p.len());
+    for c in p.chars() {
+        if matches!(c, '\\' | '*' | '?' | '[' | ']' | '{' | '}') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn basename(src: &str) -> String {
     expand_tilde(src)
         .file_name()
@@ -152,10 +179,11 @@ pub fn restore_args(
     }
     args.push("-v".to_string());
     for p in paths {
+        let esc = escape_filter(p);
         args.push("--include".to_string());
-        args.push(format!("/{p}"));
+        args.push(format!("/{esc}"));
         args.push("--include".to_string());
-        args.push(format!("/{p}/**"));
+        args.push(format!("/{esc}/**"));
     }
     args.push(snapshot_path(target, ts));
     args.push(expand_tilde(local_dest).display().to_string());
@@ -214,8 +242,15 @@ pub fn supports_server_side_copy(target: &Target) -> bool {
 /// Uses `--copy-dest` only if the backend supports server-side copy.
 /// Inherits stdio. Returns the timestamp.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
+    preflight(target)?;
     let ts = snapshot::timestamp();
-    let prev = list_snapshots(target)?.into_iter().max();
+    // Only real snapshot timestamps qualify as --copy-dest base; a stray
+    // directory (or a migrated `latest`) would win a lexicographic max and
+    // silently degrade every run to a full copy.
+    let prev = list_snapshots(target)?
+        .into_iter()
+        .filter(|s| snapshot::is_timestamp(s))
+        .max();
     // Skip --copy-dest for backends without server-side copy (e.g. FTP).
     let prev_eff = match prev.as_deref() {
         Some(p) if supports_server_side_copy(target) => Some(p),

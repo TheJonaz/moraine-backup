@@ -1,3 +1,13 @@
+moraine (0.1.3-1) unstable; urgency=medium
+
+  * Security: validate target names (path traversal, FTP option injection),
+    sanitize server-supplied restore trees, owner-only init/export files,
+    nmcli id argument, SOURCE_DATE_EPOCH support.
+  * Fix schedule-creation crash, SSH restore tree parsing, incremental
+    rclone backups in the GUI, failure logging, prune concurrency guard.
+
+ -- Jonaz Thern <info@thern.io>  Thu, 02 Jul 2026 16:00:00 +0200
+
 moraine (0.1.2-1) unstable; urgency=medium
 
   * Per-target VPN, start-at-login, GTK theming fixes.
