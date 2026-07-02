@@ -7,6 +7,12 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.17] — 2026-07-02
+
+### Packaging
+- **Arch Linux / AUR**: added `packaging/aur/PKGBUILD` (+ publish instructions)
+  for the `moraine` AUR package, building both binaries from the release tag.
+
 ## [0.1.16] — 2026-07-02
 
 - Maintenance release: version bump only, no functional or code changes since
