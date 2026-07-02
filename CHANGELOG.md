@@ -7,6 +7,15 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.10] — 2026-07-02
+
+### Changed
+- The two per-source **File…**/**Folder…** buttons are now a single **Browse…**
+  button with a small menu (**Files…** / **Folders…**). Both pickers are
+  **multi-select**, so you can add many files (or many folders) in one sweep —
+  each becomes its own source row. (GTK can't select files *and* folders in the
+  same dialog, hence the two menu entries.)
+
 ## [0.1.9] — 2026-07-02
 
 ### Added

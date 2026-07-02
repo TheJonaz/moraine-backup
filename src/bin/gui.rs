@@ -1067,23 +1067,32 @@ fn retention_field(
 /// A rebuild closure, stored in a cell so the row's ✕ buttons can call it.
 type RebuildCell = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 
-/// Writes a chosen path (file or folder) into source row `j`'s entry and state.
-fn apply_picked_source(
-    st: &Shared,
-    i: usize,
-    j: usize,
-    entry: &gtk::Entry,
-    res: Result<gio::File, glib::Error>,
-) {
-    if let Ok(file) = res {
-        if let Some(p) = file.path() {
-            let path = p.display().to_string();
-            entry.set_text(&path);
-            if j < st.borrow().targets[i].sources.len() {
-                st.borrow_mut().targets[i].sources[j] = path;
+/// Adds one or more picked paths to a target's sources: the first replaces the
+/// row `j` that launched the picker, the rest are appended as new rows. Used by
+/// both the multi-file and multi-folder pickers.
+fn add_picked_sources(st: &Shared, i: usize, j: usize, list: &gio::ListModel) {
+    let mut paths: Vec<String> = Vec::new();
+    for k in 0..list.n_items() {
+        if let Some(file) = list.item(k).and_downcast::<gio::File>() {
+            if let Some(p) = file.path() {
+                paths.push(p.display().to_string());
             }
         }
     }
+    if paths.is_empty() {
+        return;
+    }
+    let mut s = st.borrow_mut();
+    let sources = &mut s.targets[i].sources;
+    let mut it = paths.into_iter();
+    if let Some(first) = it.next() {
+        if j < sources.len() {
+            sources[j] = first;
+        } else {
+            sources.push(first);
+        }
+    }
+    sources.extend(it);
 }
 
 fn list_editor(
@@ -1140,42 +1149,76 @@ fn list_editor(
                 }
                 row.append(&e);
                 if is_sources {
-                    // A source can be a single file or a whole folder, so offer
-                    // both pickers (GTK's file dialog can't select either mode
-                    // in one shot).
-                    let file_btn = gtk::Button::with_label("File…");
-                    {
-                        let st = state.clone();
-                        let e2 = e.clone();
-                        let win2 = win.clone();
-                        file_btn.connect_clicked(move |_| {
-                            let dialog =
-                                gtk::FileDialog::builder().title("Select a file").build();
-                            let st2 = st.clone();
-                            let e3 = e2.clone();
-                            dialog.open(Some(&win2), gio::Cancellable::NONE, move |res| {
-                                apply_picked_source(&st2, i, j, &e3, res);
-                            });
-                        });
-                    }
-                    row.append(&file_btn);
+                    // One "Browse…" button holding both pickers. Each is
+                    // multi-select, so you can grab many files (or many folders)
+                    // in one sweep — GTK can't select files AND folders in the
+                    // same dialog, so they're two menu entries under one button.
+                    let browse = gtk::MenuButton::new();
+                    browse.set_label("Browse…");
+                    let pop = gtk::Popover::new();
+                    let pbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
+                    pbox.set_margin_top(4);
+                    pbox.set_margin_bottom(4);
+                    pbox.set_margin_start(4);
+                    pbox.set_margin_end(4);
+                    let files_item = gtk::Button::with_label("Files…");
+                    files_item.add_css_class("flat");
+                    let folders_item = gtk::Button::with_label("Folders…");
+                    folders_item.add_css_class("flat");
+                    pbox.append(&files_item);
+                    pbox.append(&folders_item);
+                    pop.set_child(Some(&pbox));
+                    browse.set_popover(Some(&pop));
 
-                    let folder_btn = gtk::Button::with_label("Folder…");
                     {
                         let st = state.clone();
-                        let e2 = e.clone();
                         let win2 = win.clone();
-                        folder_btn.connect_clicked(move |_| {
-                            let dialog =
-                                gtk::FileDialog::builder().title("Select a folder").build();
+                        let cw = cell_weak.clone();
+                        let pop2 = pop.clone();
+                        files_item.connect_clicked(move |_| {
+                            pop2.popdown();
+                            let dialog = gtk::FileDialog::builder().title("Select files").build();
                             let st2 = st.clone();
-                            let e3 = e2.clone();
-                            dialog.select_folder(Some(&win2), gio::Cancellable::NONE, move |res| {
-                                apply_picked_source(&st2, i, j, &e3, res);
+                            let cw2 = cw.clone();
+                            dialog.open_multiple(Some(&win2), gio::Cancellable::NONE, move |res| {
+                                if let Ok(list) = res {
+                                    add_picked_sources(&st2, i, j, &list);
+                                    if let Some(f) = cw2.upgrade().and_then(|c| c.borrow().clone())
+                                    {
+                                        f();
+                                    }
+                                }
                             });
                         });
                     }
-                    row.append(&folder_btn);
+                    {
+                        let st = state.clone();
+                        let win2 = win.clone();
+                        let cw = cell_weak.clone();
+                        let pop2 = pop.clone();
+                        folders_item.connect_clicked(move |_| {
+                            pop2.popdown();
+                            let dialog =
+                                gtk::FileDialog::builder().title("Select folders").build();
+                            let st2 = st.clone();
+                            let cw2 = cw.clone();
+                            dialog.select_multiple_folders(
+                                Some(&win2),
+                                gio::Cancellable::NONE,
+                                move |res| {
+                                    if let Ok(list) = res {
+                                        add_picked_sources(&st2, i, j, &list);
+                                        if let Some(f) =
+                                            cw2.upgrade().and_then(|c| c.borrow().clone())
+                                        {
+                                            f();
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    }
+                    row.append(&browse);
                 }
                 let rm = gtk::Button::with_label("✕");
                 {
