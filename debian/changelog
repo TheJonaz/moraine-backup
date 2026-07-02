@@ -1,3 +1,9 @@
+moraine (0.1.15-1) unstable; urgency=medium
+
+  * Settings → About: rename the personal link to "Website".
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 18:00:00 +0200
+
 moraine (0.1.14-1) unstable; urgency=medium
 
   * Config import: clear error when the file isn't an encrypted config

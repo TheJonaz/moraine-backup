@@ -1984,7 +1984,7 @@ fn build_about_and_finish(
     for (label, url) in [
         ("GitHub", "https://github.com/TheJonaz/moraine-backup"),
         ("moraine.thern.io", "https://moraine.thern.io"),
-        ("by Jonaz Thern", "https://www.thern.io"),
+        ("Website", "https://www.thern.io"),
     ] {
         let btn = gtk::Button::with_label(label);
         btn.add_css_class("linkbtn");
