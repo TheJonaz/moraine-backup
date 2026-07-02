@@ -44,13 +44,27 @@ pub fn base(target: &Target) -> String {
 }
 
 /// Obscures a password via `rclone obscure` (the FTP backend requires it).
+/// The plaintext is fed on **stdin** (`rclone obscure -`), never as a command
+/// argument, so it doesn't appear in `ps`/`/proc/*/cmdline`.
 fn obscure(plain: &str) -> String {
     if plain.is_empty() {
         return String::new();
     }
-    std::process::Command::new("rclone")
-        .args(["obscure", plain])
-        .output()
+    use std::io::Write;
+    let child = Command::new("rclone")
+        .args(["obscure", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else {
+        return String::new();
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(plain.as_bytes());
+    }
+    child
+        .wait_with_output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())

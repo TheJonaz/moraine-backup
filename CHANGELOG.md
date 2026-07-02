@@ -7,6 +7,45 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Desktop app
+- **Per-target VPN**: pick a NetworkManager connection in a target's Settings;
+  Moraine brings it up before the backup and down afterwards. Scheduled (cron)
+  runs raise the VPN too.
+- **Start at login**: a Startup toggle in Settings writes/removes a desktop
+  autostart entry (`~/.config/autostart/moraine-gui.desktop`).
+- Dark navy-blue theme for text fields and buttons to match the app, and a
+  visible grid background (fixed a `file://` URI issue that had hidden it).
+- The ✕ button in the Sources/Exclude editors now actually removes the row.
+- Clearer failure diagnostics in the log (e.g. a source folder that can't be
+  read explains the permission problem and how to fix it).
+
+### Security
+- The config (`moraine.toml`) and run log (`history.jsonl`) are written
+  **owner-only (0600)** — both can contain plaintext secrets or paths; a
+  pre-existing looser file is tightened on the next write.
+- The `SSH_ASKPASS` helper moved from a predictable shared `/tmp` path to a
+  **private per-user directory** (`$XDG_RUNTIME_DIR`) and is always rewritten,
+  so a local attacker can't pre-plant a script that would receive the secret.
+- Secrets are never passed as command-line arguments: `rclone obscure` now reads
+  the password on stdin.
+- rsync now uses **`--protect-args`**, so remote paths/filenames with spaces or
+  shell metacharacters aren't reinterpreted by the remote shell.
+- Schedule names/targets are validated (no control characters) and shell-quoted
+  before being written to crontab / the Windows `.cmd` wrapper, so a crafted or
+  imported config can't inject commands.
+
+### Fixed
+- rsync partial-transfer exits (23/24) are treated as a valid snapshot, so
+  `latest` is still updated instead of the whole run failing (e.g. when a source
+  folder is unreadable).
+- The `latest` pointer is no longer listed as a snapshot.
+- Hardened snapshot-index accesses against a stale selection (no more potential
+  panic if the snapshot list changed under the selection).
+- Fixed a UI freeze on very large backups caused by flooding the log; the GUI
+  now shows aggregate progress instead of every file and caps the log buffer.
+
 ## [0.1.1] — 2026-06-29
 
 ### Cross-platform

@@ -50,14 +50,26 @@ pub fn path_for(config_path: &Path) -> PathBuf {
 }
 
 /// Appends an entry to the end of the log file (creates it if needed).
+/// Owner-readable only: log lines can contain paths and backend error text.
 pub fn append(config_path: &Path, entry: &LogEntry) -> Result<()> {
     let path = path_for(config_path);
     let line = serde_json::to_string(entry).context("serialize log entry")?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts
         .open(&path)
         .with_context(|| format!("could not open {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        // Tighten a pre-existing log that may have been created world-readable.
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+    }
     writeln!(file, "{line}").context("could not write log line")?;
     Ok(())
 }

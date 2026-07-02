@@ -18,16 +18,17 @@ prune old snapshots automatically with a retention policy.
 - **Backends** — `ssh` (rsync over SSH) and `rclone` (cloud, **FTP**, SFTP, SMB, WebDAV, S3, Drive, B2 …). FTP is built in: enter host/user/password right in the app.
 - **Restore** — list snapshots, browse the file tree, restore everything or selected files/folders.
 - **Retention / pruning** (GFS) — keep N latest + N daily/weekly/monthly; auto-prune after each run.
-- **Scheduling** — multiple schedules per target, installed into crontab.
-- **Live progress** — the rsync log streams while it runs.
+- **Scheduling** — multiple schedules per target, installed into crontab (or Windows Task Scheduler).
+- **Live progress** — a progress bar with transferred amount, rate and ETA while a run streams.
 - **Run history** — every backup/restore/prune is recorded and shown in a History tab.
-- **Desktop client** (iced) with system theme, native file pickers and a per-target settings modal.
+- **Per-target VPN** — optionally bring a NetworkManager VPN up before a backup and down after.
+- **Desktop client** (GTK 4) with a themed UI, native file pickers, a per-target settings modal, start-at-login and encrypted config export/import.
 
 ## Installation
 
 ### Debian / Ubuntu / Linux Mint
 ```bash
-sudo apt install ./moraine_0.1.0-1_amd64.deb
+sudo apt install ./moraine_0.1.1-1_amd64.deb
 ```
 Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
@@ -82,6 +83,7 @@ key     = "~/.ssh/id_ed25519"     # optional, otherwise ssh-agent
 dest    = "/volume1/backups"
 sources = ["/home/jonaz/documents", "/home/jonaz/pictures"]
 exclude = ["*.tmp", "node_modules"]
+# vpn   = "home-vpn"              # optional NetworkManager connection to raise for this backup
 
 [target.retention]
 keep_last = 7
@@ -106,6 +108,34 @@ A `moraine` library (engine: config, rsync, snapshot, ssh, rclone, prune, histor
 plus two binaries (`moraine` CLI, `moraine-gui` desktop). The backends currently shell
 out to external tools (`rsync`/`ssh`/`rclone`); a transport abstraction for in-process
 Rust is planned for broader portability (Windows without rsync, mobile).
+
+## Security
+
+Moraine handles credentials for your backup destinations. How they are protected:
+
+- **Secrets on disk are owner-only.** The config (`moraine.toml`) can hold SSH
+  passwords / key passphrases and FTP passwords in plaintext, and the run log
+  (`history.jsonl`) can contain paths and backend error text — both are written
+  with mode `0600` (a pre-existing looser file is tightened on the next write).
+  To move a config between machines, use **⚙ Settings → Export config**, which
+  encrypts it with a password (gpg, AES-256).
+- **Passwords are never passed as command-line arguments** (which are visible to
+  other users via `ps`). SSH/rsync authenticate through OpenSSH's `SSH_ASKPASS`
+  helper — a tiny script in a **private per-user directory** (`$XDG_RUNTIME_DIR`)
+  that reads the secret from the environment; `gpg` reads its passphrase on
+  stdin; and `rclone obscure` reads the password on stdin.
+- **Host keys (TOFU).** SSH uses `StrictHostKeyChecking=accept-new`: an unknown
+  host key is trusted on first connect and pinned in `known_hosts`; a later
+  change is rejected. For high-security setups, pre-populate `known_hosts` so the
+  first connection is verified too.
+- **Scheduling is injection-safe.** Schedule names/targets are rejected if they
+  contain control characters and are shell-quoted before being written to
+  crontab (or the Windows `.cmd` wrapper), so a crafted or imported config can't
+  inject commands.
+- **FTP caveat.** For the plain **FTP** backend, rclone needs the (obscured, but
+  reversible) password inside its connection string, which is visible in the
+  process arguments **on the local machine**. For sensitive data prefer an
+  rclone **SFTP/cloud** remote, whose credentials live in rclone's own config.
 
 ## License
 

@@ -2363,7 +2363,11 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         set_status(ui, "Pick a snapshot");
         return;
     };
-    let ts = s.snapshots[si].clone();
+    let Some(ts) = s.snapshots.get(si).cloned() else {
+        drop(s);
+        set_status(ui, "Pick a snapshot");
+        return;
+    };
     let Some(f) = s.targets.iter().find(|t| t.name == name).cloned() else {
         drop(s);
         return;
@@ -2527,7 +2531,9 @@ fn load_tree(state: &Shared, ui: &Rc<Ui>) {
     let Some(si) = state.borrow().selected_snapshot else {
         return;
     };
-    let ts = state.borrow().snapshots[si].clone();
+    let Some(ts) = state.borrow().snapshots.get(si).cloned() else {
+        return;
+    };
     let Some(f) = state
         .borrow()
         .targets
