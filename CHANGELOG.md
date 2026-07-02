@@ -10,8 +10,13 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ## [0.1.17] — 2026-07-02
 
 ### Packaging
-- **Arch Linux / AUR**: added `packaging/aur/PKGBUILD` (+ publish instructions)
-  for the `moraine` AUR package, building both binaries from the release tag.
+- **Arch Linux**: `packaging/aur/PKGBUILD` (test-built on Arch) — install the
+  prebuilt package from the release with `pacman -U`, or `makepkg -si` from the
+  PKGBUILD; AUR package planned once registration reopens.
+- **macOS / Windows CLI**: added a Homebrew formula
+  (`packaging/homebrew/moraine.rb`) and a Scoop manifest
+  (`packaging/scoop/moraine.json`) for the command-line client. The GTK desktop
+  app stays Linux-only.
 
 ## [0.1.16] — 2026-07-02
 
