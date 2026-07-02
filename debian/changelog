@@ -1,3 +1,9 @@
+moraine (0.1.8-1) unstable; urgency=medium
+
+  * Maintenance release: version bump only.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 11:00:00 +0200
+
 moraine (0.1.7-1) unstable; urgency=medium
 
   * Fix stale restore listing on fast target switches; crontab uninstall
