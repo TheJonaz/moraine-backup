@@ -1,3 +1,10 @@
+moraine (0.1.9-1) unstable; urgency=medium
+
+  * Sources can be individual files (new File… picker); rclone uses copyto
+    for file sources so they aren't nested under a same-named directory.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 12:00:00 +0200
+
 moraine (0.1.8-1) unstable; urgency=medium
 
   * Maintenance release: version bump only.

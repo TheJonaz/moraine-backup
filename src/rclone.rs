@@ -122,8 +122,10 @@ fn basename(src: &str) -> String {
         .unwrap_or_else(|| "data".to_string())
 }
 
-/// Backup commands: one `rclone copy` per source into `<base>/<ts>/<basename>`,
+/// Backup commands: one rclone copy per source into `<base>/<ts>/<basename>`,
 /// with `--copy-dest <base>/<prev>/<basename>` when a previous snapshot exists.
+/// A directory source uses `copy` (dest is a directory); a *file* source uses
+/// `copyto` (`copy FILE dir/name` would nest it as `name/name`).
 pub fn backup_cmds(
     target: &Target,
     ts: &str,
@@ -137,7 +139,9 @@ pub fn backup_cmds(
         .iter()
         .map(|src| {
             let name = basename(src);
-            let mut args = vec!["copy".to_string()];
+            let expanded = expand_tilde(src);
+            let is_file = expanded.is_file();
+            let mut args = vec![if is_file { "copyto" } else { "copy" }.to_string()];
             if dry_run {
                 args.push("--dry-run".to_string());
             }
@@ -147,17 +151,19 @@ pub fn backup_cmds(
                 // value, never parsed as a flag.
                 args.push(format!("--exclude={pat}"));
             }
-            // --copy-dest server-side copies unchanged files (saves
-            // bandwidth). The caller sets `prev` to None for backends without
-            // server-side copy (FTP/SMB/WebDAV/local) → full copy instead.
-            if let Some(p) = prev {
-                args.push("--copy-dest".to_string());
-                args.push(format!("{base}/{p}/{name}"));
+            // --copy-dest server-side copies unchanged files (saves bandwidth).
+            // Only meaningful for directory copies; the caller sets `prev` to
+            // None for backends without server-side copy (FTP/SMB/WebDAV/local).
+            if !is_file {
+                if let Some(p) = prev {
+                    args.push("--copy-dest".to_string());
+                    args.push(format!("{base}/{p}/{name}"));
+                }
             }
             // `--` ends flag parsing: a source/dest path beginning with '-' is
             // then a path, not an rclone flag.
             args.push("--".to_string());
-            args.push(expand_tilde(src).display().to_string());
+            args.push(expanded.display().to_string());
             args.push(format!("{snap}/{name}"));
             ("rclone".to_string(), args)
         })

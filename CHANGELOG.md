@@ -7,6 +7,18 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.9] — 2026-07-02
+
+### Added
+- **Sources can be individual files, not just folders.** Each source row now
+  has both a **File…** and a **Folder…** picker (GTK's file dialog can't do
+  either in one shot).
+
+### Fixed
+- rclone backend: a **file** source is copied with `copyto` instead of `copy`,
+  so it lands at `<snapshot>/<name>` instead of the nested `<name>/<name>`.
+  (The rsync/SSH backend already handled file sources correctly.)
+
 ## [0.1.8] — 2026-07-02
 
 - Maintenance release: version bump only, no functional or code changes since

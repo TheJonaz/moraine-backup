@@ -1067,6 +1067,25 @@ fn retention_field(
 /// A rebuild closure, stored in a cell so the row's ✕ buttons can call it.
 type RebuildCell = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
 
+/// Writes a chosen path (file or folder) into source row `j`'s entry and state.
+fn apply_picked_source(
+    st: &Shared,
+    i: usize,
+    j: usize,
+    entry: &gtk::Entry,
+    res: Result<gio::File, glib::Error>,
+) {
+    if let Ok(file) = res {
+        if let Some(p) = file.path() {
+            let path = p.display().to_string();
+            entry.set_text(&path);
+            if j < st.borrow().targets[i].sources.len() {
+                st.borrow_mut().targets[i].sources[j] = path;
+            }
+        }
+    }
+}
+
 fn list_editor(
     state: &Shared,
     i: usize,
@@ -1121,27 +1140,42 @@ fn list_editor(
                 }
                 row.append(&e);
                 if is_sources {
-                    let browse = gtk::Button::with_label("Browse…");
-                    let st = state.clone();
-                    let e2 = e.clone();
-                    let win2 = win.clone();
-                    browse.connect_clicked(move |_| {
-                        let dialog = gtk::FileDialog::builder().title("Select a folder").build();
-                        let st2 = st.clone();
-                        let e3 = e2.clone();
-                        dialog.select_folder(Some(&win2), gio::Cancellable::NONE, move |res| {
-                            if let Ok(file) = res {
-                                if let Some(p) = file.path() {
-                                    let path = p.display().to_string();
-                                    e3.set_text(&path);
-                                    if j < st2.borrow().targets[i].sources.len() {
-                                        st2.borrow_mut().targets[i].sources[j] = path;
-                                    }
-                                }
-                            }
+                    // A source can be a single file or a whole folder, so offer
+                    // both pickers (GTK's file dialog can't select either mode
+                    // in one shot).
+                    let file_btn = gtk::Button::with_label("File…");
+                    {
+                        let st = state.clone();
+                        let e2 = e.clone();
+                        let win2 = win.clone();
+                        file_btn.connect_clicked(move |_| {
+                            let dialog =
+                                gtk::FileDialog::builder().title("Select a file").build();
+                            let st2 = st.clone();
+                            let e3 = e2.clone();
+                            dialog.open(Some(&win2), gio::Cancellable::NONE, move |res| {
+                                apply_picked_source(&st2, i, j, &e3, res);
+                            });
                         });
-                    });
-                    row.append(&browse);
+                    }
+                    row.append(&file_btn);
+
+                    let folder_btn = gtk::Button::with_label("Folder…");
+                    {
+                        let st = state.clone();
+                        let e2 = e.clone();
+                        let win2 = win.clone();
+                        folder_btn.connect_clicked(move |_| {
+                            let dialog =
+                                gtk::FileDialog::builder().title("Select a folder").build();
+                            let st2 = st.clone();
+                            let e3 = e2.clone();
+                            dialog.select_folder(Some(&win2), gio::Cancellable::NONE, move |res| {
+                                apply_picked_source(&st2, i, j, &e3, res);
+                            });
+                        });
+                    }
+                    row.append(&folder_btn);
                 }
                 let rm = gtk::Button::with_label("✕");
                 {
