@@ -215,23 +215,35 @@ struct State {
     /// would otherwise fire network calls (e.g. loading snapshots over SSH at
     /// startup, before any user action) check this and stay quiet.
     refreshing_ui: bool,
+    /// Set if the config file existed but failed to load/validate, so the UI
+    /// can warn instead of silently showing an empty (and un-saveable) state.
+    load_error: Option<String>,
 }
 
 impl State {
     fn load() -> State {
         let mut st = State::default();
-        if let Ok(cfg) = Config::load(Path::new(CONFIG_PATH)) {
-            st.targets = cfg.targets.iter().map(TargetForm::from_target).collect();
-            st.schedules = cfg
-                .schedules
-                .iter()
-                .map(ScheduleForm::from_schedule)
-                .collect();
-            if !st.targets.is_empty() {
-                st.selected = Some(0);
+        let path = Path::new(CONFIG_PATH);
+        match Config::load(path) {
+            Ok(cfg) => {
+                st.targets = cfg.targets.iter().map(TargetForm::from_target).collect();
+                st.schedules = cfg
+                    .schedules
+                    .iter()
+                    .map(ScheduleForm::from_schedule)
+                    .collect();
+                if !st.targets.is_empty() {
+                    st.selected = Some(0);
+                }
             }
+            // Only surface an error if the file actually exists — a missing
+            // config on first run is normal, not an error.
+            Err(e) if path.exists() => {
+                st.load_error = Some(format!("Could not load {CONFIG_PATH}: {e:#}"));
+            }
+            Err(_) => {}
         }
-        st.history = history::read(Path::new(CONFIG_PATH));
+        st.history = history::read(path);
         st
     }
 
@@ -266,17 +278,17 @@ impl State {
 
     fn save(&self) -> Result<(), String> {
         self.check_forms()?;
-        // Keep one rolling backup of the previous config. If loading ever
-        // failed (e.g. a config the stricter validation rejects), the GUI
-        // starts empty — this ensures a save can't silently destroy the old
-        // file. fs::copy preserves the 0600 permission bits.
+        let cfg = self.build_config();
+        // Never write a config the engine can't load back (traversal names,
+        // bad key path, …): the GUI would then start empty on next launch.
+        cfg.validate().map_err(|e| format!("{e:#}"))?;
+        // Keep one rolling backup of the previous config. fs::copy preserves
+        // the 0600 permission bits.
         let path = Path::new(CONFIG_PATH);
         if path.exists() {
             let _ = std::fs::copy(path, format!("{CONFIG_PATH}.bak"));
         }
-        self.build_config()
-            .save(path)
-            .map_err(|e| format!("{e:#}"))
+        cfg.save(path).map_err(|e| format!("{e:#}"))
     }
 
     fn selected_target(&self) -> Option<&TargetForm> {
@@ -544,6 +556,11 @@ fn build_ui(app: &gtk::Application) {
     refresh_schedules(&state, &ui);
     refresh_restore_targets(&state, &ui);
     refresh_history(&state, &ui);
+
+    // Warn (don't silently start empty) if an existing config failed to load.
+    if let Some(err) = state.borrow().load_error.clone() {
+        set_status(&ui, &format!("⚠ {err} — the previous config is at {CONFIG_PATH}.bak"));
+    }
 
     window.present();
 }
@@ -1708,7 +1725,11 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         let st = state.clone();
         let ui2 = ui.clone();
         export_btn.connect_clicked(move |_| {
-            let _ = st.borrow().save(); // export the latest edits
+            // Persist current edits first; if they're invalid, export the
+            // on-disk config anyway but tell the user it isn't the latest.
+            if let Err(e) = st.borrow().save() {
+                set_status(&ui2, &format!("Exporting last saved config — {e}"));
+            }
             let ui3 = ui2.clone();
             let win = ui2.window.clone();
             ask_password(
@@ -2060,10 +2081,16 @@ fn confirm_delete_target(state: &Shared, ui: &Rc<Ui>) {
                 Some(i.min(s.targets.len() - 1))
             };
             drop(s);
-            let _ = st.borrow().save();
+            let saved = st.borrow().save();
             refresh_targets(&st, &ui2);
             refresh_connection(&st, &ui2);
-            set_status(&ui2, "Target deleted");
+            match saved {
+                Ok(()) => set_status(&ui2, "Target deleted"),
+                Err(e) => set_status(
+                    &ui2,
+                    &format!("Target removed from the list, but couldn't save: {e}"),
+                ),
+            }
         }
     });
 }
@@ -2080,7 +2107,11 @@ fn parse_rsync_progress(line: &str) -> Option<(f64, String)> {
     let pct_idx = toks
         .iter()
         .position(|t| t.ends_with('%') && t.trim_end_matches('%').parse::<f64>().is_ok())?;
-    let pct: f64 = toks[pct_idx].trim_end_matches('%').parse().ok()?;
+    let pct: f64 = toks[pct_idx]
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite())?;
     let transferred = toks
         .get(pct_idx.wrapping_sub(1))
         .filter(|_| pct_idx > 0)
@@ -2107,7 +2138,11 @@ fn parse_rclone_progress(line: &str) -> Option<(f64, String)> {
     let pct_seg = segs
         .iter()
         .find(|s| s.ends_with('%') && s.trim_end_matches('%').parse::<f64>().is_ok())?;
-    let pct: f64 = pct_seg.trim_end_matches('%').parse().ok()?;
+    let pct: f64 = pct_seg
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite())?;
     // done/total is the segment with " / "; drop any "timestamp INFO :" prefix
     // by keeping only what's after the last colon.
     let transferred = segs
@@ -2208,7 +2243,10 @@ fn run_stream(
     ui.progress.set_visible(false);
     ui.progress_lbl.set_visible(false);
 
-    let (tx, rx) = async_channel::unbounded::<Worker>();
+    // Bounded so a very chatty (or malicious) child can't grow memory without
+    // limit: when full, the pump thread's send_blocking parks, the child's pipe
+    // fills, and it throttles naturally. The main loop drains continuously.
+    let (tx, rx) = async_channel::bounded::<Worker>(8192);
     std::thread::spawn(move || {
         // Bring the chosen VPN up first; if it fails, abort before touching
         // data. If the VPN is already connected (user brought it up manually),
@@ -2370,6 +2408,10 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         set_status(ui, "Target needs a host");
         return;
     }
+    if target.dest.trim().is_empty() {
+        set_status(ui, "Target needs a destination (dest)");
+        return;
+    }
     if target.sources.is_empty() {
         set_status(ui, "Target needs at least one source");
         return;
@@ -2424,7 +2466,15 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         }
         // Find the previous snapshot off the main thread (it's a network
         // call), then run with --copy-dest so unchanged files are server-side
-        // copied instead of re-uploaded — same as the CLI.
+        // copied instead of re-uploaded — same as the CLI. NOTE: this lookup
+        // runs before the VPN is raised (that happens in run_stream), so an
+        // rclone remote reachable *only* over the target's VPN falls back to a
+        // full copy (correct, just not incremental). Rare combo; acceptable.
+        // Mark the run busy
+        // NOW so a second click can't spawn a parallel prep (run_backup's top
+        // guard checks `running`); run_stream keeps it set and clears on Done.
+        state.borrow_mut().running = true;
+        set_running(ui, true);
         set_status(ui, "Checking for a previous snapshot…");
         let t2 = target.clone();
         run_oneshot(
@@ -2442,9 +2492,6 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
                 }
             },
             move |st, ui, prev| {
-                if st.borrow().running {
-                    return; // something else started meanwhile
-                }
                 let mut cmds = rclone::backup_cmds(&target, &ts, prev.as_deref(), dry_run);
                 for (prog, args) in &mut cmds {
                     add_rclone_progress(prog, args);
@@ -2696,6 +2743,9 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
 }
 
 fn load_tree(state: &Shared, ui: &Rc<Ui>) {
+    if state.borrow().running {
+        return;
+    }
     let Some(name) = state.borrow().restore_target.clone() else {
         return;
     };

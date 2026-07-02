@@ -106,12 +106,14 @@ fn ensure_askpass_script() -> Option<String> {
 /// then the user's cache dir; falls back to the temp dir only if neither is set.
 /// Deliberately avoids a shared, predictable path like `/tmp/moraine`.
 fn askpass_dir() -> Option<PathBuf> {
+    // Only per-user private locations — never a shared, predictable /tmp path
+    // (a local attacker could pre-plant a script there). If none is available
+    // we return None and simply don't use SSH_ASKPASS.
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .unwrap_or_else(std::env::temp_dir);
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
     let dir = base.join("moraine");
     std::fs::create_dir_all(&dir).ok()?;
     #[cfg(unix)]

@@ -143,8 +143,9 @@ pub fn backup_cmds(
             }
             args.push("-v".to_string()); // per-file output for the live log
             for pat in &target.exclude {
-                args.push("--exclude".to_string());
-                args.push(pat.clone());
+                // Combined form: a pattern starting with '-' stays part of the
+                // value, never parsed as a flag.
+                args.push(format!("--exclude={pat}"));
             }
             // --copy-dest server-side copies unchanged files (saves
             // bandwidth). The caller sets `prev` to None for backends without
@@ -153,6 +154,9 @@ pub fn backup_cmds(
                 args.push("--copy-dest".to_string());
                 args.push(format!("{base}/{p}/{name}"));
             }
+            // `--` ends flag parsing: a source/dest path beginning with '-' is
+            // then a path, not an rclone flag.
+            args.push("--".to_string());
             args.push(expand_tilde(src).display().to_string());
             args.push(format!("{snap}/{name}"));
             ("rclone".to_string(), args)
@@ -192,11 +196,10 @@ pub fn restore_args(
     args.push("-v".to_string());
     for p in paths {
         let esc = escape_filter(p);
-        args.push("--include".to_string());
-        args.push(format!("/{esc}"));
-        args.push("--include".to_string());
-        args.push(format!("/{esc}/**"));
+        args.push(format!("--include=/{esc}"));
+        args.push(format!("--include=/{esc}/**"));
     }
+    args.push("--".to_string());
     args.push(snapshot_path(target, ts));
     args.push(expand_tilde(local_dest).display().to_string());
     args

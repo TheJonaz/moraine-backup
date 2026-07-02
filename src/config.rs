@@ -237,17 +237,30 @@ impl Config {
                     t.name
                 );
             }
-            // The FTP backend builds an rclone connection string
-            // (`:ftp,host=…,user=…,pass=…:`): a ',' would inject arbitrary
-            // rclone options and a ':' truncates the string.
-            if matches!(t.backend, Backend::Ftp) {
-                for (field, v) in [("host", &t.host), ("user", &t.user)] {
-                    if v.contains([',', ':']) {
-                        bail!(
-                            "target '{name}': {field} must not contain ',' or ':' \
-                             (it is embedded in the rclone FTP connection string)"
-                        );
-                    }
+            // host/user become `user@host` argv and (for ssh) the remote target
+            // spec. A leading '-' would be parsed as an rsync/ssh flag, and
+            // whitespace/control chars are never valid in a hostname/username.
+            for (field, v) in [("host", &t.host), ("user", &t.user)] {
+                if v.starts_with('-') || v.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                    bail!(
+                        "target '{name}': {field} must not start with '-' or contain \
+                         whitespace/control characters"
+                    );
+                }
+            }
+            // The key path is space-joined into rsync's `-e` transport string,
+            // which rsync word-splits (no shell). Whitespace or a leading '-'
+            // could inject extra ssh options (e.g. `-o ProxyCommand=…` → local
+            // command execution). Reject them.
+            if let Some(k) = &t.key {
+                if !k.is_empty()
+                    && (k.starts_with('-')
+                        || k.chars().any(|c| c.is_whitespace() || c.is_control()))
+                {
+                    bail!(
+                        "target '{name}': key path must not start with '-' or contain \
+                         whitespace/control characters"
+                    );
                 }
             }
             if t.sources.is_empty() {
@@ -361,21 +374,57 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_ftp_option_injection() {
-        // ',' in host would inject rclone options into `:ftp,host=…:`.
-        let cfg: Config = toml::from_str(
+    fn validate_rejects_argv_injection_in_key_host_user() {
+        // A key path with whitespace could inject ssh options into rsync's -e
+        // string (e.g. ProxyCommand → local command execution).
+        let bad_key: Config = toml::from_str(
             r#"
             [[target]]
-            name = "ftp1"
+            name = "n"
+            host = "h"
+            user = "u"
+            key = "x -o ProxyCommand=touch /tmp/pwn"
+            dest = "/tmp/x"
+            sources = ["/tmp"]
+            "#,
+        )
+        .unwrap();
+        assert!(bad_key.validate().is_err());
+
+        // A leading '-' in host/user would be parsed as an rsync/ssh flag.
+        for (host, user) in [("-oProxyCommand=x", "u"), ("h", "-lroot")] {
+            let cfg: Config = toml::from_str(&format!(
+                r#"
+                [[target]]
+                name = "n"
+                host = "{host}"
+                user = "{user}"
+                dest = "/tmp/x"
+                sources = ["/tmp"]
+                "#
+            ))
+            .unwrap();
+            assert!(
+                cfg.validate().is_err(),
+                "leading '-' in host/user allowed ({host}/{user})"
+            );
+        }
+
+        // IPv6 FTP host (contains ':') must be accepted — credentials go via
+        // environment now, so there's no connection string to inject into.
+        let ipv6: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "n"
             backend = "ftp"
-            host = "h,tls=false"
+            host = "fd00::1"
             user = "u"
             dest = "backups"
             sources = ["/tmp"]
             "#,
         )
         .unwrap();
-        assert!(cfg.validate().is_err());
+        assert!(ipv6.validate().is_ok());
     }
 
     fn mode(p: &std::path::Path) -> u32 {

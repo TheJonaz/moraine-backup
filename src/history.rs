@@ -93,7 +93,12 @@ fn compact_if_large(path: &Path) {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(KEEP_LINES);
     let kept = format!("{}\n", lines[start..].join("\n"));
-    let _ = crate::config::write_private(path, kept.as_bytes());
+    // Write to a sibling temp file then rename: an interrupted compaction (or a
+    // concurrent append) can't truncate/lose the existing log.
+    let tmp = path.with_extension("jsonl.tmp");
+    if crate::config::write_private(&tmp, kept.as_bytes()).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
 }
 
 /// Reads all log entries, newest first. Corrupt lines are skipped.

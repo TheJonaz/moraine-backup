@@ -54,6 +54,10 @@ pub fn build_args(
     args.push("-e".into());
     args.push(ssh::transport(target));
 
+    // `--` ends option parsing: a source or dest path that begins with '-'
+    // is then treated as a path, never an rsync flag.
+    args.push("--".into());
+
     // Sources on the client (with ~ expanded).
     for src in &target.sources {
         args.push(expand_tilde(src).display().to_string());
@@ -88,6 +92,7 @@ pub fn restore_args(
 
     args.push("-e".into());
     args.push(ssh::transport(target));
+    args.push("--".into());
 
     // Source: the snapshot directory on the target (trailing / → fetch the contents).
     let remote = format!("{}/{}/", snapshot::base_dir(target), timestamp);
@@ -124,6 +129,7 @@ pub fn restore_selected_args(
 
     args.push("-e".into());
     args.push(ssh::transport(target));
+    args.push("--".into());
 
     // One source per selected path: `<base>/<ts>/./<relative path>`.
     let base = format!("{}/{}", snapshot::base_dir(target), timestamp);

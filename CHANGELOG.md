@@ -7,6 +7,44 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.5] — 2026-07-02
+
+Fourth review pass — two parallel reviews (regression review of the 0.1.3/0.1.4
+diff + a fresh adversarial trust-boundary pass), findings verified before fixing.
+
+### Security
+- **Argument-injection hardening (imported configs).** A hostile config could
+  previously smuggle flags into rsync/rclone: `sources = ["--remove-source-files"]`
+  (local data loss) or a `key` like `"x -o ProxyCommand=…"` (the key is
+  space-joined into rsync's `-e` string → local command execution). Now:
+  `Config::validate()` rejects a key/host/user that starts with `-` or contains
+  whitespace/control characters, and every rsync/rclone invocation puts a `--`
+  before the positional paths (and uses the combined `--exclude=`/`--include=`
+  form). Unit-tested; imported configs are validated too.
+- The SSH_ASKPASS helper no longer falls back to a shared `/tmp` path — only
+  private per-user dirs; if none exists it just isn't used.
+- The worker→UI channel is bounded (backpressure), so a very chatty or hostile
+  remote can't grow memory without limit.
+- Progress parsing rejects non-finite percentages from crafted remote output.
+
+### Fixed
+- **The GUI can no longer persist a config it then can't load.** `State::save`
+  validates before writing, and if a config on disk fails to load the GUI warns
+  (and points at `moraine.toml.bak`) instead of silently starting empty.
+- The stale FTP `,`/`:` host/user check is gone (credentials moved to
+  environment variables in 0.1.4), so **IPv6 FTP hosts work** again.
+- Backups refuse to run against an empty `dest` (GUI + CLI), and the CLI logs
+  that skip to history.
+- A second "Run backup" during the rclone previous-snapshot lookup can't spawn
+  a parallel run; `load_tree` respects the busy flag.
+- History compaction writes atomically (temp file + rename).
+- Delete-target / export surface a save error instead of swallowing it.
+
+### Known limitation
+- An rclone remote reachable *only* over a target's VPN falls back to a full
+  copy (the previous-snapshot lookup runs before the VPN is raised). Correct,
+  just not incremental — a rare combination.
+
 ## [0.1.4] — 2026-07-02
 
 Closes the two remaining documented security tradeoffs, plus polish.

@@ -1,3 +1,12 @@
+moraine (0.1.5-1) unstable; urgency=medium
+
+  * Security: reject argv-injection in key/host/user; '--' before positional
+    paths in rsync/rclone; private-only askpass dir; bounded worker channel.
+  * Fix: GUI can't persist an unloadable config; IPv6 FTP hosts; empty-dest
+    guard; atomic history compaction; run-guard during rclone prep.
+
+ -- Jonaz Thern <info@thern.io>  Thu, 02 Jul 2026 23:00:00 +0200
+
 moraine (0.1.4-1) unstable; urgency=medium
 
   * FTP credentials via RCLONE_FTP_* environment (not argv).

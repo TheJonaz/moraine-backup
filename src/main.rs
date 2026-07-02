@@ -100,7 +100,11 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
         // `rm -rf` under it) — refuse to run against an empty one.
         if t.dest.trim().is_empty() {
             failures += 1;
-            eprintln!("  target '{}' has an empty 'dest' — skipping", t.name);
+            let msg = "empty 'dest' — refusing to run";
+            eprintln!("  target '{}': {msg}", t.name);
+            if !dry_run {
+                log(path, LogEntry::new("backup", &t.name, false, msg.to_string()));
+            }
             continue;
         }
         // Bring the target's VPN up first (if any); skip the target if it
