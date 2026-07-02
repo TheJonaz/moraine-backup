@@ -1524,6 +1524,9 @@ fn build_restore_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
                 // Only a real user selection triggers a network call — not a
                 // programmatic model rebuild (startup, import, save).
                 if !refreshing {
+                    // Re-default the destination to the new target's source
+                    // location (load_snapshots fills it when empty).
+                    ui2.restore_dest.set_text("");
                     load_snapshots(&st, &ui2);
                 }
             }
@@ -2800,6 +2803,27 @@ fn prune_now(state: &Shared, ui: &Rc<Ui>) {
     );
 }
 
+/// The directory a restore should default to: the common parent of the
+/// target's sources, so restoring recreates the original paths (the snapshot
+/// stores each source under its base name). `None` if the sources live in
+/// different parents (no single destination reconstructs them all).
+fn source_parent_default(f: &TargetForm) -> Option<String> {
+    let mut parent: Option<std::path::PathBuf> = None;
+    for s in &f.sources {
+        let s = s.trim();
+        if s.is_empty() {
+            continue;
+        }
+        let par = moraine::config::expand_tilde(s).parent()?.to_path_buf();
+        match &parent {
+            None => parent = Some(par),
+            Some(p) if *p == par => {}
+            Some(_) => return None,
+        }
+    }
+    parent.map(|p| p.display().to_string())
+}
+
 fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
     if state.borrow().running {
         return;
@@ -2816,6 +2840,14 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
     else {
         return;
     };
+    // Default the restore destination to where the sources live, so a restore
+    // reconstructs the original paths. Only when the field is empty, so a
+    // manual edit (or a value set for another target) is preserved.
+    if ui.restore_dest.text().trim().is_empty() {
+        if let Some(d) = source_parent_default(&f) {
+            ui.restore_dest.set_text(&d);
+        }
+    }
     let target = f.to_target();
     set_status(ui, "Loading snapshots…");
     let name2 = name.clone();

@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.12] — 2026-07-02
+
+### Added
+- **Restore destination defaults to the original location.** "Restore to:" is
+  pre-filled with the common parent of the target's sources, so restoring
+  recreates the files where they were backed up from (e.g. sources under
+  `/home/jonaz/…` default to `/home/jonaz`). It stays fully editable — type a
+  path or use Browse… to restore elsewhere. Restore never deletes, so it only
+  adds/overwrites at the destination.
+
 ## [0.1.11] — 2026-07-02
 
 ### Added

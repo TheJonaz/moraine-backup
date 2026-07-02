@@ -28,7 +28,7 @@ prune old snapshots automatically with a retention policy.
 
 ### Debian / Ubuntu / Linux Mint
 ```bash
-sudo apt install ./moraine_0.1.11-1_amd64.deb
+sudo apt install ./moraine_0.1.12-1_amd64.deb
 ```
 Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
