@@ -1,3 +1,10 @@
+moraine (0.1.13-1) unstable; urgency=medium
+
+  * Test connection: a missing local source no longer reads as
+    "connection FAILED"; it's reported distinctly with a clear hint.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 16:00:00 +0200
+
 moraine (0.1.12-1) unstable; urgency=medium
 
   * Restore destination defaults to the sources' original location

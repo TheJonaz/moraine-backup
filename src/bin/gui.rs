@@ -2762,13 +2762,15 @@ fn test_connection(state: &Shared, ui: &Rc<Ui>) {
         move || verify_target(&target),
         |_st, ui, res| match res {
             Ok((ok, msg)) => {
+                // The message's RESULT line distinguishes a connection failure
+                // from a merely-missing source, so keep the status neutral.
                 set_log(ui, &msg);
                 set_status(
                     ui,
                     if ok {
-                        "Connection OK ✓"
+                        "All checks passed ✓"
                     } else {
-                        "Connection FAILED ✗ — see the log"
+                        "Some checks did not pass — see the log"
                     },
                 );
             }
@@ -3026,14 +3028,28 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
 /// Runs the connection checks. Returns (overall_ok, human-readable report).
 fn verify_target(target: &Target) -> Result<(bool, String), String> {
     let mut out = format!("Testing target \"{}\"\n\n", target.name);
-    let mut ok_all = true;
+    // Track a missing *source* separately from a *connection* problem: a source
+    // that doesn't exist locally shouldn't read as "connection FAILED".
+    let mut missing_sources = 0;
+    let mut conn_ok = true;
 
     // Local sources exist?
     for src in &target.sources {
         let p = moraine::config::expand_tilde(src);
         let ok = p.exists();
-        ok_all &= ok;
-        out.push_str(&format!("{} source {}\n", mark(ok), p.display()));
+        if !ok {
+            missing_sources += 1;
+        }
+        out.push_str(&format!(
+            "{} source {}{}\n",
+            mark(ok),
+            p.display(),
+            if ok {
+                ""
+            } else {
+                " — does not exist on this computer"
+            }
+        ));
     }
 
     if target.backend.is_ssh() {
@@ -3041,7 +3057,7 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
             .output()
             .map_err(|e| format!("could not start ssh: {e}"))?;
         let cok = probe.status.success();
-        ok_all &= cok;
+        conn_ok &= cok;
         if cok {
             out.push_str(&format!(
                 "{} SSH connection to {}\n",
@@ -3055,7 +3071,7 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
                 String::from_utf8_lossy(&dest.stdout).trim(),
                 "writable" | "parent-writable"
             );
-            ok_all &= dok;
+            conn_ok &= dok;
             out.push_str(&format!(
                 "{} destination writable: {}\n",
                 mark(dok),
@@ -3078,16 +3094,22 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
-        ok_all &= ok;
+        conn_ok &= ok;
         out.push_str(&format!("{} rclone available\n", mark(ok)));
     }
 
+    let ok_all = conn_ok && missing_sources == 0;
     out.push('\n');
-    out.push_str(if ok_all {
-        "==> RESULT: connection OK"
+    if !conn_ok {
+        out.push_str("==> RESULT: connection FAILED (see the lines marked [FAIL] above)");
+    } else if missing_sources > 0 {
+        out.push_str(&format!(
+            "==> RESULT: connection OK — but {missing_sources} source(s) are missing. \
+             Fix the paths in the target's ⚙ Settings (or create the folders)."
+        ));
     } else {
-        "==> RESULT: connection FAILED (see lines marked [FAIL] above)"
-    });
+        out.push_str("==> RESULT: all checks passed ✓");
+    }
     out.push('\n');
     Ok((ok_all, out))
 }

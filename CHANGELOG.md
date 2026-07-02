@@ -7,6 +7,15 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.13] — 2026-07-02
+
+### Changed
+- **Test connection** no longer reports "connection FAILED" when the connection
+  and destination are fine but a local **source** path is missing. It now says
+  "connection OK — but N source(s) are missing", annotates each missing source
+  with "does not exist on this computer", and the status bar stays neutral
+  ("Some checks did not pass") instead of a red failure.
+
 ## [0.1.12] — 2026-07-02
 
 ### Added
