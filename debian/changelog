@@ -1,3 +1,11 @@
+moraine (0.1.2-1) unstable; urgency=medium
+
+  * Per-target VPN, start-at-login, GTK theming fixes.
+  * Security hardening: owner-only config/log (0600), private SSH_ASKPASS
+    dir, no secrets in argv, rsync --protect-args, injection-safe scheduling.
+
+ -- Jonaz Thern <info@thern.io>  Thu, 02 Jul 2026 12:00:00 +0200
+
 moraine (0.1.1-1) unstable; urgency=medium
 
   * Initial release. (Closes: #1141131)
