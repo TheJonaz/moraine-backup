@@ -2724,6 +2724,11 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
         move || list_snapshots(&target),
         move |st, ui, res| match res {
             Ok(joined) => {
+                // Ignore a stale result: the user may have switched targets
+                // while this listing was in flight (jobs can overlap).
+                if st.borrow().restore_target.as_deref() != Some(name2.as_str()) {
+                    return;
+                }
                 let snaps: Vec<String> = joined
                     .lines()
                     .map(|s| s.to_string())
@@ -2767,13 +2772,26 @@ fn load_tree(state: &Shared, ui: &Rc<Ui>) {
         return;
     };
     let target = f.to_target();
+    let name_c = name.clone();
+    let ts_c = ts.clone();
     set_status(ui, "Loading file tree…");
     run_oneshot(
         ui,
         state,
         move || list_tree(&target, &ts),
-        |st, ui, res| match res {
+        move |st, ui, res| match res {
             Ok(joined) => {
+                // Ignore a stale result: the selection may have changed while
+                // this listing was in flight.
+                let name_ok = st.borrow().restore_target.as_deref() == Some(name_c.as_str());
+                let ts_ok = {
+                    let s = st.borrow();
+                    s.selected_snapshot.and_then(|i| s.snapshots.get(i)).map(String::as_str)
+                        == Some(ts_c.as_str())
+                };
+                if !(name_ok && ts_ok) {
+                    return;
+                }
                 let tree: Vec<TreeEntry> = joined
                     .lines()
                     .filter(|l| !l.is_empty())
@@ -3258,7 +3276,9 @@ fn check_schedule_field(kind: &str, name: &str, v: &str) -> Result<(), String> {
 }
 
 fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
-    const MARKER: &str = "# moraine";
+    // Include the colon so we only ever remove our own generated lines
+    // (`… # moraine:<name>`), never a user's unrelated `# moraine` comment.
+    const MARKER: &str = "# moraine:";
     let existing = match Command::new("crontab").arg("-l").output() {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
         _ => String::new(),
@@ -3280,7 +3300,7 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
         // Shell-quote every interpolated value so spaces/metacharacters in the
         // path or target can't be interpreted by the shell that runs the job.
         lines.push(format!(
-            "{} {} -c {} run --target {} >/dev/null 2>&1 {MARKER}:{}",
+            "{} {} -c {} run --target {} >/dev/null 2>&1 {MARKER}{}",
             s.cron(),
             snapshot::shell_quote(&exe),
             snapshot::shell_quote(&cfg),

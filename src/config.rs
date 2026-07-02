@@ -266,6 +266,23 @@ impl Config {
             if t.sources.is_empty() {
                 bail!("target '{name}' is missing 'sources'");
             }
+            // Each source is copied into the snapshot under its base name, so
+            // two sources sharing a base name would silently overwrite/merge
+            // each other (e.g. /a/data and /b/data → <snap>/data).
+            let mut bases = std::collections::HashSet::new();
+            for src in &t.sources {
+                let base = Path::new(src.trim_end_matches('/'))
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if !base.is_empty() && !bases.insert(base.clone()) {
+                    bail!(
+                        "target '{name}': two sources share the base name '{base}' — they \
+                         would overwrite each other in the snapshot. Rename one, or split \
+                         them into separate targets."
+                    );
+                }
+            }
             // Duplicate names create a collision in snapshot folders.
             let dupes = self.targets.iter().filter(|o| o.name == t.name).count();
             if dupes > 1 {
@@ -371,6 +388,37 @@ mod tests {
             );
         }
         assert!(cfg_with_name("nas-1.home").validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_source_basenames() {
+        // /a/data and /b/data both land in <snap>/data — reject the collision.
+        let cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "n"
+            host = "h"
+            user = "u"
+            dest = "/tmp/x"
+            sources = ["/a/data", "/b/data"]
+            "#,
+        )
+        .unwrap();
+        assert!(cfg.validate().is_err());
+
+        // Distinct base names are fine.
+        let ok: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "n"
+            host = "h"
+            user = "u"
+            dest = "/tmp/x"
+            sources = ["/a/docs", "/b/pics"]
+            "#,
+        )
+        .unwrap();
+        assert!(ok.validate().is_ok());
     }
 
     #[test]

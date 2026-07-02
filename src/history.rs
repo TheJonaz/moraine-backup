@@ -93,8 +93,11 @@ fn compact_if_large(path: &Path) {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(KEEP_LINES);
     let kept = format!("{}\n", lines[start..].join("\n"));
-    // Write to a sibling temp file then rename: an interrupted compaction (or a
-    // concurrent append) can't truncate/lose the existing log.
+    // Write to a sibling temp file then rename, so an interrupted compaction
+    // leaves the old log intact (the rename is atomic). Note: a *concurrent*
+    // append from another process (e.g. a cron run while the GUI compacts) can
+    // still be lost in the read→rewrite window — acceptable for a run log,
+    // which is advisory and never holds backup data.
     let tmp = path.with_extension("jsonl.tmp");
     if crate::config::write_private(&tmp, kept.as_bytes()).is_ok() {
         let _ = std::fs::rename(&tmp, path);

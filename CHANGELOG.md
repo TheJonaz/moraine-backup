@@ -7,6 +7,25 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.7] — 2026-07-02
+
+Fifth review pass (correctness/edge-case focus). Prune, progress parsing,
+cron generation and CLI exit handling were all confirmed clean; the items
+below were the real findings.
+
+### Fixed
+- **Restore no longer shows a stale list.** If you switch restore target (or
+  snapshot) while a listing is still loading, an out-of-order result is now
+  discarded instead of overwriting the current selection's snapshots/tree.
+- **Uninstalling schedules only removes moraine's own crontab lines.** The
+  marker match now requires `# moraine:` (with the colon), so a user's
+  unrelated `# moraine …` comment line is left untouched.
+- **Reject two sources with the same base name** (e.g. `/a/data` and
+  `/b/data`): they would land in the same snapshot subdirectory and silently
+  overwrite/merge. Now a clear config error. Unit-tested.
+- Honest comment on run-log compaction (a concurrent cross-process append can
+  still race; it only affects the advisory log, never backup data).
+
 ## [0.1.6] — 2026-07-02
 
 ### Fixed

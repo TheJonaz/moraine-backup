@@ -1,3 +1,10 @@
+moraine (0.1.7-1) unstable; urgency=medium
+
+  * Fix stale restore listing on fast target switches; crontab uninstall
+    matches only '# moraine:' lines; reject duplicate source base names.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 10:00:00 +0200
+
 moraine (0.1.6-1) unstable; urgency=medium
 
   * Fix: rclone --copy-dest lookup runs after the VPN is up, so VPN-only
