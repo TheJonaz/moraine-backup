@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.14] — 2026-07-02
+
+### Changed
+- **Clearer config-import errors.** Importing a file that isn't an encrypted
+  config now says "the selected file is not an encrypted Moraine config — pick
+  the .gpg file you created with Export config" instead of gpg's cryptic
+  "decrypt_message failed: Unknown system error"; a wrong password and a
+  corrupt file are also reported plainly. The import dialog defaults to `*.gpg`
+  files.
+
 ## [0.1.13] — 2026-07-02
 
 ### Changed

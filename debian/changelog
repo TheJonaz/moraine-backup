@@ -1,3 +1,10 @@
+moraine (0.1.14-1) unstable; urgency=medium
+
+  * Config import: clear error when the file isn't an encrypted config
+    (was gpg's cryptic "Unknown system error"); dialog defaults to *.gpg.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 17:00:00 +0200
+
 moraine (0.1.13-1) unstable; urgency=medium
 
   * Test connection: a missing local source no longer reads as

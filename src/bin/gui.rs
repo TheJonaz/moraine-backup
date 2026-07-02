@@ -1857,8 +1857,21 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         let st = state.clone();
         let ui2 = ui.clone();
         import_btn.connect_clicked(move |_| {
+            // Default to encrypted-config files so the right file is picked
+            // (importing a plaintext file gives a confusing gpg error).
+            let gpg_filter = gtk::FileFilter::new();
+            gpg_filter.set_name(Some("Encrypted config (*.gpg)"));
+            gpg_filter.add_pattern("*.gpg");
+            let all_filter = gtk::FileFilter::new();
+            all_filter.set_name(Some("All files"));
+            all_filter.add_pattern("*");
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&gpg_filter);
+            filters.append(&all_filter);
             let dialog = gtk::FileDialog::builder()
                 .title("Import encrypted config")
+                .filters(&filters)
+                .default_filter(&gpg_filter)
                 .build();
             let st2 = st.clone();
             let ui3 = ui2.clone();
@@ -3175,15 +3188,34 @@ fn gpg_with_passphrase(args: &[&str], passphrase: &str) -> Result<Vec<u8>, Strin
         .map_err(|e| format!("gpg stdin: {e}"))?;
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(err
+        // Return the full stderr so callers can translate known failures.
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(out.stdout)
+}
+
+/// Turns raw gpg stderr into a short, actionable message. gpg's own last line
+/// for these is cryptic (e.g. "decrypt_message failed: Unknown system error"
+/// when the file simply isn't encrypted).
+fn friendly_gpg_error(stderr: &str) -> String {
+    let s = stderr.to_lowercase();
+    if s.contains("no valid openpgp data") {
+        "the selected file is not an encrypted Moraine config — pick the \
+         .gpg file you created with Export config"
+            .to_string()
+    } else if s.contains("bad session key") || s.contains("gcry_kdf_derive") {
+        "wrong password".to_string()
+    } else if s.contains("invalid packet") || s.contains("premature eof") {
+        "the file looks corrupted or incomplete".to_string()
+    } else {
+        stderr
             .lines()
             .last()
             .unwrap_or("gpg failed")
             .trim()
-            .to_string());
+            .trim_start_matches("gpg: ")
+            .to_string()
     }
-    Ok(out.stdout)
 }
 
 /// Path to the desktop-autostart entry that launches the GUI at login.
@@ -3256,7 +3288,8 @@ fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
             CONFIG_PATH,
         ],
         passphrase,
-    )?;
+    )
+    .map_err(|e| friendly_gpg_error(&e))?;
     moraine::config::write_private(dest, &encrypted)
         .map_err(|e| format!("could not write {}: {e}", dest.display()))
 }
@@ -3276,7 +3309,8 @@ fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
             &src,
         ],
         passphrase,
-    )?;
+    )
+    .map_err(|e| friendly_gpg_error(&e))?;
     let text = String::from_utf8_lossy(&plaintext);
     // Refuse to overwrite unless it parses AND validates as a Moraine config
     // (validate() rejects e.g. traversal characters in target names).
