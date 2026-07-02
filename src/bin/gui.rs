@@ -209,6 +209,10 @@ struct State {
     snapshots: Vec<String>,
     selected_snapshot: Option<usize>,
     tree: Vec<TreeEntry>,
+    /// Snapshot-relative paths ticked for a selective restore. Tracked in state
+    /// (not read back off the widgets) so a selection survives folder
+    /// navigation and doesn't depend on which rows are currently visible.
+    checked: std::collections::HashSet<String>,
     cwd: String,
     running: bool,
     /// True while widget models are being rebuilt — selection handlers that
@@ -490,6 +494,23 @@ fn build_ui(app: &gtk::Application) {
         Some("settings"),
         "Settings",
     );
+
+    // Opening the Restore tab auto-loads snapshots for the selected target
+    // (only when none are loaded yet, so it doesn't clobber a live selection).
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        stack.connect_visible_child_name_notify(move |s| {
+            if s.visible_child_name().as_deref() == Some("restore") {
+                let need = st.borrow().snapshots.is_empty()
+                    && st.borrow().restore_target.is_some()
+                    && !st.borrow().running;
+                if need {
+                    load_snapshots(&st, &ui2);
+                }
+            }
+        });
+    }
 
     // In-content header: logo + name + subtitle.
     let logo = gtk::Image::from_file(asset("moraine-64.png"));
@@ -1633,8 +1654,11 @@ fn refresh_snapshots(state: &Shared, ui: &Rc<Ui>) {
         let ui2 = ui.clone();
         let gesture = gtk::GestureClick::new();
         gesture.connect_released(move |_, _, _, _| {
-            st.borrow_mut().selected_snapshot = Some(i);
-            st.borrow_mut().cwd = String::new();
+            let mut s = st.borrow_mut();
+            s.selected_snapshot = Some(i);
+            s.cwd = String::new();
+            s.checked.clear(); // a new snapshot starts with nothing selected
+            drop(s);
             load_tree(&st, &ui2);
         });
         row.add_controller(gesture);
@@ -1672,6 +1696,7 @@ fn refresh_tree(state: &Shared, ui: &Rc<Ui>) {
         ui.tree_list.append(&row);
     }
     let entries = state.borrow().tree.clone();
+    let checked = state.borrow().checked.clone();
     let prefix = if cwd.is_empty() {
         String::new()
     } else {
@@ -1688,16 +1713,26 @@ fn refresh_tree(state: &Shared, ui: &Rc<Ui>) {
         let row = gtk::ListBoxRow::new();
         let hb = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let check = gtk::CheckButton::new();
+        check.set_active(checked.contains(&e.path));
+        {
+            // Toggling updates the tracked set directly.
+            let st = state.clone();
+            let path = e.path.clone();
+            check.connect_toggled(move |c| {
+                let mut s = st.borrow_mut();
+                if c.is_active() {
+                    s.checked.insert(path.clone());
+                } else {
+                    s.checked.remove(&path);
+                }
+            });
+        }
         hb.append(&check);
         let icon = if e.is_dir { "📁" } else { "📄" };
         let lbl = gtk::Label::new(Some(&format!("{icon} {}", e.name)));
         lbl.set_halign(gtk::Align::Start);
         lbl.set_hexpand(true);
         hb.append(&lbl);
-        // store the path on the row for selective restore
-        unsafe {
-            row.set_data("path", e.path.clone());
-        }
         row.set_child(Some(&hb));
         if e.is_dir {
             let st = state.clone();
@@ -1714,28 +1749,6 @@ fn refresh_tree(state: &Shared, ui: &Rc<Ui>) {
         }
         ui.tree_list.append(&row);
     }
-}
-
-/// Collect the checked paths in the tree (selective restore).
-fn checked_paths(ui: &Rc<Ui>) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut child = ui.tree_list.first_child();
-    while let Some(row) = child {
-        if let Some(r) = row.downcast_ref::<gtk::ListBoxRow>() {
-            if let Some(hb) = r.child().and_downcast::<gtk::Box>() {
-                if let Some(check) = hb.first_child().and_downcast::<gtk::CheckButton>() {
-                    if check.is_active() {
-                        let p: Option<std::ptr::NonNull<String>> = unsafe { r.data("path") };
-                        if let Some(p) = p {
-                            out.push(unsafe { p.as_ref().clone() });
-                        }
-                    }
-                }
-            }
-        }
-        child = row.next_sibling();
-    }
-    out
 }
 
 // ─────────────────────────── History tab ───────────────────────────
@@ -2651,7 +2664,18 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         return;
     }
     let target = f.to_target();
-    let selected = checked_paths(ui);
+    // Only paths that still exist in the loaded tree (a selection could linger
+    // from a snapshot with a different layout).
+    let selected: Vec<String> = {
+        let s = state.borrow();
+        let present: std::collections::HashSet<&str> =
+            s.tree.iter().map(|e| e.path.as_str()).collect();
+        s.checked
+            .iter()
+            .filter(|p| present.contains(p.as_str()))
+            .cloned()
+            .collect()
+    };
     let mut cmd = if target.backend.is_ssh() {
         let mut args = if selected.is_empty() {
             rsync::restore_args(&target, &ts, &dest, dry_run)
@@ -2814,6 +2838,7 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
                 st.borrow_mut().snapshots = snaps.clone();
                 st.borrow_mut().selected_snapshot = None;
                 st.borrow_mut().tree.clear();
+                st.borrow_mut().checked.clear();
                 // Remember the count so the Targets list can show it.
                 st.borrow_mut().counts.insert(name2.clone(), snaps.len());
                 refresh_snapshots(st, ui);

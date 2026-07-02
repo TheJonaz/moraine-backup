@@ -1,3 +1,10 @@
+moraine (0.1.11-1) unstable; urgency=medium
+
+  * Restore tab auto-loads snapshots; selective file/folder restore now
+    tracks the selection in state (survives navigation, no unsafe pointer).
+
+ -- Jonaz Thern <info@thern.io>  Fri, 03 Jul 2026 14:00:00 +0200
+
 moraine (0.1.10-1) unstable; urgency=medium
 
   * Sources: one Browse… button with multi-select Files…/Folders… pickers

@@ -7,6 +7,21 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.11] — 2026-07-02
+
+### Added
+- **Restore auto-loads snapshots.** Opening the Restore tab now loads the
+  selected target's snapshots automatically (when none are loaded yet), instead
+  of requiring a click on "Load snapshots".
+
+### Fixed
+- **Selective restore of a file/folder now works reliably.** The checked
+  selection is tracked in application state instead of being read back off the
+  visible tree rows via an unsafe pointer — so a selection survives folder
+  navigation and no longer depends on which rows happen to be visible. Stale
+  ticks (from a snapshot with a different layout) are ignored. The selection is
+  cleared when you pick a different snapshot or target.
+
 ## [0.1.10] — 2026-07-02
 
 ### Changed
