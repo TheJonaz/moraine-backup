@@ -11,9 +11,15 @@ pub fn ssh_options(target: &Target) -> Vec<String> {
         opts.push("-i".to_string());
         opts.push(key.display().to_string());
     }
-    // accept-new: trust an unknown host key automatically but warn if it changes.
+    // Default accept-new: trust an unknown host key on first connect, reject
+    // if it later changes (TOFU). With `strict_host_key = true` the host must
+    // already be in known_hosts — protects the first connection too.
     opts.push("-o".to_string());
-    opts.push("StrictHostKeyChecking=accept-new".to_string());
+    opts.push(if target.strict_host_key {
+        "StrictHostKeyChecking=yes".to_string()
+    } else {
+        "StrictHostKeyChecking=accept-new".to_string()
+    });
     opts
 }
 

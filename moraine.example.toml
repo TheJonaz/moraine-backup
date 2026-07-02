@@ -17,6 +17,10 @@ port = 22
 # Path to the private SSH key. Optional — omit to use ssh-agent.
 key = "~/.ssh/backup_ed25519"
 
+# Require the host key to already be in known_hosts (StrictHostKeyChecking=yes).
+# Default false = accept-new: trust on first connect, reject if it changes.
+# strict_host_key = true
+
 # Root directory on the target. Snapshots go to <dest>/<name>/<timestamp>/.
 dest = "/volume1/backups"
 

@@ -28,7 +28,7 @@ prune old snapshots automatically with a retention policy.
 
 ### Debian / Ubuntu / Linux Mint
 ```bash
-sudo apt install ./moraine_0.1.3-1_amd64.deb
+sudo apt install ./moraine_0.1.4-1_amd64.deb
 ```
 Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
@@ -124,18 +124,19 @@ Moraine handles credentials for your backup destinations. How they are protected
   helper — a tiny script in a **private per-user directory** (`$XDG_RUNTIME_DIR`)
   that reads the secret from the environment; `gpg` reads its passphrase on
   stdin; and `rclone obscure` reads the password on stdin.
-- **Host keys (TOFU).** SSH uses `StrictHostKeyChecking=accept-new`: an unknown
-  host key is trusted on first connect and pinned in `known_hosts`; a later
-  change is rejected. For high-security setups, pre-populate `known_hosts` so the
-  first connection is verified too.
+- **Host keys.** By default SSH uses `StrictHostKeyChecking=accept-new`: an
+  unknown host key is trusted on first connect and pinned in `known_hosts`; a
+  later change is rejected. Set `strict_host_key = true` on a target (or tick
+  *Require known SSH host key* in its Settings) to require the key to already
+  be in `known_hosts`, protecting the first connection too.
 - **Scheduling is injection-safe.** Schedule names/targets are rejected if they
   contain control characters and are shell-quoted before being written to
   crontab (or the Windows `.cmd` wrapper), so a crafted or imported config can't
   inject commands.
-- **FTP caveat.** For the plain **FTP** backend, rclone needs the (obscured, but
-  reversible) password inside its connection string, which is visible in the
-  process arguments **on the local machine**. For sensitive data prefer an
-  rclone **SFTP/cloud** remote, whose credentials live in rclone's own config.
+- **FTP credentials stay out of the process list.** The FTP backend passes
+  host/user/password to rclone via `RCLONE_FTP_*` environment variables (the
+  environment is private to the process owner), not in the connection string
+  on the command line.
 
 ## License
 

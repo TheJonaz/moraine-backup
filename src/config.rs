@@ -135,6 +135,12 @@ pub struct Target {
     /// is supplied to ssh/rsync non-interactively via `SSH_ASKPASS`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    /// SSH host-key policy. Default (false) is `accept-new`: trust an unknown
+    /// host on first connect, reject if the key later changes (TOFU). Set true
+    /// for `StrictHostKeyChecking=yes` — the host must already be in
+    /// known_hosts, protecting even the first connection from MITM.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub strict_host_key: bool,
     /// Root directory on the target where `<name>/<timestamp>/` is created.
     pub dest: String,
     /// Files/directories on the client to back up.
@@ -251,6 +257,16 @@ impl Config {
             let dupes = self.targets.iter().filter(|o| o.name == t.name).count();
             if dupes > 1 {
                 bail!("multiple targets share the name '{name}'");
+            }
+        }
+        for s in &self.schedules {
+            // Out-of-range values would otherwise be silently clamped by cron().
+            if s.minute > 59 || s.hour > 23 || s.weekday > 6 {
+                bail!(
+                    "schedule '{}' has an out-of-range time (minute 0–59, hour 0–23, \
+                     weekday 0–6)",
+                    s.name
+                );
             }
         }
         Ok(())

@@ -7,6 +7,30 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.4] — 2026-07-02
+
+Closes the two remaining documented security tradeoffs, plus polish.
+
+### Security
+- **FTP credentials no longer appear in the process list**: rclone gets
+  host/user/password via `RCLONE_FTP_*` environment variables (private to the
+  process owner) instead of the `:ftp,…,pass=…:` connection string in argv.
+- **Optional strict SSH host-key checking**: set `strict_host_key = true` on a
+  target (or tick *Require known SSH host key* in its Settings) for
+  `StrictHostKeyChecking=yes` — protects even the first connection. The
+  default remains `accept-new` (trust on first use, reject changes).
+
+### Fixed / improved
+- Form validation with feedback: a typo'd port or hour/minute no longer
+  silently becomes 22/0 — saving (and running) reports the invalid field.
+- Out-of-range schedule times are rejected when the config loads, instead of
+  being silently clamped.
+- "Install to crontab" skips schedules whose target no longer exists (and
+  says so) instead of installing jobs that would fail every night.
+- The Targets list shows the snapshot count after snapshots are loaded.
+- Windows: the Startup card is hidden (desktop autostart is a Linux thing)
+  and the background-image URI handles `\` paths.
+
 ## [0.1.3] — 2026-07-02
 
 Third security/bug review pass (two independent reviews of the GUI and the

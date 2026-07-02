@@ -41,6 +41,7 @@ struct TargetForm {
     port: String,
     key: String,
     password: String,
+    strict_host_key: bool,
     dest: String,
     sources: Vec<String>,
     exclude: Vec<String>,
@@ -62,6 +63,7 @@ impl TargetForm {
             port: t.port.to_string(),
             key: t.key.clone().unwrap_or_default(),
             password: t.password.clone(),
+            strict_host_key: t.strict_host_key,
             dest: t.dest.clone(),
             sources: t.sources.clone(),
             exclude: t.exclude.clone(),
@@ -97,6 +99,7 @@ impl TargetForm {
             port: self.port.trim().parse().unwrap_or(22),
             key,
             password: self.password.trim().to_string(),
+            strict_host_key: self.strict_host_key,
             dest: self.dest.trim().to_string(),
             sources: clean(&self.sources),
             exclude: clean(&self.exclude),
@@ -239,7 +242,30 @@ impl State {
         }
     }
 
+    /// Flags form fields that would otherwise be silently defaulted/clamped
+    /// (a typo'd port would quietly become 22, a bad hour 0).
+    fn check_forms(&self) -> Result<(), String> {
+        for f in &self.targets {
+            let p = f.port.trim();
+            if !p.is_empty() && p.parse::<u16>().is_err() {
+                return Err(format!("target '{}': '{p}' is not a valid port", f.label()));
+            }
+        }
+        for s in &self.schedules {
+            let h = s.hour.trim();
+            let m = s.minute.trim();
+            if h.parse::<u8>().map(|v| v > 23).unwrap_or(true) {
+                return Err(format!("schedule '{}': invalid hour '{h}' (0–23)", s.name));
+            }
+            if m.parse::<u8>().map(|v| v > 59).unwrap_or(true) {
+                return Err(format!("schedule '{}': invalid minute '{m}' (0–59)", s.name));
+            }
+        }
+        Ok(())
+    }
+
     fn save(&self) -> Result<(), String> {
+        self.check_forms()?;
         // Keep one rolling backup of the previous config. If loading ever
         // failed (e.g. a config the stricter validation rejects), the GUI
         // starts empty — this ensures a save can't silently destroy the old
@@ -314,7 +340,8 @@ fn load_css() {
     // at runtime (installed vs source tree).
     // GTK's CSS url() needs a real URI — a bare absolute path silently fails to
     // load (with no warning), which left the grid background invisible.
-    let hero = asset("hero-bg.png");
+    // Windows paths use '\', which is invalid in a URI — normalize to '/'.
+    let hero = asset("hero-bg.png").replace('\\', "/");
     let hero_uri = format!("file://{hero}");
     let css = format!(
         "{CSS}\nwindow {{ background-image: url(\"{hero_uri}\"); background-size: cover; background-position: top center; }}\n"
@@ -860,6 +887,19 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         secret.connect_changed(move |e| st.borrow_mut().targets[i].password = e.text().to_string());
     }
 
+    // Strict host key (SSH)
+    let strict = gtk::CheckButton::with_label(
+        "Require known SSH host key (strict — no trust-on-first-use)",
+    );
+    strict.set_active(f.strict_host_key);
+    body.append(&strict);
+    {
+        let st = state.clone();
+        strict.connect_toggled(move |c| {
+            st.borrow_mut().targets[i].strict_host_key = c.is_active();
+        });
+    }
+
     // Destination
     let dest = gtk::Entry::new();
     dest.set_text(&f.dest);
@@ -1191,18 +1231,38 @@ fn build_schedule_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         let st = state.clone();
         let ui2 = ui.clone();
         install.connect_clicked(move |_| {
-            let _ = st.borrow().save();
-            let scheds: Vec<Schedule> = st
+            if let Err(e) = st.borrow().save() {
+                set_status(&ui2, &e);
+                return;
+            }
+            // Only install schedules whose target actually exists — a stale
+            // one (target renamed/deleted) would just fail silently in cron.
+            let names: Vec<String> = st
+                .borrow()
+                .targets
+                .iter()
+                .map(|t| t.name.trim().to_string())
+                .collect();
+            let all: Vec<Schedule> = st
                 .borrow()
                 .schedules
                 .iter()
                 .map(|f| f.to_schedule())
                 .collect();
+            let (scheds, skipped): (Vec<Schedule>, Vec<Schedule>) = all
+                .into_iter()
+                .partition(|s| names.iter().any(|n| n == s.target.trim()));
             match install_schedules(&scheds) {
-                Ok(n) => set_status(
-                    &ui2,
-                    &format!("Installed {n} schedule(s) to {}", scheduler_name()),
-                ),
+                Ok(n) => {
+                    let mut msg = format!("Installed {n} schedule(s) to {}", scheduler_name());
+                    if !skipped.is_empty() {
+                        msg.push_str(&format!(
+                            " — skipped {} with a missing target",
+                            skipped.len()
+                        ));
+                    }
+                    set_status(&ui2, &msg);
+                }
                 Err(e) => set_status(&ui2, &format!("{} error: {e}", scheduler_name())),
             }
         });
@@ -1714,7 +1774,16 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     cfg.append(&btns);
     outer.append(&cfg);
 
-    // ── Startup ──
+    // ── Startup ── (desktop-autostart entries are a freedesktop/Linux thing)
+    if !cfg!(windows) {
+        build_startup_card(ui, &outer);
+    }
+
+    // ── About ──
+    build_about_and_finish(state, ui, &outer, scroll)
+}
+
+fn build_startup_card(ui: &Rc<Ui>, outer: &gtk::Box) {
     let startup = gtk::Box::new(gtk::Orientation::Vertical, 8);
     startup.add_css_class("card");
     let st_title = gtk::Label::new(Some("Startup"));
@@ -1765,8 +1834,15 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         });
     }
     outer.append(&startup);
+}
 
-    // ── About ──
+fn build_about_and_finish(
+    state: &Shared,
+    ui: &Rc<Ui>,
+    outer: &gtk::Box,
+    scroll: gtk::ScrolledWindow,
+) -> gtk::Widget {
+    let _ = (state, ui); // parity with the other tab builders
     let about = gtk::Box::new(gtk::Orientation::Vertical, 6);
     about.add_css_class("card");
     let at = gtk::Label::new(Some("About"));
@@ -1793,7 +1869,7 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     about.append(&links);
     outer.append(&about);
 
-    scroll.set_child(Some(&outer));
+    scroll.set_child(Some(outer));
     scroll.upcast()
 }
 
@@ -2298,7 +2374,11 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         set_status(ui, "Target needs at least one source");
         return;
     }
-    let _ = state.borrow().save();
+    // Surface form errors (bad port etc.) instead of running with defaults.
+    if let Err(e) = state.borrow().save() {
+        set_status(ui, &e);
+        return;
+    }
     let ts = snapshot::timestamp();
     let pending = if dry_run {
         None
@@ -2374,7 +2454,7 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
                     ui,
                     st,
                     cmds,
-                    Vec::new(),
+                    rclone::env_for(&target),
                     pending.clone(),
                     &msg,
                     target.vpn.clone(),
@@ -2472,11 +2552,15 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         Some(("restore".to_string(), name, format!("{ts} → {dest}")))
     };
     set_log(ui, &format!("Restore {ts}\n"));
+    // askpass env is empty for rclone targets and rclone env for ssh targets,
+    // so combining both is always correct for whichever backend runs.
+    let mut env = ssh::askpass_env(&target);
+    env.extend(rclone::env_for(&target));
     run_stream(
         ui,
         state,
         vec![cmd],
-        ssh::askpass_env(&target),
+        env,
         pending,
         "Restoring…",
         target.vpn.clone(),
@@ -2584,11 +2668,12 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
     };
     let target = f.to_target();
     set_status(ui, "Loading snapshots…");
+    let name2 = name.clone();
     run_oneshot(
         ui,
         state,
         move || list_snapshots(&target),
-        |st, ui, res| match res {
+        move |st, ui, res| match res {
             Ok(joined) => {
                 let snaps: Vec<String> = joined
                     .lines()
@@ -2598,8 +2683,11 @@ fn load_snapshots(state: &Shared, ui: &Rc<Ui>) {
                 st.borrow_mut().snapshots = snaps.clone();
                 st.borrow_mut().selected_snapshot = None;
                 st.borrow_mut().tree.clear();
+                // Remember the count so the Targets list can show it.
+                st.borrow_mut().counts.insert(name2.clone(), snaps.len());
                 refresh_snapshots(st, ui);
                 refresh_tree(st, ui);
+                refresh_targets(st, ui);
                 set_status(ui, &format!("{} snapshot(s)", snaps.len()));
             }
             Err(e) => set_status(ui, &format!("Error: {e}")),
@@ -2711,6 +2799,7 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
     } else {
         let out = Command::new("rclone")
             .args(rclone::tree_args(target, ts))
+            .envs(rclone::env_for(target))
             .output()
             .map_err(|e| format!("could not start rclone: {e}"))?;
         if !out.status.success() {

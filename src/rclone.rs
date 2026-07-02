@@ -12,24 +12,14 @@ use std::process::Command;
 
 /// The base path for a target in rclone syntax:
 ///  * Rclone: `remote:dest/name` (or local `dest/name` if host is empty)
-///  * Ftp: on-the-fly connection string `:ftp,host=…,user=…,pass=…:dest/name`
+///  * Ftp: on-the-fly remote `:ftp:dest/name` — host/user/pass are supplied
+///    via environment variables (see [`env_for`]), NOT inline: command-line
+///    arguments are world-readable in /proc/*/cmdline, the environment is not.
 pub fn base(target: &Target) -> String {
     match target.backend {
         Backend::Ftp => {
             let dest = target.dest.trim_matches('/');
-            let port = if target.port == 0 { 21 } else { target.port };
-            let pass = obscure(&target.password);
-            // disable_mlsd=true: rclone then creates directories correctly and avoids
-            // "501 No such directory" against servers with MLSD quirks (common).
-            format!(
-                ":ftp,host={},user={},port={},pass={},disable_mlsd=true:{}/{}",
-                target.host.trim(),
-                target.user.trim(),
-                port,
-                pass,
-                dest,
-                target.name
-            )
+            format!(":ftp:{}/{}", dest, target.name)
         }
         _ => {
             let dest = target.dest.trim_end_matches('/');
@@ -41,6 +31,28 @@ pub fn base(target: &Target) -> String {
             }
         }
     }
+}
+
+/// Environment variables carrying the FTP connection details for the `:ftp:`
+/// on-the-fly remote (rclone reads `RCLONE_FTP_*` as backend defaults). Empty
+/// for other backends. Apply with `.envs(...)` at every rclone spawn site.
+pub fn env_for(target: &Target) -> Vec<(String, String)> {
+    if !matches!(target.backend, Backend::Ftp) {
+        return Vec::new();
+    }
+    let port = if target.port == 0 { 21 } else { target.port };
+    let mut env = vec![
+        ("RCLONE_FTP_HOST".to_string(), target.host.trim().to_string()),
+        ("RCLONE_FTP_USER".to_string(), target.user.trim().to_string()),
+        ("RCLONE_FTP_PORT".to_string(), port.to_string()),
+        // disable_mlsd: rclone then creates directories correctly and avoids
+        // "501 No such directory" against servers with MLSD quirks (common).
+        ("RCLONE_FTP_DISABLE_MLSD".to_string(), "true".to_string()),
+    ];
+    if !target.password.is_empty() {
+        env.push(("RCLONE_FTP_PASS".to_string(), obscure(&target.password)));
+    }
+    env
 }
 
 /// Obscures a password via `rclone obscure` (the FTP backend requires it).
@@ -194,6 +206,7 @@ pub fn restore_args(
 pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
     let out = Command::new("rclone")
         .args(list_args(target))
+        .envs(env_for(target))
         .output()
         .context("could not start rclone")?;
     if !out.status.success() {
@@ -207,8 +220,12 @@ pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
         .collect())
 }
 
-/// The fs string for `rclone backend features`: local path or `remote:`.
+/// The fs string for `rclone backend features`: local path, `remote:`, or the
+/// on-the-fly `:ftp:` remote (its details come from the environment).
 fn features_fs(target: &Target) -> String {
+    if matches!(target.backend, Backend::Ftp) {
+        return ":ftp:".to_string();
+    }
     let host = target.host.trim();
     if host.is_empty() {
         let dest = target.dest.trim_end_matches('/');
@@ -224,6 +241,7 @@ pub fn supports_server_side_copy(target: &Target) -> bool {
     let out = Command::new("rclone")
         .args(["backend", "features"])
         .arg(features_fs(target))
+        .envs(env_for(target))
         .output();
     match out {
         Ok(o) if o.status.success() => serde_json::from_slice::<serde_json::Value>(&o.stdout)
@@ -261,6 +279,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         println!("$ {prog} {}", rsync::render(args));
         let status = Command::new(prog)
             .args(args)
+            .envs(env_for(target))
             .status()
             .context("could not start rclone")?;
         if !status.success() {
@@ -279,6 +298,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
 pub fn purge(target: &Target, ts: &str) -> Result<()> {
     let status = Command::new("rclone")
         .args(prune_args(target, ts))
+        .envs(env_for(target))
         .status()
         .context("could not start rclone")?;
     if !status.success() {
