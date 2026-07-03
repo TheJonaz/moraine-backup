@@ -7,6 +7,16 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.18] — 2026-07-03
+
+### Changed
+- **Autostart starts minimized**: when the desktop client is launched at login
+  (via the "Start Moraine when I log in" autostart entry), it now starts
+  iconified to the taskbar instead of popping up and grabbing focus. The
+  autostart entry passes `--minimized`; launching Moraine manually is unaffected.
+  Users who enabled autostart on an earlier version should toggle it off and back
+  on to refresh the entry.
+
 ## [0.1.17] — 2026-07-02
 
 ### Packaging

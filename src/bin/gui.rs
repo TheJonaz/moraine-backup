@@ -30,6 +30,11 @@ use moraine::{prune, rclone, rsync, snapshot, ssh};
 const CONFIG_PATH: &str = "moraine.toml";
 const APP_ID: &str = "io.thern.moraine";
 
+/// Set when launched with `--minimized` (the autostart entry does this) so the
+/// window starts iconified to the taskbar instead of popping up at login.
+static START_MINIMIZED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 // ─────────────────────────── form models ───────────────────────────
 
 #[derive(Default, Clone)]
@@ -340,6 +345,12 @@ enum Worker {
 // ─────────────────────────── entry point ───────────────────────────
 
 fn main() -> glib::ExitCode {
+    // Consume our own flags before GTK sees argv — a plain GtkApplication rejects
+    // command-line options it wasn't told to handle, so `--minimized` would abort
+    // startup if passed through to `run()`.
+    let minimized = std::env::args().any(|a| a == "--minimized" || a == "--minimised");
+    START_MINIMIZED.store(minimized, std::sync::atomic::Ordering::Relaxed);
+
     let app = gtk::Application::builder()
         .application_id(APP_ID)
         // Don't require the D-Bus session bus for single-instance handling.
@@ -347,7 +358,9 @@ fn main() -> glib::ExitCode {
         .build();
     app.connect_startup(|_| load_css());
     app.connect_activate(build_ui);
-    app.run()
+    // Pass only argv[0]: our flags are handled above and GTK needs none of them.
+    let argv0 = std::env::args().next().unwrap_or_default();
+    app.run_with_args(&[argv0])
 }
 
 fn load_css() {
@@ -584,6 +597,13 @@ fn build_ui(app: &gtk::Application) {
     }
 
     window.present();
+
+    // Launched from the autostart entry (`--minimized`): iconify to the taskbar
+    // rather than grabbing focus at login. Must run after present() — minimizing
+    // an unmapped window is a no-op on most compositors.
+    if START_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed) {
+        window.minimize();
+    }
 }
 
 fn asset(name: &str) -> String {
@@ -1926,7 +1946,8 @@ fn build_startup_card(ui: &Rc<Ui>, outer: &gtk::Box) {
     let tl_main = gtk::Label::new(Some("Start Moraine when I log in"));
     tl_main.set_halign(gtk::Align::Start);
     let tl_sub = gtk::Label::new(Some(
-        "Adds a desktop autostart entry so the app launches automatically at login.",
+        "Adds a desktop autostart entry so the app launches automatically at login, \
+         minimized to the taskbar.",
     ));
     tl_sub.add_css_class("muted");
     tl_sub.set_halign(gtk::Align::Start);
@@ -3255,7 +3276,7 @@ fn set_autostart(enabled: bool) -> std::io::Result<()> {
              Type=Application\n\
              Name=Moraine\n\
              Comment=Snapshot backup over SSH/rsync and rclone\n\
-             Exec={exec}\n\
+             Exec={exec} --minimized\n\
              {cwd}\
              Icon=moraine\n\
              Terminal=false\n\
