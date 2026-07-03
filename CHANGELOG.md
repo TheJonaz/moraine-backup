@@ -17,6 +17,9 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   (`packaging/homebrew/moraine.rb`) and a Scoop manifest
   (`packaging/scoop/moraine.json`) for the command-line client. The GTK desktop
   app stays Linux-only.
+- **Fedora / RHEL / openSUSE**: added an RPM spec (`packaging/rpm/moraine.spec`,
+  test-built in a Fedora container) — install the prebuilt RPM from the release
+  with `dnf`, or build via Copr/OBS. Ships both binaries.
 
 ## [0.1.16] — 2026-07-02
 
