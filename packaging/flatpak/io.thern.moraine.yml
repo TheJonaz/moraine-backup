@@ -4,12 +4,12 @@
 # into the sandbox as modules below — the app is otherwise self-contained.
 #
 # Requires moraine >= 0.1.19 (portable XDG_DATA_DIRS asset resolution). Build:
-#   flatpak install flathub org.gnome.Sdk//47 org.gnome.Platform//47 \
-#       org.freedesktop.Sdk.Extension.rust-stable//23.08
+#   flatpak install flathub org.gnome.Sdk//49 org.gnome.Platform//49 \
+#       org.freedesktop.Sdk.Extension.rust-stable//25.08
 #   flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.thern.moraine.yml
 app-id: io.thern.moraine
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '49'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -42,8 +42,8 @@ modules:
       - --with-included-popt
     sources:
       - type: archive
-        url: https://download.samba.org/pub/rsync/src/rsync-3.3.0.tar.gz
-        sha256: 7399e9a6708c32d678a72a63219e96f23be0be2336e50fd1348498d07041df90
+        url: https://download.samba.org/pub/rsync/src/rsync-3.4.1.tar.gz
+        sha256: 2924bcb3a1ed8b551fc101f740b9f0fe0a202b115027647cf69850d65fd88c52
 
   # ── openssh client only (ssh, ssh-keygen) ──
   - name: openssh

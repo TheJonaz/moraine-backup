@@ -22,8 +22,8 @@ sandbox doesn't see the host's copies, so the manifest **bundles** them:
 ## Build & run locally
 
 ```sh
-flatpak install flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
-    org.freedesktop.Sdk.Extension.rust-stable//23.08
+flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49 \
+    org.freedesktop.Sdk.Extension.rust-stable//25.08
 
 flatpak-builder --user --install --force-clean build-dir \
     packaging/flatpak/io.thern.moraine.yml
