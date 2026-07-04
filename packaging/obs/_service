@@ -1,0 +1,7 @@
+<!-- openSUSE Build Service source service.
+     Downloads the tarball(s) named in moraine.spec's Source: URLs, so an OBS
+     package needs only this file + the spec (copied from packaging/rpm/).
+     Run locally with: osc service manualrun -->
+<services>
+  <service name="download_files" mode="manual"/>
+</services>

@@ -76,13 +76,10 @@ modules:
   # ── Moraine itself ──
   - name: moraine
     buildsystem: simple
-    build-options:
-      # Local builds fetch crates from crates.io. For a Flathub (offline) build,
-      # drop this and add a generated cargo-sources.json instead (see README).
-      build-args:
-        - --share=network
     build-commands:
-      - cargo build --release --locked --features gui --bin moraine --bin moraine-gui
+      # Offline build against the crates vendored in cargo-sources.json
+      # (regenerate with flatpak-cargo-generator when Cargo.lock changes).
+      - cargo --offline build --release --locked --features gui --bin moraine --bin moraine-gui
       - install -Dm755 target/release/moraine     /app/bin/moraine
       - install -Dm755 target/release/moraine-gui /app/bin/moraine-gui
       # runtime assets the GUI loads from $XDG_DATA_DIRS/moraine/assets
@@ -100,3 +97,4 @@ modules:
       - type: git
         url: https://github.com/TheJonaz/moraine-backup.git
         tag: v0.1.19
+      - cargo-sources.json

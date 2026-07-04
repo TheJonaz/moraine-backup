@@ -31,23 +31,21 @@ flatpak-builder --user --install --force-clean build-dir \
 flatpak run io.thern.moraine
 ```
 
-The `moraine` module builds with `--share=network` so cargo can fetch crates.
-To test against the current tree before a tag exists, change the `moraine`
-source from `tag: v0.1.19` to `branch: main`.
+The build is **offline** — the Cargo crates are vendored in `cargo-sources.json`
+(committed, generated from `Cargo.lock`), so no network is needed at build time
+and it's Flathub-ready as-is. To test against the current tree before a tag
+exists, change the `moraine` source from `tag: v0.1.19` to `branch: main`.
 
 ## Publishing to Flathub
 
-Flathub builds **offline**, so you must vendor the Cargo dependencies instead of
-letting cargo hit the network:
+The manifest already builds offline, so submission is mostly validation:
 
-1. Generate the offline crate sources with
-   [flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools):
+1. If `Cargo.lock` changed since `cargo-sources.json` was generated, regenerate it
+   with [flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools):
    ```sh
-   python3 flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json
+   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
    ```
-2. Add `cargo-sources.json` to the `moraine` module's `sources:` and remove the
-   `--share=network` build-arg.
-3. Validate the metadata:
+2. Validate the metadata:
    ```sh
    flatpak run org.freedesktop.appstream-glib validate io.thern.moraine.metainfo.xml
    desktop-file-validate <installed>/io.thern.moraine.desktop
