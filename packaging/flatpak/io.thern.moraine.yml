@@ -19,10 +19,9 @@ finish-args:
   - --share=network                 # ssh / rclone / ftp transports
   - --socket=wayland
   - --socket=fallback-x11
-  - --socket=ssh-auth               # reuse the host ssh-agent
+  - --share=ipc
   - --device=dri
   - --filesystem=host               # a backup tool reads/writes arbitrary paths
-  - --filesystem=~/.ssh:ro          # keys + known_hosts for the ssh backend
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
@@ -97,4 +96,5 @@ modules:
       - type: git
         url: https://github.com/TheJonaz/moraine-backup.git
         tag: v0.1.19
+        commit: 47e5b6f1d68fa48e34b32f952d629cd79cf47ef0
       - cargo-sources.json
