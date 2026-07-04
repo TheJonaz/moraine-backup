@@ -607,8 +607,19 @@ fn build_ui(app: &gtk::Application) {
 }
 
 fn asset(name: &str) -> String {
-    // Installed location first, then the source tree (dev).
-    for base in ["/usr/share/moraine/assets", "assets"] {
+    // 1) $XDG_DATA_DIRS/moraine/assets — the portable path that works for a
+    //    distro install (/usr/share), Flatpak (/app/share), Snap ($SNAP/... via
+    //    XDG_DATA_DIRS), AppImage (AppRun exports it) and Nix (wrapGAppsHook).
+    if let Some(dirs) = std::env::var_os("XDG_DATA_DIRS") {
+        for d in std::env::split_paths(&dirs) {
+            let p = d.join("moraine/assets").join(name);
+            if p.exists() {
+                return p.to_string_lossy().into_owned();
+            }
+        }
+    }
+    // 2) Common install prefixes, then the source tree (dev).
+    for base in ["/app/share/moraine/assets", "/usr/share/moraine/assets", "assets"] {
         let p = format!("{base}/{name}");
         if Path::new(&p).exists() {
             return p;
