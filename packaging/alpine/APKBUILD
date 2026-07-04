@@ -1,6 +1,6 @@
 # Maintainer: Jonaz Thern <info@thern.io>
 pkgname=moraine
-pkgver=0.1.17
+pkgver=0.1.19
 pkgrel=0
 pkgdesc="Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)"
 url="https://github.com/TheJonaz/moraine-backup"
@@ -49,5 +49,5 @@ package() {
 }
 
 sha512sums="
-2b146959c7e4ef534b8a231e3a96187d0a733981a1087a9e15370f67900994c36264e22126ec8b017f48560a91d6090bc2d6e308574b75450c66a3f65107c461  moraine-0.1.17.tar.gz
+69e8f517017ccf60328b8630203439c5e5626c3ef54f85bae0a3db174014544b1e10da769885061f7d7121599fbd09a19442ddaf335165afdc572fc5ba919f62  moraine-0.1.19.tar.gz
 "
