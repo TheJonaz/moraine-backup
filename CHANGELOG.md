@@ -7,6 +7,28 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.19] — 2026-07-04
+
+### Changed
+- **Portable asset paths**: the GUI now resolves its bundled assets (background,
+  icons) via `XDG_DATA_DIRS` in addition to `/usr/share`, so it renders correctly
+  when installed under a sandbox/prefix — Flatpak (`/app`), Snap, AppImage and Nix.
+  Distro packages (deb/rpm/Arch/Alpine) are unaffected.
+
+### Packaging
+- **Flatpak** (`packaging/flatpak/`): manifest + AppStream metainfo for the GTK
+  app, bundling rsync, the OpenSSH client and rclone into the sandbox.
+- **Snap** (`packaging/snap/`): strictly-confined snap with rsync/ssh/rclone
+  staged in; CLI + GUI.
+- **AppImage** (`packaging/appimage/`): `build-appimage.sh` using
+  linuxdeploy + the GTK plugin.
+- **Nix** (`packaging/nix/`): flake building CLI + GUI, wrapping rsync/ssh/rclone
+  onto the runtime PATH.
+- **winget** (`packaging/winget/`): manifests for the Windows CLI (`winget install
+  TheJonaz.Moraine`).
+- **Alpine** (`packaging/alpine/`): finished the `APKBUILD` — pinned the v0.1.17
+  source checksum and added build/publish docs.
+
 ## [0.1.18] — 2026-07-03
 
 ### Changed

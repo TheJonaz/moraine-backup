@@ -1,0 +1,61 @@
+name: moraine
+base: core24
+version: '0.1.19'
+summary: Snapshot backups over SSH and rclone
+description: |
+  Moraine is a small, fast backup client in Rust with a native GTK desktop app
+  and a scriptable command line — same engine, same config.
+
+  Hard-linked snapshots over SSH make every run look like a complete tree, but
+  only what changed takes new space. Restore anything, from any snapshot. An
+  rclone backend adds cloud/object storage and FTP targets.
+
+  This snap bundles rsync, the OpenSSH client and rclone, so all backends work
+  out of the box. It is strictly confined and can back up your home directory
+  and removable/mounted media (the `home`, `removable-media` and `ssh-keys`
+  interfaces). Backing up paths outside those needs classic confinement or a
+  `system-files` interface declaration — see packaging/snap/README.md.
+
+grade: stable
+confinement: strict
+compression: lzo
+
+# Requires the moraine 0.1.19 asset-path change (XDG_DATA_DIRS resolution).
+
+apps:
+  moraine-gui:
+    command: usr/bin/moraine-gui
+    extensions: [gnome]
+    environment:
+      XDG_DATA_DIRS: $SNAP/usr/share:$XDG_DATA_DIRS
+    plugs: [home, removable-media, network, ssh-keys]
+  moraine:
+    command: usr/bin/moraine
+    plugs: [home, removable-media, network, ssh-keys]
+    environment:
+      XDG_DATA_DIRS: $SNAP/usr/share:$XDG_DATA_DIRS
+
+parts:
+  moraine:
+    plugin: rust
+    source: https://github.com/TheJonaz/moraine-backup.git
+    source-tag: v0.1.19
+    build-packages:
+      - libgtk-4-dev
+      - pkg-config
+    stage-packages:
+      - rsync
+      - openssh-client
+      - rclone
+    override-build: |
+      cargo build --release --locked --features gui --bin moraine --bin moraine-gui
+      install -Dm755 target/release/moraine     "$CRAFT_PART_INSTALL/usr/bin/moraine"
+      install -Dm755 target/release/moraine-gui "$CRAFT_PART_INSTALL/usr/bin/moraine-gui"
+      # runtime assets the GUI loads from $XDG_DATA_DIRS/moraine/assets
+      install -Dm644 assets/hero-bg.png     "$CRAFT_PART_INSTALL/usr/share/moraine/assets/hero-bg.png"
+      install -Dm644 assets/moraine-64.png  "$CRAFT_PART_INSTALL/usr/share/moraine/assets/moraine-64.png"
+      install -Dm644 assets/moraine-256.png "$CRAFT_PART_INSTALL/usr/share/moraine/assets/moraine-256.png"
+      # desktop entry + icon
+      install -Dm644 assets/moraine-gui.desktop "$CRAFT_PART_INSTALL/usr/share/applications/moraine-gui.desktop"
+      install -Dm644 assets/moraine.svg "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/moraine.svg"
+      install -Dm644 assets/moraine-256.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/moraine.png"

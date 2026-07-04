@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.thern.moraine</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Moraine</name>
+  <summary>Snapshot backups over SSH and rclone</summary>
+
+  <description>
+    <p>
+      Moraine is a small, fast backup client written in Rust with a native GTK
+      desktop app and a scriptable command line — same engine, same config.
+    </p>
+    <p>
+      Hard-linked snapshots over SSH make every run look like a complete tree,
+      but only what changed takes new space. Restore anything, from any snapshot.
+      An rclone backend adds cloud/object storage and FTP targets.
+    </p>
+    <ul>
+      <li>Incremental, hard-linked snapshots (rsync <code>--link-dest</code>)</li>
+      <li>SSH/rsync, rclone and FTP backends</li>
+      <li>Schedules installed into cron, retention/pruning, and a restore browser</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.thern.moraine.desktop</launchable>
+
+  <url type="homepage">https://moraine.thern.io</url>
+  <url type="bugtracker">https://github.com/TheJonaz/moraine-backup/issues</url>
+  <url type="vcs-browser">https://github.com/TheJonaz/moraine-backup</url>
+
+  <developer id="io.thern">
+    <name>Jonaz Thern</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Quick Backup — pick a target and run a snapshot backup</caption>
+      <image>https://moraine.thern.io/app-hero.png</image>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1"/>
+
+  <categories>
+    <category>Utility</category>
+    <category>Archiving</category>
+  </categories>
+
+  <keywords>
+    <keyword>backup</keyword>
+    <keyword>snapshot</keyword>
+    <keyword>rsync</keyword>
+    <keyword>rclone</keyword>
+    <keyword>ssh</keyword>
+    <keyword>restore</keyword>
+  </keywords>
+
+  <releases>
+    <release version="0.1.19" date="2026-07-04">
+      <description>
+        <p>Autostart launches minimized to the taskbar; portable asset paths for Flatpak/Snap/AppImage.</p>
+      </description>
+    </release>
+  </releases>
+</component>

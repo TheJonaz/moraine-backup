@@ -1,0 +1,53 @@
+# Maintainer: Jonaz Thern <info@thern.io>
+pkgname=moraine
+pkgver=0.1.17
+pkgrel=0
+pkgdesc="Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)"
+url="https://github.com/TheJonaz/moraine-backup"
+arch="x86_64"
+license="MIT"
+depends="rsync openssh-client"
+makedepends="cargo gtk4.0-dev"
+subpackages="$pkgname-doc"
+source="$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+builddir="$srcdir/moraine-backup-$pkgver"
+
+build() {
+	cargo build --release --locked
+}
+
+check() {
+	cargo test --release --locked
+}
+
+package() {
+	install -Dm755 target/release/moraine "$pkgdir"/usr/bin/moraine
+	install -Dm755 target/release/moraine-gui "$pkgdir"/usr/bin/moraine-gui
+
+	install -Dm644 assets/moraine-gui.desktop \
+		"$pkgdir"/usr/share/applications/moraine-gui.desktop
+	install -Dm644 assets/moraine.svg \
+		"$pkgdir"/usr/share/icons/hicolor/scalable/apps/moraine.svg
+	install -Dm644 assets/moraine-256.png \
+		"$pkgdir"/usr/share/icons/hicolor/256x256/apps/moraine.png
+	install -Dm644 assets/moraine-128.png \
+		"$pkgdir"/usr/share/icons/hicolor/128x128/apps/moraine.png
+	install -Dm644 assets/moraine-64.png \
+		"$pkgdir"/usr/share/icons/hicolor/64x64/apps/moraine.png
+	install -Dm644 assets/moraine-48.png \
+		"$pkgdir"/usr/share/icons/hicolor/48x48/apps/moraine.png
+
+	# Runtime assets the GUI loads from /usr/share/moraine/assets.
+	install -Dm644 assets/hero-bg.png "$pkgdir"/usr/share/moraine/assets/hero-bg.png
+	install -Dm644 assets/moraine-64.png "$pkgdir"/usr/share/moraine/assets/moraine-64.png
+	install -Dm644 assets/moraine-256.png "$pkgdir"/usr/share/moraine/assets/moraine-256.png
+
+	install -Dm644 debian/moraine.1 "$pkgdir"/usr/share/man/man1/moraine.1
+	install -Dm644 debian/moraine-gui.1 "$pkgdir"/usr/share/man/man1/moraine-gui.1
+
+	install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+}
+
+sha512sums="
+2b146959c7e4ef534b8a231e3a96187d0a733981a1087a9e15370f67900994c36264e22126ec8b017f48560a91d6090bc2d6e308574b75450c66a3f65107c461  moraine-0.1.17.tar.gz
+"
