@@ -151,7 +151,9 @@ jobs:
           # the test suite (already run by the CI workflow).
           sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
           chown -R builder:builder .
-          sudo -u builder makepkg --skipchecksums --nocheck --noconfirm -f
+          # --nodeps: don't require runtime deps (rsync/openssh) to be installed
+          # just to build the package; the build deps (rust, gtk4) already are.
+          sudo -u builder makepkg --skipchecksums --nocheck --nodeps --noconfirm -f
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
