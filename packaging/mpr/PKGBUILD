@@ -1,0 +1,41 @@
+# Maintainer: Jonaz Thern <info@thern.io>
+pkgname=moraine
+pkgver=0.1.19
+pkgrel=1
+pkgdesc='Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)'
+arch=('amd64' 'arm64')
+license=('MIT')
+depends=('rsync' 'openssh-client' 'libgtk-4-1')
+makedepends=('cargo' 'libgtk-4-dev' 'pkg-config')
+optdepends=('rclone: cloud/FTP/SMB/WebDAV/S3 backends'
+            'gnupg: encrypted config export/import'
+            'network-manager: per-target VPN')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/TheJonaz/moraine-backup/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('eac9d6fcd595e75b3bb9cea257c7460fdeb7edfd8989aa457cfe40df84e4ea49')
+_srcdir="moraine-backup-$pkgver"
+
+build() {
+  cd "$_srcdir"
+  cargo build --release --locked --features gui
+}
+
+package() {
+  cd "$_srcdir"
+  install -Dm755 target/release/moraine     "$pkgdir/usr/bin/moraine"
+  install -Dm755 target/release/moraine-gui "$pkgdir/usr/bin/moraine-gui"
+
+  install -Dm644 assets/moraine-gui.desktop "$pkgdir/usr/share/applications/moraine-gui.desktop"
+  install -Dm644 assets/moraine.svg     "$pkgdir/usr/share/icons/hicolor/scalable/apps/moraine.svg"
+  install -Dm644 assets/moraine-256.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/moraine.png"
+  install -Dm644 assets/moraine-128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/moraine.png"
+
+  # runtime assets the GUI loads from /usr/share/moraine/assets
+  install -Dm644 assets/hero-bg.png     "$pkgdir/usr/share/moraine/assets/hero-bg.png"
+  install -Dm644 assets/moraine-64.png  "$pkgdir/usr/share/moraine/assets/moraine-64.png"
+  install -Dm644 assets/moraine-256.png "$pkgdir/usr/share/moraine/assets/moraine-256.png"
+
+  install -Dm644 debian/moraine.1     "$pkgdir/usr/share/man/man1/moraine.1"
+  install -Dm644 debian/moraine-gui.1 "$pkgdir/usr/share/man/man1/moraine-gui.1"
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

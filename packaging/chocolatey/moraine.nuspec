@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>moraine</id>
+    <version>0.1.19</version>
+    <title>Moraine (CLI)</title>
+    <authors>Jonaz Thern</authors>
+    <owners>TheJonaz</owners>
+    <projectUrl>https://moraine.thern.io</projectUrl>
+    <projectSourceUrl>https://github.com/TheJonaz/moraine-backup</projectSourceUrl>
+    <packageSourceUrl>https://github.com/TheJonaz/moraine-backup/tree/main/packaging/chocolatey</packageSourceUrl>
+    <bugTrackerUrl>https://github.com/TheJonaz/moraine-backup/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/TheJonaz/moraine-backup/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <docsUrl>https://moraine.thern.io/wiki.html</docsUrl>
+    <tags>moraine backup snapshot rsync rclone ssh cli</tags>
+    <summary>Snapshot-based backup over SSH/rsync and rclone (command-line client).</summary>
+    <description>
+Moraine is a small, fast backup client in Rust. Hard-linked snapshots over SSH
+make every run look like a complete tree while only changed files take new
+space; restore anything from any snapshot. An rclone backend adds cloud/object
+storage and FTP.
+
+This package installs the `moraine` command-line client. The GTK desktop app is
+Linux-only. The rsync/SSH backend needs rsync + ssh on PATH (WSL, MSYS2 or
+Git for Windows); the rclone backend needs only rclone (`choco install rclone`).
+    </description>
+    <releaseNotes>https://github.com/TheJonaz/moraine-backup/blob/main/CHANGELOG.md</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
