@@ -95,3 +95,66 @@ jobs:
             moraine_*_amd64.deb
           fail_on_unmatched_files: false
           generate_release_notes: true
+
+  # ── Fedora RPM (CLI + GUI), built from packaging/rpm/moraine.spec ──
+  # Pinned to fedora:44 so the dist tag stays .fc44; bump when moving to a newer
+  # Fedora. `nodejs` is installed first because actions/checkout needs it inside
+  # the container.
+  rpm:
+    name: rpm (Fedora)
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install build deps
+        run: >
+          dnf -y install rust cargo gcc gtk4-devel pkgconf-pkg-config
+          desktop-file-utils rpm-build rpmdevtools git tar nodejs
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Build RPM
+        run: |
+          set -eux
+          VER="${RELEASE_TAG#v}"
+          rpmdev-setuptree
+          sed -i "s/^Version:.*/Version:        ${VER}/" packaging/rpm/moraine.spec
+          git config --global --add safe.directory "$PWD"
+          git archive --prefix="moraine-backup-${VER}/" \
+            -o ~/rpmbuild/SOURCES/moraine-${VER}.tar.gz HEAD
+          rpmbuild -bb packaging/rpm/moraine.spec
+          cp ~/rpmbuild/RPMS/x86_64/moraine-${VER}-1.*.x86_64.rpm .
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: moraine-*.rpm
+          fail_on_unmatched_files: false
+
+  # ── Arch package (CLI + GUI), built from packaging/aur/PKGBUILD ──
+  arch:
+    name: arch (pkg.tar.zst)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build deps
+        run: pacman -Syu --noconfirm --needed base-devel git sudo rust gtk4 nodejs
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Build package
+        run: |
+          set -eux
+          VER="${RELEASE_TAG#v}"
+          useradd -m builder
+          cp packaging/aur/PKGBUILD .
+          # Build the released tag; skip source checksums (it's our own tag) and
+          # the test suite (already run by the CI workflow).
+          sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
+          chown -R builder:builder .
+          sudo -u builder makepkg --skipchecksums --nocheck --noconfirm -f
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: "*.pkg.tar.zst"
+          fail_on_unmatched_files: false
