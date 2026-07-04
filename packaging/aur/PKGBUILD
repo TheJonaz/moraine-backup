@@ -4,6 +4,7 @@ pkgver=0.1.17
 pkgrel=1
 pkgdesc='Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)'
 arch=('x86_64')
+options=('!debug')  # no separate -debug package
 url='https://github.com/TheJonaz/moraine-backup'
 license=('MIT')
 depends=('gtk4' 'rsync' 'openssh')
