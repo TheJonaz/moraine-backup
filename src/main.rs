@@ -103,7 +103,10 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
             let msg = "empty 'dest' — refusing to run";
             eprintln!("  target '{}': {msg}", t.name);
             if !dry_run {
-                log(path, LogEntry::new("backup", &t.name, false, msg.to_string()));
+                log(
+                    path,
+                    LogEntry::new("backup", &t.name, false, msg.to_string()),
+                );
             }
             continue;
         }
@@ -117,7 +120,10 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(path, LogEntry::new("backup", &t.name, false, format!("{e:#}")));
+                    log(
+                        path,
+                        LogEntry::new("backup", &t.name, false, format!("{e:#}")),
+                    );
                 }
                 continue;
             }
@@ -150,7 +156,10 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(path, LogEntry::new("backup", &t.name, false, format!("{e:#}")));
+                    log(
+                        path,
+                        LogEntry::new("backup", &t.name, false, format!("{e:#}")),
+                    );
                 }
             }
         }
@@ -338,7 +347,10 @@ fn cmd_prune(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                     failures += 1;
                     eprintln!("  {e:#}");
                     if !dry_run {
-                        log(path, LogEntry::new("prune", &t.name, false, format!("{e:#}")));
+                        log(
+                            path,
+                            LogEntry::new("prune", &t.name, false, format!("{e:#}")),
+                        );
                     }
                 }
             }

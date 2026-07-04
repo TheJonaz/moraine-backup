@@ -42,8 +42,14 @@ pub fn env_for(target: &Target) -> Vec<(String, String)> {
     }
     let port = if target.port == 0 { 21 } else { target.port };
     let mut env = vec![
-        ("RCLONE_FTP_HOST".to_string(), target.host.trim().to_string()),
-        ("RCLONE_FTP_USER".to_string(), target.user.trim().to_string()),
+        (
+            "RCLONE_FTP_HOST".to_string(),
+            target.host.trim().to_string(),
+        ),
+        (
+            "RCLONE_FTP_USER".to_string(),
+            target.user.trim().to_string(),
+        ),
         ("RCLONE_FTP_PORT".to_string(), port.to_string()),
         // disable_mlsd: rclone then creates directories correctly and avoids
         // "501 No such directory" against servers with MLSD quirks (common).

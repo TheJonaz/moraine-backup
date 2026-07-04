@@ -32,8 +32,7 @@ const APP_ID: &str = "io.thern.moraine";
 
 /// Set when launched with `--minimized` (the autostart entry does this) so the
 /// window starts iconified to the taskbar instead of popping up at login.
-static START_MINIMIZED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static START_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // ─────────────────────────── form models ───────────────────────────
 
@@ -279,7 +278,10 @@ impl State {
                 return Err(format!("schedule '{}': invalid hour '{h}' (0–23)", s.name));
             }
             if m.parse::<u8>().map(|v| v > 59).unwrap_or(true) {
-                return Err(format!("schedule '{}': invalid minute '{m}' (0–59)", s.name));
+                return Err(format!(
+                    "schedule '{}': invalid minute '{m}' (0–59)",
+                    s.name
+                ));
             }
         }
         Ok(())
@@ -593,7 +595,10 @@ fn build_ui(app: &gtk::Application) {
 
     // Warn (don't silently start empty) if an existing config failed to load.
     if let Some(err) = state.borrow().load_error.clone() {
-        set_status(&ui, &format!("⚠ {err} — the previous config is at {CONFIG_PATH}.bak"));
+        set_status(
+            &ui,
+            &format!("⚠ {err} — the previous config is at {CONFIG_PATH}.bak"),
+        );
     }
 
     window.present();
@@ -619,7 +624,11 @@ fn asset(name: &str) -> String {
         }
     }
     // 2) Common install prefixes, then the source tree (dev).
-    for base in ["/app/share/moraine/assets", "/usr/share/moraine/assets", "assets"] {
+    for base in [
+        "/app/share/moraine/assets",
+        "/usr/share/moraine/assets",
+        "assets",
+    ] {
         let p = format!("{base}/{name}");
         if Path::new(&p).exists() {
             return p;
@@ -957,9 +966,8 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     }
 
     // Strict host key (SSH)
-    let strict = gtk::CheckButton::with_label(
-        "Require known SSH host key (strict — no trust-on-first-use)",
-    );
+    let strict =
+        gtk::CheckButton::with_label("Require known SSH host key (strict — no trust-on-first-use)");
     strict.set_active(f.strict_host_key);
     body.append(&strict);
     {
@@ -1250,8 +1258,7 @@ fn list_editor(
                         let pop2 = pop.clone();
                         folders_item.connect_clicked(move |_| {
                             pop2.popdown();
-                            let dialog =
-                                gtk::FileDialog::builder().title("Select folders").build();
+                            let dialog = gtk::FileDialog::builder().title("Select folders").build();
                             let st2 = st.clone();
                             let cw2 = cw.clone();
                             dialog.select_multiple_folders(
@@ -2409,8 +2416,7 @@ fn run_stream(
                 match moraine::vpn::up(&vpn) {
                     Ok(()) => {
                         vpn_was_ours = true;
-                        let _ =
-                            tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
+                        let _ = tx.send_blocking(Worker::Line(format!("VPN \"{vpn}\" connected")));
                     }
                     Err(e) => {
                         let _ = tx.send_blocking(Worker::Done(
@@ -2967,7 +2973,9 @@ fn load_tree(state: &Shared, ui: &Rc<Ui>) {
                 let name_ok = st.borrow().restore_target.as_deref() == Some(name_c.as_str());
                 let ts_ok = {
                     let s = st.borrow();
-                    s.selected_snapshot.and_then(|i| s.snapshots.get(i)).map(String::as_str)
+                    s.selected_snapshot
+                        .and_then(|i| s.snapshots.get(i))
+                        .map(String::as_str)
                         == Some(ts_c.as_str())
                 };
                 if !(name_ok && ts_ok) {
@@ -3346,9 +3354,9 @@ fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
     let text = String::from_utf8_lossy(&plaintext);
     // Refuse to overwrite unless it parses AND validates as a Moraine config
     // (validate() rejects e.g. traversal characters in target names).
-    let cfg =
-        toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
-    cfg.validate().map_err(|e| format!("invalid config: {e:#}"))?;
+    let cfg = toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    cfg.validate()
+        .map_err(|e| format!("invalid config: {e:#}"))?;
     // Owner-only: the config holds plaintext secrets.
     moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
         .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;

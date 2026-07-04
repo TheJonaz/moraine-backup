@@ -495,7 +495,11 @@ mod tests {
         std::fs::write(&path, b"old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         write_private(&path, b"new").unwrap();
-        assert_eq!(mode(&path), 0o600, "pre-existing file must be tightened to 0600");
+        assert_eq!(
+            mode(&path),
+            0o600,
+            "pre-existing file must be tightened to 0600"
+        );
         let _ = std::fs::remove_file(&path);
     }
 }
