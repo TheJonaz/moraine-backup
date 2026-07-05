@@ -160,3 +160,54 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           files: "*.pkg.tar.zst"
           fail_on_unmatched_files: false
+
+  # ── Publish the built packages to cdn.thern.io ──
+  # Downloads the release assets and hands them to deploy/cdn-publish.sh on the
+  # CDN host, which refreshes the apt/dnf/pacman repo metadata so clients see the
+  # new version. No-op unless the CDN secrets are set, so forks stay safe.
+  #
+  # One-time server setup (as CDN_USER on the CDN host):
+  #   * install deploy/cdn-publish.sh as ~/cdn-publish.sh (chmod +x)
+  #   * add the deploy key's PUBLIC half to ~/.ssh/authorized_keys
+  #   * verify the paths at the top of cdn-publish.sh match the real repos
+  # Repo secrets to add (Settings → Secrets → Actions):
+  #   CDN_SSH_KEY — the private deploy key (passphrase-less)
+  #   CDN_HOST    — cdn.thern.io
+  #   CDN_USER    — notroot
+  cdn:
+    name: publish to CDN
+    needs: [release, rpm, arch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p staging
+          gh release download "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" -D staging \
+            -p 'moraine_*_amd64.deb' -p 'moraine-*.x86_64.rpm' \
+            -p 'moraine-*-x86_64.pkg.tar.zst'
+          ls -l staging
+
+      - name: Publish to CDN
+        env:
+          CDN_SSH_KEY: ${{ secrets.CDN_SSH_KEY }}
+          CDN_HOST: ${{ secrets.CDN_HOST }}
+          CDN_USER: ${{ secrets.CDN_USER }}
+        run: |
+          if [ -z "$CDN_SSH_KEY" ] || [ -z "$CDN_HOST" ] || [ -z "$CDN_USER" ]; then
+            echo "CDN_SSH_KEY/CDN_HOST/CDN_USER not set — skipping CDN publish."
+            exit 0
+          fi
+          VER="${RELEASE_TAG#v}"
+          umask 077
+          printf '%s\n' "$CDN_SSH_KEY" > "$HOME/cdn_key"
+          chmod 600 "$HOME/cdn_key"
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan -H "$CDN_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+          SSH="ssh -i $HOME/cdn_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          $SSH "$CDN_USER@$CDN_HOST" 'rm -rf /tmp/cdn-incoming && mkdir -p /tmp/cdn-incoming'
+          scp -i "$HOME/cdn_key" -o StrictHostKeyChecking=accept-new \
+            staging/* "$CDN_USER@$CDN_HOST:/tmp/cdn-incoming/"
+          $SSH "$CDN_USER@$CDN_HOST" "bash ~/cdn-publish.sh '$VER' /tmp/cdn-incoming"
+          rm -f "$HOME/cdn_key"
