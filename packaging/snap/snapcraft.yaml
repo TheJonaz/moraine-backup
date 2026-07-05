@@ -1,6 +1,6 @@
 name: moraine
 base: core24
-version: '0.1.19'
+version: '0.1.22'
 summary: Snapshot backups over SSH and rclone
 description: |
   Moraine is a small, fast backup client in Rust with a native GTK desktop app
@@ -39,7 +39,7 @@ parts:
   moraine:
     plugin: rust
     source: https://github.com/TheJonaz/moraine-backup.git
-    source-tag: v0.1.19
+    source-tag: v0.1.22
     build-packages:
       - libgtk-4-dev
       - pkg-config

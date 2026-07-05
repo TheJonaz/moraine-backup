@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.22" date="2026-07-05">
+      <description>
+        <p>System-tray icon, in-app update check, and a window icon fix.</p>
+      </description>
+    </release>
     <release version="0.1.19" date="2026-07-04">
       <description>
         <p>Autostart launches minimized to the taskbar; portable asset paths for Flatpak/Snap/AppImage.</p>

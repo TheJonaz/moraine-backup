@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: TheJonaz.Moraine
-PackageVersion: 0.1.19
+PackageVersion: 0.1.22
 Platform:
   - Windows.Desktop
 MinimumOSVersion: 10.0.0.0
@@ -14,7 +14,7 @@ Commands:
 ReleaseDate: 2026-07-04
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/TheJonaz/moraine-backup/releases/download/v0.1.19/moraine-windows-x86_64.zip
-    InstallerSha256: 7AFB6DF8B645FF54D4414DA6DCC11781BC84B7263990553B55DF497EAF135E71
+    InstallerUrl: https://github.com/TheJonaz/moraine-backup/releases/download/v0.1.22/moraine-windows-x86_64.zip
+    InstallerSha256: 480A23D3441E99411BAF17146ACD4899577C84F960191BFA25FB725D3B32C6FB
 ManifestType: installer
 ManifestVersion: 1.6.0

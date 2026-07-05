@@ -1,5 +1,5 @@
 Name:           moraine
-Version:        0.1.19
+Version:        0.1.22
 Release:        1%{?dist}
 Summary:        Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)
 
@@ -73,6 +73,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 %{_mandir}/man1/moraine-gui.1*
 
 %changelog
+* Sun Jul 05 2026 Jonaz Thern <info@thern.io> - 0.1.22-1
+- System tray, in-app update check, window icon fix.
+
 * Sat Jul 04 2026 Jonaz Thern <info@thern.io> - 0.1.19-1
 - Autostart launches minimized; portable asset paths (XDG_DATA_DIRS).
 
