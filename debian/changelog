@@ -1,3 +1,14 @@
+moraine (0.1.22-1) unstable; urgency=medium
+
+  * GUI: in-app "Check for updates" (startup banner + Settings button), using
+    GitHub Releases so it works for every install method, not just APT.
+  * GUI: system-tray icon (StatusNotifierItem) with show/quit; autostart starts
+    hidden in the tray; the window's X asks minimize-to-tray or quit.
+  * GUI: set the window icon explicitly so X11 shows the real Moraine mark.
+  * GUI: Settings "Website" link now points to moraine.thern.io.
+
+ -- Jonaz Thern <info@thern.io>  Sun, 05 Jul 2026 22:08:36 +0200
+
 moraine (0.1.17-1) unstable; urgency=medium
 
   * Add Arch Linux/AUR packaging (packaging/aur/PKGBUILD).

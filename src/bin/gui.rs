@@ -16,6 +16,8 @@ use gtk::gio;
 use gtk::glib;
 use gtk::prelude::*;
 
+use ksni::blocking::TrayMethods;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufReader, Read as _, Write as _};
@@ -29,10 +31,78 @@ use moraine::{prune, rclone, rsync, snapshot, ssh};
 
 const CONFIG_PATH: &str = "moraine.toml";
 const APP_ID: &str = "io.thern.moraine";
+/// Endpoint that receives "Bug & Feedback" submissions (see feedback.php on the
+/// server). POSTed as JSON via curl so no HTTP-client dependency is needed.
+const FEEDBACK_URL: &str = "https://www.thern.io/feedback.php";
+/// Shared key sent with each submission — weak by design (it ships in the
+/// binary), just enough to drop casual bots hitting the public endpoint.
+const FEEDBACK_KEY: &str = "mrn-fb-7d1a9c3e";
+/// "owner/repo" used by the update check (GitHub Releases API).
+const GITHUB_REPO: &str = "TheJonaz/moraine-backup";
+/// Where the Download button sends the user — always the newest release.
+const RELEASES_URL: &str = "https://github.com/TheJonaz/moraine-backup/releases/latest";
 
 /// Set when launched with `--minimized` (the autostart entry does this) so the
-/// window starts iconified to the taskbar instead of popping up at login.
+/// app starts hidden in the system tray instead of popping up a window at login.
 static START_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// ─────────────────────────── system tray ───────────────────────────
+
+/// Messages the tray (running on ksni's own thread) sends to the GTK main loop.
+enum TrayMsg {
+    /// Left-click on the tray icon — show if hidden, hide if visible.
+    Toggle,
+    /// "Show Moraine" menu item — always raise the window.
+    Show,
+    /// "Quit" menu item — really exit (the window's close button only hides).
+    Quit,
+}
+
+/// StatusNotifierItem shown in the notification area. Holds only a `Send` sender
+/// back to the UI thread — never a GTK widget (those aren't `Send`).
+struct MoraineTray {
+    tx: async_channel::Sender<TrayMsg>,
+}
+
+impl ksni::Tray for MoraineTray {
+    fn id(&self) -> String {
+        APP_ID.into()
+    }
+    fn icon_name(&self) -> String {
+        // Same themed icon as the window / desktop entry.
+        "moraine".into()
+    }
+    fn title(&self) -> String {
+        "Moraine Backup".into()
+    }
+    fn activate(&mut self, _x: i32, _y: i32) {
+        let _ = self.tx.send_blocking(TrayMsg::Toggle);
+    }
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::{MenuItem, StandardItem};
+        vec![
+            StandardItem {
+                label: "Show Moraine".into(),
+                icon_name: "moraine".into(),
+                activate: Box::new(|t: &mut Self| {
+                    let _ = t.tx.send_blocking(TrayMsg::Show);
+                }),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            StandardItem {
+                label: "Quit".into(),
+                icon_name: "application-exit".into(),
+                activate: Box::new(|t: &mut Self| {
+                    let _ = t.tx.send_blocking(TrayMsg::Quit);
+                }),
+                ..Default::default()
+            }
+            .into(),
+        ]
+    }
+}
 
 // ─────────────────────────── form models ───────────────────────────
 
@@ -470,6 +540,14 @@ fn build_ui(app: &gtk::Application) {
         .default_height(720)
         .build();
 
+    // Window/taskbar/tray icon. GtkApplication only auto-loads an icon when a
+    // desktop file named after the app-id (io.thern.moraine.desktop) is
+    // installed; ours ships as moraine-gui.desktop, so the window had no icon and
+    // XFCE/X11 fell back to a generic one. Set it explicitly — the "moraine" icon
+    // is installed under the default hicolor theme (see debian/moraine.install),
+    // and GTK renders it into _NET_WM_ICON so the taskbar/tray shows the real mark.
+    window.set_icon_name(Some("moraine"));
+
     // The Stack holds the four tab pages. The switcher that drives it is placed
     // in the content as a pill bar (not in the window titlebar), to match the
     // original layout.
@@ -560,8 +638,53 @@ fn build_ui(app: &gtk::Application) {
     root.set_margin_start(16);
     root.set_margin_end(16);
     root.append(&header);
+
+    // Update banner — hidden until the startup check finds a newer release.
+    let update_bar = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    update_bar.add_css_class("card");
+    update_bar.set_visible(false);
+    let update_lbl = gtk::Label::new(None);
+    update_lbl.set_halign(gtk::Align::Start);
+    update_lbl.set_xalign(0.0);
+    update_lbl.set_hexpand(true);
+    update_lbl.set_wrap(true);
+    update_bar.append(&update_lbl);
+    let dl_btn = gtk::Button::with_label("Download");
+    dl_btn.add_css_class("accent");
+    dl_btn.connect_clicked(|_| {
+        let _ = gio::AppInfo::launch_default_for_uri(RELEASES_URL, gio::AppLaunchContext::NONE);
+    });
+    update_bar.append(&dl_btn);
+    let dismiss_btn = gtk::Button::with_label("✕");
+    dismiss_btn.add_css_class("linkbtn");
+    {
+        let bar = update_bar.clone();
+        dismiss_btn.connect_clicked(move |_| bar.set_visible(false));
+    }
+    update_bar.append(&dismiss_btn);
+    root.append(&update_bar);
+
     root.append(&switcher);
     root.append(&stack);
+
+    // Silent update check at startup: only reveal the banner if a newer release
+    // exists. "Up to date" and errors stay quiet here — Settings has an explicit
+    // "Check for updates" button that reports every outcome.
+    {
+        let bar = update_bar.clone();
+        let lbl = update_lbl.clone();
+        spawn_update_check(move |res| {
+            if let Ok(latest) = res {
+                if is_newer(&latest, current_version()) {
+                    lbl.set_markup(&format!(
+                        "🔔 <b>A new version is available</b> — Moraine {latest} (you have {}).",
+                        current_version()
+                    ));
+                    bar.set_visible(true);
+                }
+            }
+        });
+    }
 
     ui.status.add_css_class("statusbar");
     ui.status.set_halign(gtk::Align::Start);
@@ -571,6 +694,14 @@ fn build_ui(app: &gtk::Application) {
     root.append(&status_card);
 
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    // Bottom-left: Bug & Feedback → opens the report modal.
+    let feedback_btn = gtk::Button::with_label("🐞 Bug & Feedback");
+    feedback_btn.add_css_class("linkbtn");
+    {
+        let ui2 = ui.clone();
+        feedback_btn.connect_clicked(move |_| open_feedback_dialog(&ui2));
+    }
+    footer.append(&feedback_btn);
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     footer.append(&spacer);
@@ -601,14 +732,180 @@ fn build_ui(app: &gtk::Application) {
         );
     }
 
-    window.present();
+    // ── System-tray icon ──
+    // Spawn the StatusNotifierItem. On success the window's close button hides
+    // to the tray (rather than quitting) and `--minimized` starts with no window
+    // shown at all. If no tray host is available (spawn fails), fall back to the
+    // old behaviour so the app can never become unreachable.
+    let (tray_tx, tray_rx) = async_channel::unbounded::<TrayMsg>();
+    let tray_ok = match (MoraineTray { tx: tray_tx }).spawn() {
+        Ok(handle) => {
+            let window = window.clone();
+            let app = app.clone();
+            glib::spawn_future_local(async move {
+                // Keep the tray service handle alive for the app's lifetime.
+                let _handle = handle;
+                while let Ok(msg) = tray_rx.recv().await {
+                    match msg {
+                        TrayMsg::Toggle => {
+                            if window.is_visible() {
+                                window.set_visible(false);
+                            } else {
+                                window.set_visible(true);
+                                window.present();
+                            }
+                        }
+                        TrayMsg::Show => {
+                            window.set_visible(true);
+                            window.present();
+                        }
+                        TrayMsg::Quit => app.quit(),
+                    }
+                }
+            });
+            true
+        }
+        Err(e) => {
+            eprintln!("moraine: system tray unavailable ({e}); running without it");
+            false
+        }
+    };
 
-    // Launched from the autostart entry (`--minimized`): iconify to the taskbar
-    // rather than grabbing focus at login. Must run after present() — minimizing
-    // an unmapped window is a no-op on most compositors.
-    if START_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed) {
-        window.minimize();
+    if tray_ok {
+        // Pressing the window's X asks whether to minimize to the tray or quit,
+        // unless the user has already ticked "remember my choice". Quit from the
+        // tray menu still exits directly.
+        let app_close = app.clone();
+        window.connect_close_request(move |w| {
+            match load_close_action() {
+                Some(CloseAction::Tray) => w.set_visible(false),
+                Some(CloseAction::Quit) => app_close.quit(),
+                None => show_close_dialog(w, &app_close),
+            }
+            glib::Propagation::Stop
+        });
     }
+
+    let start_minimized = START_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed);
+    match (start_minimized, tray_ok) {
+        // Autostart with a working tray: stay hidden in the tray, no window.
+        (true, true) => {}
+        // Autostart without a tray: present then iconify (pre-tray behaviour).
+        (true, false) => {
+            window.present();
+            window.minimize();
+        }
+        // Normal launch: show the window.
+        (false, _) => window.present(),
+    }
+}
+
+// ─────────────────────── close-to-tray preference ───────────────────────
+
+/// What the window's X button does. Persisted only when the user ticks
+/// "remember my choice"; otherwise the dialog asks every time.
+#[derive(Clone, Copy)]
+enum CloseAction {
+    Tray,
+    Quit,
+}
+
+/// `~/.config/moraine/close-action` — a one-word file ("tray" | "quit").
+fn close_pref_path() -> Option<std::path::PathBuf> {
+    let dir = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?;
+    Some(dir.join("moraine").join("close-action"))
+}
+
+fn load_close_action() -> Option<CloseAction> {
+    match std::fs::read_to_string(close_pref_path()?).ok()?.trim() {
+        "tray" => Some(CloseAction::Tray),
+        "quit" => Some(CloseAction::Quit),
+        _ => None,
+    }
+}
+
+fn save_close_action(a: CloseAction) {
+    if let Some(p) = close_pref_path() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(
+            p,
+            match a {
+                CloseAction::Tray => "tray",
+                CloseAction::Quit => "quit",
+            },
+        );
+    }
+}
+
+/// Modal shown when the window is closed while the tray is active: minimize to
+/// the tray or quit, with an optional "remember my choice".
+fn show_close_dialog(window: &gtk::ApplicationWindow, app: &gtk::Application) {
+    let dlg = gtk::Window::builder()
+        .transient_for(window)
+        .modal(true)
+        .title("Stäng Moraine")
+        .default_width(390)
+        .build();
+
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    b.set_margin_top(18);
+    b.set_margin_bottom(18);
+    b.set_margin_start(18);
+    b.set_margin_end(18);
+
+    let msg = gtk::Label::new(Some(
+        "Vill du minimera Moraine till systemfältet eller avsluta appen?",
+    ));
+    msg.set_wrap(true);
+    msg.set_halign(gtk::Align::Start);
+    msg.set_xalign(0.0);
+    b.append(&msg);
+
+    let remember = gtk::CheckButton::with_label("Kom ihåg mitt val");
+    b.append(&remember);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let quit_btn = gtk::Button::with_label("Avsluta");
+    let tray_btn = gtk::Button::with_label("Minimera till systemfältet");
+    tray_btn.add_css_class("accent");
+    row.append(&quit_btn);
+    row.append(&tray_btn);
+    b.append(&row);
+
+    {
+        let dlg = dlg.clone();
+        let window = window.clone();
+        let remember = remember.clone();
+        tray_btn.connect_clicked(move |_| {
+            if remember.is_active() {
+                save_close_action(CloseAction::Tray);
+            }
+            window.set_visible(false);
+            dlg.close();
+        });
+    }
+    {
+        let dlg = dlg.clone();
+        let app = app.clone();
+        let remember = remember.clone();
+        quit_btn.connect_clicked(move |_| {
+            if remember.is_active() {
+                save_close_action(CloseAction::Quit);
+            }
+            dlg.close();
+            app.quit();
+        });
+    }
+
+    dlg.set_child(Some(&b));
+    dlg.present();
 }
 
 fn asset(name: &str) -> String {
@@ -635,6 +932,286 @@ fn asset(name: &str) -> String {
         }
     }
     format!("assets/{name}")
+}
+
+// ─────────────────────────── Bug & Feedback ───────────────────────────
+
+/// Modal where the user files a bug / feedback / feature request. The message
+/// plus the app version and host OS are POSTed to `FEEDBACK_URL`.
+fn open_feedback_dialog(ui: &Rc<Ui>) {
+    let win = gtk::Window::builder()
+        .transient_for(&ui.window)
+        .modal(true)
+        .title("Bug & Feedback")
+        .default_width(470)
+        .build();
+
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    b.set_margin_top(16);
+    b.set_margin_bottom(16);
+    b.set_margin_start(16);
+    b.set_margin_end(16);
+
+    let intro = gtk::Label::new(Some(
+        "Found a bug or have an idea? Send it straight to the developer.",
+    ));
+    intro.add_css_class("muted");
+    intro.set_halign(gtk::Align::Start);
+    intro.set_wrap(true);
+    b.append(&intro);
+
+    let kind = gtk::DropDown::from_strings(&["🐞 Bug", "💡 Feedback", "✨ Feature request"]);
+    b.append(&kind);
+
+    let msg_lbl = gtk::Label::new(Some("Your message"));
+    msg_lbl.add_css_class("muted");
+    msg_lbl.set_halign(gtk::Align::Start);
+    b.append(&msg_lbl);
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_min_content_height(120);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    let msg = gtk::TextView::new();
+    msg.set_wrap_mode(gtk::WrapMode::WordChar);
+    msg.set_top_margin(6);
+    msg.set_bottom_margin(6);
+    msg.set_left_margin(8);
+    msg.set_right_margin(8);
+    scroll.set_child(Some(&msg));
+    b.append(&scroll);
+
+    let email = gtk::Entry::new();
+    email.set_placeholder_text(Some("Your email (optional — so I can reply)"));
+    b.append(&email);
+
+    let info = gtk::Label::new(Some(&format!(
+        "Attaches Moraine {} · {} {} so I can reproduce.",
+        moraine::VERSION,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )));
+    info.add_css_class("muted");
+    info.set_halign(gtk::Align::Start);
+    info.set_wrap(true);
+    b.append(&info);
+
+    let status = gtk::Label::new(None);
+    status.add_css_class("muted");
+    status.set_halign(gtk::Align::Start);
+    status.set_wrap(true);
+    b.append(&status);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let cancel = gtk::Button::with_label("Cancel");
+    {
+        let w = win.clone();
+        cancel.connect_clicked(move |_| w.close());
+    }
+    row.append(&cancel);
+    let send = gtk::Button::with_label("Send");
+    send.add_css_class("accent");
+    row.append(&send);
+    b.append(&row);
+
+    {
+        let win = win.clone();
+        let kind = kind.clone();
+        let msg = msg.clone();
+        let email = email.clone();
+        let status = status.clone();
+        let send_btn = send.clone();
+        send.connect_clicked(move |_| {
+            let buf = msg.buffer();
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .trim()
+                .to_string();
+            if text.is_empty() {
+                status.remove_css_class("muted");
+                status.add_css_class("danger");
+                status.set_text("Please write a message first.");
+                return;
+            }
+            let kind_val = match kind.selected() {
+                0 => "bug",
+                2 => "feature",
+                _ => "feedback",
+            };
+            let payload = serde_json::json!({
+                "type": kind_val,
+                "message": text,
+                "email": email.text().to_string(),
+                "version": moraine::VERSION,
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+            })
+            .to_string();
+
+            send_btn.set_sensitive(false);
+            status.remove_css_class("danger");
+            status.add_css_class("muted");
+            status.set_text("Sending…");
+
+            let (tx, rx) = async_channel::bounded::<Result<(), String>>(1);
+            std::thread::spawn(move || {
+                let _ = tx.send_blocking(post_feedback(&payload));
+            });
+            let win2 = win.clone();
+            let status2 = status.clone();
+            let send2 = send_btn.clone();
+            glib::spawn_future_local(async move {
+                match rx.recv().await {
+                    Ok(Ok(())) => {
+                        status2.remove_css_class("danger");
+                        status2.set_text("Thanks — sent! ✔");
+                        glib::timeout_add_local_once(
+                            std::time::Duration::from_millis(900),
+                            move || win2.close(),
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        status2.remove_css_class("muted");
+                        status2.add_css_class("danger");
+                        status2.set_text(&format!("Couldn't send: {e}"));
+                        send2.set_sensitive(true);
+                    }
+                    Err(_) => send2.set_sensitive(true),
+                }
+            });
+        });
+    }
+
+    win.set_child(Some(&b));
+    win.present();
+}
+
+/// POST the feedback JSON to `FEEDBACK_URL` via curl (blocking; call off-thread).
+fn post_feedback(payload: &str) -> Result<(), String> {
+    use std::io::Write;
+    let key_hdr = format!("X-Moraine-Key: {FEEDBACK_KEY}");
+    let mut child = Command::new("curl")
+        .args([
+            "-fsS",
+            "--max-time",
+            "20",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            key_hdr.as_str(),
+            "--data-binary",
+            "@-",
+            FEEDBACK_URL,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("curl is required to send ({e})"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("no stdin")?
+        .write_all(payload.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if err.is_empty() {
+            "server unreachable".into()
+        } else {
+            err
+        })
+    }
+}
+
+// ─────────────────────────── update check ───────────────────────────
+// A cross-platform "is there a newer release?" check — works for every install
+// method (deb/rpm/Flatpak/tarball/Windows), unlike APT which only Linux package
+// users benefit from. Uses the GitHub Releases API via curl (bundled on Windows
+// 10+, macOS and Linux) so no HTTP-client dependency is pulled in.
+
+/// The clean semver this binary was built as, e.g. "0.1.21" (without the git
+/// hash/date that `moraine::VERSION` carries).
+fn current_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Latest published release tag from GitHub (blocking — call off the main thread).
+/// Returns the version with any leading 'v' stripped, e.g. "0.1.22".
+fn fetch_latest_release() -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    let out = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "15",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: moraine-gui",
+            &url,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("curl is required to check for updates ({e})"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            "could not reach GitHub".into()
+        } else {
+            err
+        });
+    }
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("bad response ({e})"))?;
+    let tag = json
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .ok_or("no published release found")?;
+    Ok(tag.trim().trim_start_matches('v').trim().to_string())
+}
+
+/// Parse the leading "x.y.z" of a version string into comparable parts, ignoring
+/// any trailing build metadata (git hash, date, pre-release suffix).
+fn semver_parts(s: &str) -> Option<(u64, u64, u64)> {
+    let core = s.trim().trim_start_matches('v').split_whitespace().next()?;
+    let mut it = core.split(['.', '-', '+']);
+    let major = it.next()?.parse().ok()?;
+    let minor = it.next().unwrap_or("0").parse().ok()?;
+    let patch = it.next().unwrap_or("0").parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// True when `latest` is strictly newer than `current`.
+fn is_newer(latest: &str, current: &str) -> bool {
+    match (semver_parts(latest), semver_parts(current)) {
+        (Some(l), Some(c)) => l > c,
+        _ => false,
+    }
+}
+
+/// Run the release check on a worker thread and deliver the result to `on_done`
+/// on the GTK main loop. `on_done` receives `Ok(latest_version)` or `Err(msg)`.
+fn spawn_update_check<F>(on_done: F)
+where
+    F: FnOnce(Result<String, String>) + 'static,
+{
+    let (tx, rx) = async_channel::bounded::<Result<String, String>>(1);
+    std::thread::spawn(move || {
+        let _ = tx.send_blocking(fetch_latest_release());
+    });
+    glib::spawn_future_local(async move {
+        if let Ok(res) = rx.recv().await {
+            on_done(res);
+        }
+    });
 }
 
 // ─────────────────────────── Quick Backup tab ───────────────────────────
@@ -2022,8 +2599,7 @@ fn build_about_and_finish(
     let links = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     for (label, url) in [
         ("GitHub", "https://github.com/TheJonaz/moraine-backup"),
-        ("moraine.thern.io", "https://moraine.thern.io"),
-        ("Website", "https://www.thern.io"),
+        ("Website", "https://moraine.thern.io"),
     ] {
         let btn = gtk::Button::with_label(label);
         btn.add_css_class("linkbtn");
@@ -2033,6 +2609,39 @@ fn build_about_and_finish(
         links.append(&btn);
     }
     about.append(&links);
+
+    // On-demand update check (reports every outcome, unlike the startup banner).
+    let upd_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let upd_btn = gtk::Button::with_label("Check for updates");
+    let upd_status = gtk::Label::new(None);
+    upd_status.add_css_class("muted");
+    upd_status.set_wrap(true);
+    upd_row.append(&upd_btn);
+    upd_row.append(&upd_status);
+    about.append(&upd_row);
+    {
+        let upd_status = upd_status.clone();
+        upd_btn.connect_clicked(move |btn| {
+            upd_status.remove_css_class("danger");
+            upd_status.set_text("Checking…");
+            btn.set_sensitive(false);
+            let btn = btn.clone();
+            let upd_status = upd_status.clone();
+            spawn_update_check(move |res| {
+                match res {
+                    Ok(latest) if is_newer(&latest, current_version()) => upd_status.set_markup(
+                        &format!("New version {latest} available — <a href=\"{RELEASES_URL}\">download</a>."),
+                    ),
+                    Ok(_) => upd_status.set_text(&format!("You're up to date (Moraine {}).", current_version())),
+                    Err(e) => {
+                        upd_status.add_css_class("danger");
+                        upd_status.set_text(&format!("Check failed: {e}"));
+                    }
+                }
+                btn.set_sensitive(true);
+            });
+        });
+    }
     outer.append(&about);
 
     scroll.set_child(Some(outer));

@@ -7,6 +7,30 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [0.1.22] — 2026-07-05
+
+### Added
+- **Check for updates**: the GUI now checks GitHub Releases on startup and shows a
+  dismissable banner when a newer version is out, plus an on-demand "Check for
+  updates" button in Settings → About. Works for every install method (deb, rpm,
+  Flatpak, tarball, Windows) — not just APT — using the bundled `curl`, so no HTTP
+  dependency is added.
+- **System-tray icon**: a StatusNotifierItem (via `ksni`) with left-click to
+  show/hide and a menu (Show / Quit). Autostart (`--minimized`) now starts hidden
+  in the tray. Falls back to the previous present-then-minimize behaviour when no
+  tray host is available.
+- **Close-to-tray prompt**: pressing the window's X asks whether to minimize to the
+  tray or quit, with an optional "remember my choice".
+- **Bug & Feedback** submissions now flow to the admin panel on www.thern.io.
+
+### Fixed
+- **Window/taskbar icon**: the window now sets its icon explicitly
+  (`set_icon_name`), so X11/XFCE shows the real Moraine mark instead of a generic
+  fallback (the app-id and desktop-file name differ).
+
+### Changed
+- Settings → About: the "Website" link now points to `moraine.thern.io`.
+
 ## [0.1.19] — 2026-07-04
 
 ### Changed

@@ -1,6 +1,6 @@
 [package]
 name = "moraine"
-version = "0.1.21"
+version = "0.1.22"
 edition = "2021"
 description = "Moraine — snapshot-based backup over SSH/rsync and rclone"
 license = "MIT"
@@ -23,7 +23,7 @@ required-features = ["gui"]
 
 [features]
 default = ["gui"]
-gui = ["dep:gtk4", "dep:async-channel"]
+gui = ["dep:gtk4", "dep:async-channel", "dep:ksni"]
 
 [dependencies]
 # ── CLI + library core (small, all packaged in Debian) ──
@@ -40,6 +40,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Both crates are packaged in Debian, so the GUI can ship in official Debian.
 gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
 async-channel = { version = "2", optional = true }
+# System-tray icon (StatusNotifierItem). GTK4 dropped GtkStatusIcon, so the tray
+# is provided by ksni over D-Bus. `blocking` + `async-io` keeps it a pure-Rust
+# dependency (zbus, no libdbus C lib and no tokio). NOTE: ksni is not yet in
+# Debian, so the official Debian recipe must vendor it or drop the tray.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"], optional = true }
 
 # ─────────────────────────── paketering (.deb) ───────────────────────────
 [package.metadata.deb]
