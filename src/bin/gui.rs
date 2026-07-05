@@ -814,7 +814,9 @@ enum CloseAction {
 fn close_pref_path() -> Option<std::path::PathBuf> {
     let dir = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?;
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+        })?;
     Some(dir.join("moraine").join("close-action"))
 }
 
@@ -2629,10 +2631,14 @@ fn build_about_and_finish(
             let upd_status = upd_status.clone();
             spawn_update_check(move |res| {
                 match res {
-                    Ok(latest) if is_newer(&latest, current_version()) => upd_status.set_markup(
-                        &format!("New version {latest} available — <a href=\"{RELEASES_URL}\">download</a>."),
-                    ),
-                    Ok(_) => upd_status.set_text(&format!("You're up to date (Moraine {}).", current_version())),
+                    Ok(latest) if is_newer(&latest, current_version()) => upd_status
+                        .set_markup(&format!(
+                        "New version {latest} available — <a href=\"{RELEASES_URL}\">download</a>."
+                    )),
+                    Ok(_) => upd_status.set_text(&format!(
+                        "You're up to date (Moraine {}).",
+                        current_version()
+                    )),
                     Err(e) => {
                         upd_status.add_css_class("danger");
                         upd_status.set_text(&format!("Check failed: {e}"));
