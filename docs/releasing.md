@@ -10,7 +10,12 @@ deploy/bump.sh 0.1.23        # add --dry-run first to preview every edit
 `## [Unreleased]` heading in `CHANGELOG.md` with the version and date, updates the
 install commands in `README.md` and every version label + `cdn.thern.io` download
 URL in `site/index.html`, then commits `release: vX.Y.Z`, tags `vX.Y.Z` and pushes
-(it asks first; `-y` skips the prompt, `--no-push` stops after the commit).
+(it asks first; `-y` skips the prompt, `--no-push` stops after the commit). After
+pushing it also **deploys the updated `site/index.html` to moraine.thern.io** over
+SSH (`notroot@web.thern.io`, `sudo install` into `/home/moraine/public_html`;
+override via `MORAINE_SITE_*` env, skip with `--no-site`). The site's version
+labels update immediately; its versioned CDN download links resolve once
+`cdn-pull` publishes the release (~10 min).
 
 Pushing the tag triggers [`release.yml`](../.github/workflows/release.yml): it
 builds the per-OS archives, the `.deb`, `.rpm` and `.pkg.tar.zst`, and attaches
@@ -40,14 +45,8 @@ sudo systemctl start moraine-cdn-pull.service    # publish the current release n
 Verify the repo-path defaults at the top of `cdn-publish.sh` match the real server
 first. To force an immediate publish later: `cdn-pull.sh --force`.
 
-## Two manual follow-ups
+## Manual follow-up
 
-`bump.sh` deliberately leaves these to you, because neither can be done correctly
-before the tag exists:
-
-- **Deploy the website.** `site/` is gitignored and hosted separately. Publish the
-  updated `site/index.html` to `moraine.thern.io` *after* `release.yml` has pushed
-  the new packages to the CDN — otherwise the download buttons 404.
 - **Bump the downstream packaging recipes.** Once the release is published, run
   [`deploy/bump-recipes.sh`](../deploy/bump-recipes.sh)`<version>` — it bumps every
   recipe (AUR, Homebrew, nixpkgs, Alpine, Scoop, Chocolatey, winget, RPM, Snap,

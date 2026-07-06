@@ -14,10 +14,9 @@
 #   * CHANGELOG.md             — stamps the [Unreleased] heading with version + date
 #   * README.md                — the install-command version strings
 #   * site/index.html          — every version label and the cdn.thern.io download
-#                                URLs. site/ is gitignored and deployed separately,
-#                                so it is edited in place; the script reminds you to
-#                                publish it (moraine.thern.io) after the tag's
-#                                packages have landed on the CDN.
+#                                URLs. site/ is gitignored; after pushing, the
+#                                script also deploys the updated index.html to
+#                                moraine.thern.io over SSH (skip with --no-site).
 #
 # NOT touched: the downstream packaging/ recipes (AUR, Homebrew, nixpkgs, …). Their
 # source/binary checksums can only be computed once the tag's tarball exists on
@@ -30,17 +29,19 @@ NEW=""
 PUSH=1
 DRYRUN=0
 ASSUME_YES=0
+DEPLOY_SITE=1
 for a in "$@"; do
     case "$a" in
         --no-push) PUSH=0 ;;
         --dry-run) DRYRUN=1 ;;
+        --no-site) DEPLOY_SITE=0 ;;
         -y|--yes)  ASSUME_YES=1 ;;
         -*) die "unknown option: $a" ;;
         *) [ -z "$NEW" ] || die "unexpected argument: $a"; NEW="$a" ;;
     esac
 done
 
-[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--dry-run] [-y]"
+[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--no-site] [--dry-run] [-y]"
 [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must look like X.Y.Z (got '$NEW')"
 
 # Always operate from the repo root, wherever we were invoked from.
@@ -132,12 +133,42 @@ else
     printf 'bump: not pushed. When ready:  git push origin %s && git push origin v%s\n' "$branch" "$N"
 fi
 
+# ── Deploy the website (moraine.thern.io) ──
+# The site is gitignored and lives on web.thern.io; bump.sh runs on your machine,
+# which can reach it, so we push the updated index.html straight up (only
+# index.html changes on a version bump). notroot can't write the moraine-owned
+# web root directly but has passwordless sudo, so we stage in /tmp and
+# `sudo install`. Override host/path/owner/key via env; skip with --no-site.
+# ssh will prompt once for the key's passphrase (or use your agent).
+SITE_HOST="${MORAINE_SITE_HOST:-notroot@web.thern.io}"
+SITE_PATH="${MORAINE_SITE_PATH:-/home/moraine/public_html/index.html}"
+SITE_OWNER="${MORAINE_SITE_OWNER:-moraine:moraine}"
+SITE_KEY="${MORAINE_SITE_KEY:-$HOME/sshkeys/node1.key}"
+
+if [ "$DEPLOY_SITE" = 1 ] && [ "$PUSH" = 1 ]; then
+    if [ ! -f "$ROOT/site/index.html" ]; then
+        printf 'bump: no site/index.html — skipping website deploy\n' >&2
+    else
+        printf 'bump: deploying site/index.html to %s ...\n' "$SITE_HOST"
+        ssh_opts=(-4 -o StrictHostKeyChecking=accept-new)
+        [ -f "$SITE_KEY" ] && ssh_opts+=(-i "$SITE_KEY" -o IdentitiesOnly=yes)
+        if scp "${ssh_opts[@]}" "$ROOT/site/index.html" "$SITE_HOST:/tmp/moraine-index.html" \
+            && ssh "${ssh_opts[@]}" "$SITE_HOST" \
+                "sudo install -o '${SITE_OWNER%:*}' -g '${SITE_OWNER#*:}' -m 664 /tmp/moraine-index.html '$SITE_PATH' && rm -f /tmp/moraine-index.html"; then
+            printf 'bump: site deployed — https://moraine.thern.io now shows v%s\n' "$N"
+            printf 'bump: (its versioned CDN download links resolve once cdn-pull publishes v%s, ~10 min)\n' "$N"
+        else
+            printf 'bump: WARNING — site deploy failed; deploy site/index.html to %s manually\n' "$SITE_HOST" >&2
+        fi
+    fi
+elif [ "$DEPLOY_SITE" != 1 ]; then
+    printf 'bump: --no-site — website not deployed (site/index.html was updated locally)\n'
+fi
+
 cat <<EOF
 
-bump: two follow-ups the script deliberately leaves to you —
-  1. site/index.html is updated but gitignored. Deploy it to moraine.thern.io
-     once release.yml has published v$N to the CDN (else the download links 404).
-  2. downstream packaging recipes (AUR / Homebrew / nixpkgs / …): once the release
-     is published, run  deploy/bump-recipes.sh $N  to bump their versions and
-     refresh the tag-tarball / Windows-zip checksums.
+bump: one follow-up the script leaves to you —
+  downstream packaging recipes (AUR / Homebrew / nixpkgs / …): once the release is
+  published, run  deploy/bump-recipes.sh $N  to bump their versions and refresh the
+  tag-tarball / Windows-zip checksums.
 EOF
