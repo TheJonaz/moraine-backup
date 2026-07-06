@@ -121,6 +121,7 @@ struct TargetForm {
     exclude: Vec<String>,
     vpn: String,
     healthcheck: String,
+    bwlimit: String,
     keep_last: String,
     keep_daily: String,
     keep_weekly: String,
@@ -144,6 +145,7 @@ impl TargetForm {
             exclude: t.exclude.clone(),
             vpn: t.vpn.clone(),
             healthcheck: t.healthcheck.clone(),
+            bwlimit: t.bwlimit.clone(),
             keep_last: r.keep_last.to_string(),
             keep_daily: r.keep_daily.to_string(),
             keep_weekly: r.keep_weekly.to_string(),
@@ -181,6 +183,7 @@ impl TargetForm {
             exclude: clean(&self.exclude),
             vpn: self.vpn.trim().to_string(),
             healthcheck: self.healthcheck.trim().to_string(),
+            bwlimit: self.bwlimit.trim().to_string(),
             retention: if retention.is_empty() {
                 None
             } else {
@@ -1971,6 +1974,16 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         body.append(&hbox);
         let st = state.clone();
         hc.connect_changed(move |e| st.borrow_mut().targets[i].healthcheck = e.text().to_string());
+    }
+
+    // Bandwidth limit — passed to rsync/rclone --bwlimit for backup and restore.
+    {
+        let bw = gtk::Entry::new();
+        bw.set_text(&f.bwlimit);
+        bw.set_placeholder_text(Some("e.g. 2M or 500K — empty = unlimited"));
+        body.append(&labeled("Bandwidth limit", &bw));
+        let st = state.clone();
+        bw.connect_changed(move |e| st.borrow_mut().targets[i].bwlimit = e.text().to_string());
     }
 
     // Sources + exclude list editors

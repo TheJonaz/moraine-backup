@@ -46,6 +46,9 @@ pub fn build_args(
     for pattern in &target.exclude {
         args.push(format!("--exclude={pattern}"));
     }
+    if !target.bwlimit.trim().is_empty() {
+        args.push(format!("--bwlimit={}", target.bwlimit.trim()));
+    }
     if let Some(ld) = link_dest {
         args.push(format!("--link-dest={ld}"));
     }
@@ -83,6 +86,9 @@ pub fn restore_args(
         "--protect-args".into(),
         "--human-readable".into(),
     ];
+    if !target.bwlimit.trim().is_empty() {
+        args.push(format!("--bwlimit={}", target.bwlimit.trim()));
+    }
     if dry_run {
         args.push("--dry-run".into());
         args.push("--verbose".into());
@@ -120,6 +126,9 @@ pub fn restore_selected_args(
         "--protect-args".into(),
         "--human-readable".into(),
     ];
+    if !target.bwlimit.trim().is_empty() {
+        args.push(format!("--bwlimit={}", target.bwlimit.trim()));
+    }
     if dry_run {
         args.push("--dry-run".into());
         args.push("--verbose".into());
@@ -237,4 +246,40 @@ pub fn render(args: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{Config, Target};
+
+    fn target(bwlimit: &str) -> Target {
+        let cfg: Config = toml::from_str(&format!(
+            r#"
+            [[target]]
+            name = "n"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            bwlimit = "{bwlimit}"
+            "#
+        ))
+        .unwrap();
+        cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn bwlimit_reaches_backup_and_restore_args() {
+        // Present as --bwlimit=<v> when set.
+        let a = super::build_args(&target("2M"), "/d/n/ts", None, false);
+        assert!(a.iter().any(|x| x == "--bwlimit=2M"), "backup: {a:?}");
+        let r = super::restore_args(&target("2M"), "ts", "/local", false);
+        assert!(r.iter().any(|x| x == "--bwlimit=2M"), "restore: {r:?}");
+        // Absent when unset.
+        let n = super::build_args(&target(""), "/d/n/ts", None, false);
+        assert!(
+            !n.iter().any(|x| x.starts_with("--bwlimit")),
+            "unset: {n:?}"
+        );
+    }
 }

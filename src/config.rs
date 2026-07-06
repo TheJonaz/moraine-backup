@@ -164,6 +164,12 @@ pub struct Target {
     /// when a scheduled backup silently stops running. Empty/omitted = no ping.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub healthcheck: String,
+    /// Bandwidth limit for transfers, passed to rsync/rclone `--bwlimit`, e.g.
+    /// "2M" or "500K" (digits with an optional K/M/G/T suffix). Empty/omitted =
+    /// unlimited. Applies to both backup and restore — handy over a VPN or a
+    /// metered link.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bwlimit: String,
     /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
@@ -285,6 +291,22 @@ impl Config {
                     bail!(
                         "target '{name}': healthcheck URL must not contain whitespace or \
                          control characters"
+                    );
+                }
+            }
+            // bwlimit is passed as `--bwlimit=<v>` (a single arg, so no injection
+            // risk), but validate the shape so a typo fails loudly rather than
+            // making rsync/rclone reject the transfer mid-run.
+            let bw = t.bwlimit.trim();
+            if !bw.is_empty() {
+                let valid = bw.starts_with(|c: char| c.is_ascii_digit())
+                    && bw
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || c == '.' || "KkMmGgTt".contains(c));
+                if !valid {
+                    bail!(
+                        "target '{name}': bwlimit must be a rate like 2M or 500K \
+                         (digits with an optional K/M/G/T suffix)"
                     );
                 }
             }
@@ -527,6 +549,30 @@ mod tests {
         }
         let ok: Config = toml::from_str(&target("https://hc-ping.com/abc")).unwrap();
         assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_checks_bwlimit() {
+        let mk = |bw: &str| {
+            toml::from_str::<Config>(&format!(
+                r#"
+                [[target]]
+                name = "n"
+                host = "h"
+                user = "u"
+                dest = "/tmp/x"
+                sources = ["/tmp"]
+                bwlimit = "{bw}"
+                "#
+            ))
+            .unwrap()
+        };
+        for bad in ["fast", "2MB", "-5", "M2"] {
+            assert!(mk(bad).validate().is_err(), "bwlimit {bad:?} should reject");
+        }
+        for ok in ["2M", "500K", "1000", "1.5G", ""] {
+            assert!(mk(ok).validate().is_ok(), "bwlimit {ok:?} should pass");
+        }
     }
 
     #[test]

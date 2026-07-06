@@ -46,6 +46,10 @@ exclude = [
 # monitor then alerts you if a scheduled backup silently stops running. Optional.
 # healthcheck = "https://hc-ping.com/your-uuid-here"
 
+# Bandwidth limit for transfers (rsync/rclone --bwlimit), e.g. "2M" or "500K".
+# Empty/omitted = unlimited. Applies to backup and restore. Optional.
+# bwlimit = "2M"
+
 # Add more targets by copying the block:
 # [[target]]
 # name = "offsite"

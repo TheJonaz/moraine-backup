@@ -157,6 +157,9 @@ pub fn backup_cmds(
                 // value, never parsed as a flag.
                 args.push(format!("--exclude={pat}"));
             }
+            if !target.bwlimit.trim().is_empty() {
+                args.push(format!("--bwlimit={}", target.bwlimit.trim()));
+            }
             // --copy-dest server-side copies unchanged files (saves bandwidth).
             // Only meaningful for directory copies; the caller sets `prev` to
             // None for backends without server-side copy (FTP/SMB/WebDAV/local).
@@ -206,6 +209,9 @@ pub fn restore_args(
         args.push("--dry-run".to_string());
     }
     args.push("-v".to_string());
+    if !target.bwlimit.trim().is_empty() {
+        args.push(format!("--bwlimit={}", target.bwlimit.trim()));
+    }
     for p in paths {
         let esc = escape_filter(p);
         args.push(format!("--include=/{esc}"));
