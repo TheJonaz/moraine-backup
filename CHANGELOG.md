@@ -7,6 +7,17 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Added
+- **Verify a snapshot** against the current sources by checksum — a new `moraine
+  check [--target T] [--snapshot TS]` CLI command and a **Verify** button in the
+  Restore tab. It confirms the snapshot faithfully holds your data (catching silent
+  transfer corruption): zero differing paths right after a backup means it's intact
+  and restorable. rsync/SSH targets use a `--checksum` dry-run; rclone targets use
+  `rclone check --one-way`. Differences are expected for an older snapshot whose
+  sources have since changed.
+
 ## [0.1.24] — 2026-07-06
 
 ### Added

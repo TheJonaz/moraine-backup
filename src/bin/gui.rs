@@ -2590,6 +2590,16 @@ fn build_restore_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         });
     }
     ctl.append(&browse);
+    let verify = gtk::Button::with_label("Verify");
+    verify.set_tooltip_text(Some(
+        "Checksum the selected snapshot against the current sources to confirm it's intact",
+    ));
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        verify.connect_clicked(move |_| run_verify(&st, &ui2));
+    }
+    ctl.append(&verify);
     let dry = gtk::Button::with_label("Dry run");
     {
         let st = state.clone();
@@ -3748,6 +3758,62 @@ fn add_rclone_progress(prog: &str, args: &mut Vec<String>) {
         args.insert(at, "--stats-one-line".to_string());
         args.insert(at, "--stats=1s".to_string());
     }
+}
+
+/// Verify the selected snapshot against the current sources, via the CLI
+/// `moraine check` (which does the checksum comparison per backend). Streamed to
+/// the log like any other run; the VPN is raised for it if the target uses one.
+fn run_verify(state: &Shared, ui: &Rc<Ui>) {
+    if state.borrow().running {
+        return;
+    }
+    let s = state.borrow();
+    let Some(name) = s.restore_target.clone() else {
+        drop(s);
+        set_status(ui, "Pick a target");
+        return;
+    };
+    let Some(si) = s.selected_snapshot else {
+        drop(s);
+        set_status(ui, "Pick a snapshot");
+        return;
+    };
+    let Some(ts) = s.snapshots.get(si).cloned() else {
+        drop(s);
+        set_status(ui, "Pick a snapshot");
+        return;
+    };
+    let Some(f) = s.targets.iter().find(|t| t.name == name).cloned() else {
+        drop(s);
+        return;
+    };
+    drop(s);
+    // Persist edits so the CLI subprocess reads the current config.
+    if let Err(e) = state.borrow().save() {
+        set_status(ui, &e);
+        return;
+    }
+    let cmd = (
+        backup_cli_path(),
+        vec![
+            "check".to_string(),
+            "--target".to_string(),
+            name.clone(),
+            "--snapshot".to_string(),
+            ts.clone(),
+        ],
+    );
+    set_log(ui, &format!("Verifying snapshot {ts} of {name}…\n"));
+    run_stream(
+        ui,
+        state,
+        vec![cmd],
+        Vec::new(),
+        None,
+        &format!("Verifying {name}…"),
+        f.to_target().vpn,
+        None,
+    );
 }
 
 fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {

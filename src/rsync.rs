@@ -141,6 +141,35 @@ pub fn restore_selected_args(
     args
 }
 
+/// Builds rsync args to **verify** a snapshot against the current sources: a
+/// checksum dry-run that itemizes any file whose *content* differs from — or is
+/// missing in — the snapshot. Nothing is transferred. `--checksum` compares by
+/// hash (not size/mtime), so it catches silent corruption. Excludes are honoured
+/// so intentionally-skipped files aren't reported as missing. The caller counts
+/// itemize lines starting with `>`/`<` (content transfers) — zero means the
+/// snapshot faithfully holds the current sources.
+pub fn verify_args(target: &Target, timestamp: &str) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-aAX".into(),
+        "--dry-run".into(),
+        "--checksum".into(),
+        "--itemize-changes".into(),
+        "--protect-args".into(),
+    ];
+    for pattern in &target.exclude {
+        args.push(format!("--exclude={pattern}"));
+    }
+    args.push("-e".into());
+    args.push(ssh::transport(target));
+    args.push("--".into());
+    for src in &target.sources {
+        args.push(expand_tilde(src).display().to_string());
+    }
+    let remote = format!("{}/{}/", snapshot::base_dir(target), timestamp);
+    args.push(format!("{}:{}", target.ssh_dest(), remote));
+    args
+}
+
 /// Runs a snapshot backup for a target (CLI). Inherits stdio so rsync writes
 /// directly to the terminal. Returns the timestamp on a successful run.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {

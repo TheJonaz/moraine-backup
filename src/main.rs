@@ -45,6 +45,14 @@ enum Command {
         #[arg(short, long)]
         target: String,
     },
+    /// Verify a snapshot's contents against the current sources (by checksum).
+    Check {
+        #[arg(short, long)]
+        target: Option<String>,
+        /// Snapshot timestamp to verify. Defaults to the latest.
+        #[arg(short, long)]
+        snapshot: Option<String>,
+    },
     /// Delete old snapshots according to the target's retention policy.
     Prune {
         #[arg(short, long)]
@@ -71,6 +79,9 @@ fn run() -> Result<()> {
         Command::Run { target, dry_run } => cmd_run(&cli.config, target.as_deref(), dry_run),
         Command::Verify { target } => cmd_verify(&cli.config, target.as_deref()),
         Command::List { target } => cmd_list(&cli.config, &target),
+        Command::Check { target, snapshot } => {
+            cmd_check(&cli.config, target.as_deref(), snapshot.as_deref())
+        }
         Command::Prune { target, dry_run } => cmd_prune(&cli.config, target.as_deref(), dry_run),
     }
 }
@@ -310,6 +321,133 @@ fn cmd_list(path: &Path, target_name: &str) -> Result<()> {
     }
     println!("\n{} snapshot(s)", snaps.len());
     Ok(())
+}
+
+/// Verify a snapshot against the current sources by checksum. Reports, per target,
+/// whether the snapshot faithfully holds the sources (0 differing paths) or how
+/// many differ — differences are normal for an older snapshot whose sources have
+/// since changed, but should be zero right after a backup.
+fn cmd_check(path: &Path, target: Option<&str>, snapshot: Option<&str>) -> Result<()> {
+    let config = Config::load(path)?;
+    let targets = select_targets(&config, target)?;
+    let mut failures = 0;
+    for t in targets {
+        let ts = match snapshot {
+            Some(s) => s.to_string(),
+            None => match list_snapshots(t)?.into_iter().next() {
+                Some(s) => s,
+                None => {
+                    println!("== {} ==\n  no snapshots to verify", t.name);
+                    continue;
+                }
+            },
+        };
+        println!("== {} — verifying snapshot {ts} ==", t.name);
+        let res = if t.backend.is_ssh() {
+            check_rsync(t, &ts)
+        } else {
+            check_rclone(t, &ts)
+        };
+        match res {
+            Ok(0) => println!("  ✓ verified — the snapshot matches the current sources"),
+            Ok(n) => println!(
+                "  ⚠ {n} path(s) differ from the current sources \
+                 (expected if the sources changed since this snapshot was made)"
+            ),
+            Err(e) => {
+                failures += 1;
+                eprintln!("  {e:#}");
+            }
+        }
+    }
+    if failures > 0 {
+        bail!("{failures} target(s) could not be verified");
+    }
+    Ok(())
+}
+
+/// rsync checksum dry-run; returns the number of paths whose content differs from
+/// or is missing in the snapshot, printing each.
+fn check_rsync(t: &config::Target, ts: &str) -> Result<usize> {
+    let out = SysCommand::new("rsync")
+        .args(rsync::verify_args(t, ts))
+        .envs(ssh::askpass_env(t))
+        .output()
+        .context("could not run rsync")?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Itemize lines beginning with '>' or '<' are files rsync would transfer —
+    // content differs or missing. (Attribute-only diffs start with '.'.)
+    let mut n = 0;
+    for line in stdout.lines() {
+        if line.starts_with('>') || line.starts_with('<') {
+            n += 1;
+            println!(
+                "    differs: {}",
+                line.split_whitespace().last().unwrap_or(line)
+            );
+        }
+    }
+    if !out.status.success() && n == 0 {
+        bail!(
+            "rsync verify failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(n)
+}
+
+/// rclone one-way check of each directory source against its copy in the snapshot;
+/// returns the total number of differing paths. File sources are skipped (rclone
+/// check compares directories).
+fn check_rclone(t: &config::Target, ts: &str) -> Result<usize> {
+    let snap = rclone::snapshot_path(t, ts);
+    let env = rclone::env_for(t);
+    let mut total = 0;
+    for src in &t.sources {
+        let local = config::expand_tilde(src);
+        let base = Path::new(src.trim_end_matches('/'))
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !local.is_dir() {
+            println!(
+                "    skipped {} (rclone verify supports directory sources)",
+                local.display()
+            );
+            continue;
+        }
+        let out = SysCommand::new("rclone")
+            .args([
+                "check",
+                &local.display().to_string(),
+                &format!("{snap}/{base}"),
+                "--one-way",
+            ])
+            .envs(env.clone())
+            .output()
+            .context("could not run rclone")?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        match parse_rclone_diffs(&stderr) {
+            Some(d) => {
+                total += d;
+                if d > 0 {
+                    println!("    {d} difference(s) under {base}");
+                }
+            }
+            None if !out.status.success() => bail!("rclone check failed: {}", stderr.trim()),
+            None => {}
+        }
+    }
+    Ok(total)
+}
+
+/// Pulls the differing-file count out of rclone check's "… N differences found"
+/// summary line. None when there's no such line.
+fn parse_rclone_diffs(stderr: &str) -> Option<usize> {
+    stderr.lines().find_map(|l| {
+        let idx = l.find("differences found")?;
+        l[..idx].split_whitespace().last()?.parse().ok()
+    })
 }
 
 /// Verify for rclone targets: sources locally + that rclone exists.
