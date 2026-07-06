@@ -208,12 +208,15 @@ jobs:
           printf '%s\n' "$CDN_SSH_KEY" > "$HOME/cdn_key"
           chmod 600 "$HOME/cdn_key"
           mkdir -p "$HOME/.ssh"
-          ssh-keyscan -H "$CDN_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
-          SSH="ssh -i $HOME/cdn_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          # Force IPv4 (-4): cdn.thern.io publishes an AAAA record, but
+          # GitHub-hosted runners have no IPv6 route, so an IPv6 connect fails
+          # with "Network is unreachable". Pin every hop to the A record.
+          ssh-keyscan -4 -H "$CDN_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+          SSH="ssh -4 -i $HOME/cdn_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           $SSH "$CDN_USER@$CDN_HOST" 'rm -rf /tmp/cdn-incoming && mkdir -p /tmp/cdn-incoming'
           # ship the packages *and* the publish script itself, so the server
           # needs no pre-installed copy — only the paths in the script verified.
-          scp -i "$HOME/cdn_key" -o StrictHostKeyChecking=accept-new \
+          scp -4 -i "$HOME/cdn_key" -o StrictHostKeyChecking=accept-new \
             staging/* deploy/cdn-publish.sh "$CDN_USER@$CDN_HOST:/tmp/cdn-incoming/"
           $SSH "$CDN_USER@$CDN_HOST" "bash /tmp/cdn-incoming/cdn-publish.sh '$VER' /tmp/cdn-incoming"
           rm -f "$HOME/cdn_key"
