@@ -81,4 +81,13 @@ put_latest moraine-linux-x86_64.tar.gz linux
 put_latest moraine-macos-arm64.tar.gz macos
 put_latest moraine-windows-x86_64.zip windows
 
+# The Windows installer is versioned (moraine-<ver>-setup.exe); publish it under a
+# version-less name so the website's "Installer" button is stable.
+exe=$(ls "$STAGE"/moraine-*-setup.exe 2>/dev/null | head -1 || true)
+if [ -n "$exe" ]; then
+    mkdir -p "$FILES_BASE/windows"
+    cp -f "$exe" "$FILES_BASE/windows/moraine-setup.exe"
+    log "files/windows/moraine-setup.exe <- $(basename "$exe")"
+fi
+
 log "done — published moraine $VERSION to the CDN repos"

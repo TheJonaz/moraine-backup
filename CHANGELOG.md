@@ -20,6 +20,10 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 - **Per-target bandwidth limit** — a `bwlimit` field (e.g. `2M`, `500K`), set in the
   connection editor or config, passed to rsync/rclone `--bwlimit` for both backup
   and restore. Handy over a VPN or a metered link. Empty = unlimited.
+- **Windows installer** — releases now ship a one-click `moraine-<ver>-setup.exe`
+  (Inno Setup) that installs the CLI per-user and adds it to PATH, alongside the
+  existing zip. The Windows `.exe` also carries the Moraine icon now (embedded via
+  a build-script resource) instead of the generic default.
 
 ## [0.1.24] — 2026-07-06
 

@@ -75,7 +75,7 @@ jobs:
           cp README.md CHANGELOG.md LICENSE moraine.example.toml dist/${{ matrix.artifact }}/
           tar -C dist -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
 
-      # ── Windows: CLI binary + docs ──
+      # ── Windows: CLI binary + docs (zip) and an Inno Setup installer ──
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -84,6 +84,13 @@ jobs:
           Copy-Item target/release/moraine.exe dist/${{ matrix.artifact }}/
           Copy-Item README.md,CHANGELOG.md,LICENSE,moraine.example.toml dist/${{ matrix.artifact }}/
           Compress-Archive -Path dist/${{ matrix.artifact }} -DestinationPath ${{ matrix.artifact }}.zip
+          # Installer: Inno Setup (preinstalled on windows-latest; install if not).
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          $ver = "${{ env.RELEASE_TAG }}".TrimStart('v')
+          $src = (Resolve-Path "dist/${{ matrix.artifact }}").Path
+          & $iscc "/DMyAppVersion=$ver" "/DSrcDir=$src" packaging\windows\moraine.iss
+          Copy-Item "packaging\windows\Output\moraine-$ver-setup.exe" .
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
@@ -92,6 +99,7 @@ jobs:
           files: |
             ${{ matrix.artifact }}.tar.gz
             ${{ matrix.artifact }}.zip
+            moraine-*-setup.exe
             moraine_*_amd64.deb
           fail_on_unmatched_files: false
           generate_release_notes: true

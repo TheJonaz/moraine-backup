@@ -6,6 +6,21 @@
 use std::process::Command;
 
 fn main() {
+    // Windows: embed the app icon (and a bit of metadata) into the .exe so it
+    // shows Moraine's mark in Explorer and the taskbar instead of the generic
+    // default. Only runs when building on a Windows host (the release build).
+    #[cfg(windows)]
+    {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("assets/moraine.ico");
+        res.set("ProductName", "Moraine");
+        res.set("FileDescription", "Moraine — snapshot backup over SSH/rsync and rclone");
+        if let Err(e) = res.compile() {
+            println!("cargo:warning=could not embed the Windows resource: {e}");
+        }
+        println!("cargo:rerun-if-changed=assets/moraine.ico");
+    }
+
     let git_hash = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()

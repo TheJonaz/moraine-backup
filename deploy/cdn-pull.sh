@@ -64,12 +64,13 @@ pkg_url="$(pick '\.pkg\.tar\.zst$')"
 tgz_url="$(pick '\-linux-x86_64\.tar\.gz$')"
 mac_url="$(pick '\-macos-arm64\.tar\.gz$')"
 win_url="$(pick '\-windows-x86_64\.zip$')"
+exe_url="$(pick '\-setup\.exe$')"
 
 if [ "$DRY" = 1 ]; then
     log "dry run — resolved assets for v$VERSION:"
-    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n  tgz: %s\n  mac: %s\n  win: %s\n' \
+    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n  tgz: %s\n  mac: %s\n  win: %s\n  exe: %s\n' \
         "${deb_url:-<none>}" "${rpm_url:-<none>}" "${pkg_url:-<none>}" \
-        "${tgz_url:-<none>}" "${mac_url:-<none>}" "${win_url:-<none>}"
+        "${tgz_url:-<none>}" "${mac_url:-<none>}" "${win_url:-<none>}" "${exe_url:-<none>}"
     exit 0
 fi
 
@@ -96,6 +97,7 @@ get pkg "$pkg_url"
 get tgz "$tgz_url"
 get mac "$mac_url"
 get win "$win_url"
+get exe "$exe_url"
 
 log "publishing via $PUBLISH"
 "$PUBLISH" "$VERSION" "$STAGE"
