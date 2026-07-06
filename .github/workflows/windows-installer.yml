@@ -1,0 +1,40 @@
+name: Windows installer (test build)
+
+# On-demand: builds the Windows CLI + Inno Setup installer from the current main
+# and uploads it as a downloadable artifact (no release is created). Use this to
+# test the installer/icon before cutting a real release.
+on:
+  workflow_dispatch:
+
+jobs:
+  installer:
+    name: build test installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI (with embedded icon)
+        run: cargo build --release --no-default-features --bin moraine
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $art = "moraine-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path dist/$art | Out-Null
+          Copy-Item target/release/moraine.exe dist/$art/
+          Copy-Item README.md,CHANGELOG.md,LICENSE,moraine.example.toml dist/$art/
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          $ver = (Get-Content Cargo.toml | Where-Object { $_ -match '^version = "(.+)"' } |
+                  Select-Object -First 1 | ForEach-Object { $Matches[1] })
+          $src = (Resolve-Path "dist/$art").Path
+          & $iscc "/DMyAppVersion=$ver-test" "/DSrcDir=$src" packaging\windows\moraine.iss
+          Copy-Item "packaging\windows\Output\moraine-$ver-test-setup.exe" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-setup
+          path: moraine-*-test-setup.exe
+          if-no-files-found: error
