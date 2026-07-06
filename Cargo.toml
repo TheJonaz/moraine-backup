@@ -22,8 +22,11 @@ path = "src/bin/gui.rs"
 required-features = ["gui"]
 
 [features]
-default = ["gui"]
-gui = ["dep:gtk4", "dep:async-channel", "dep:ksni"]
+default = ["gui", "tray"]
+gui = ["dep:gtk4", "dep:async-channel"]
+# Linux system-tray icon (ksni / StatusNotifierItem over D-Bus). Implies `gui`.
+# Left out of the Windows/macOS GUI builds — ksni is Linux-only.
+tray = ["gui", "dep:ksni"]
 
 [dependencies]
 # ── CLI + library core (small, all packaged in Debian) ──

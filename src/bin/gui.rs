@@ -16,6 +16,7 @@ use gtk::gio;
 use gtk::glib;
 use gtk::prelude::*;
 
+#[cfg(feature = "tray")]
 use ksni::blocking::TrayMethods;
 
 use std::cell::{Cell, RefCell};
@@ -49,6 +50,7 @@ static START_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 // ─────────────────────────── system tray ───────────────────────────
 
 /// Messages the tray (running on ksni's own thread) sends to the GTK main loop.
+#[cfg(feature = "tray")]
 enum TrayMsg {
     /// Left-click on the tray icon — show if hidden, hide if visible.
     Toggle,
@@ -60,10 +62,12 @@ enum TrayMsg {
 
 /// StatusNotifierItem shown in the notification area. Holds only a `Send` sender
 /// back to the UI thread — never a GTK widget (those aren't `Send`).
+#[cfg(feature = "tray")]
 struct MoraineTray {
     tx: async_channel::Sender<TrayMsg>,
 }
 
+#[cfg(feature = "tray")]
 impl ksni::Tray for MoraineTray {
     fn id(&self) -> String {
         APP_ID.into()
@@ -796,39 +800,46 @@ fn build_ui(app: &gtk::Application) {
     // to the tray (rather than quitting) and `--minimized` starts with no window
     // shown at all. If no tray host is available (spawn fails), fall back to the
     // old behaviour so the app can never become unreachable.
-    let (tray_tx, tray_rx) = async_channel::unbounded::<TrayMsg>();
-    let tray_ok = match (MoraineTray { tx: tray_tx }).spawn() {
-        Ok(handle) => {
-            let window = window.clone();
-            let app = app.clone();
-            glib::spawn_future_local(async move {
-                // Keep the tray service handle alive for the app's lifetime.
-                let _handle = handle;
-                while let Ok(msg) = tray_rx.recv().await {
-                    match msg {
-                        TrayMsg::Toggle => {
-                            if window.is_visible() {
-                                window.set_visible(false);
-                            } else {
+    // The tray is Linux-only (ksni over D-Bus); other platforms simply run
+    // without one, and the window's X quits as usual.
+    #[cfg(feature = "tray")]
+    let tray_ok = {
+        let (tray_tx, tray_rx) = async_channel::unbounded::<TrayMsg>();
+        match (MoraineTray { tx: tray_tx }).spawn() {
+            Ok(handle) => {
+                let window = window.clone();
+                let app = app.clone();
+                glib::spawn_future_local(async move {
+                    // Keep the tray service handle alive for the app's lifetime.
+                    let _handle = handle;
+                    while let Ok(msg) = tray_rx.recv().await {
+                        match msg {
+                            TrayMsg::Toggle => {
+                                if window.is_visible() {
+                                    window.set_visible(false);
+                                } else {
+                                    window.set_visible(true);
+                                    window.present();
+                                }
+                            }
+                            TrayMsg::Show => {
                                 window.set_visible(true);
                                 window.present();
                             }
+                            TrayMsg::Quit => app.quit(),
                         }
-                        TrayMsg::Show => {
-                            window.set_visible(true);
-                            window.present();
-                        }
-                        TrayMsg::Quit => app.quit(),
                     }
-                }
-            });
-            true
-        }
-        Err(e) => {
-            eprintln!("moraine: system tray unavailable ({e}); running without it");
-            false
+                });
+                true
+            }
+            Err(e) => {
+                eprintln!("moraine: system tray unavailable ({e}); running without it");
+                false
+            }
         }
     };
+    #[cfg(not(feature = "tray"))]
+    let tray_ok = false;
 
     if tray_ok {
         // Pressing the window's X asks whether to minimize to the tray or quit,
