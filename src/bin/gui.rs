@@ -2631,14 +2631,16 @@ fn build_about_and_finish(
             let upd_status = upd_status.clone();
             spawn_update_check(move |res| {
                 match res {
-                    Ok(latest) if is_newer(&latest, current_version()) => upd_status
-                        .set_markup(&format!(
-                        "New version {latest} available — <a href=\"{RELEASES_URL}\">download</a>."
-                    )),
-                    Ok(_) => upd_status.set_text(&format!(
-                        "You're up to date (Moraine {}).",
-                        current_version()
-                    )),
+                    Ok(latest) if is_newer(&latest, current_version()) => {
+                        let msg = format!(
+                            "New version {latest} available — <a href=\"{RELEASES_URL}\">download</a>."
+                        );
+                        upd_status.set_markup(&msg);
+                    }
+                    Ok(_) => {
+                        let msg = format!("You're up to date (Moraine {}).", current_version());
+                        upd_status.set_text(&msg);
+                    }
                     Err(e) => {
                         upd_status.add_css_class("danger");
                         upd_status.set_text(&format!("Check failed: {e}"));
