@@ -10,6 +10,11 @@
 //!  * Restore — list snapshots, browse the tree, selective restore.
 //!  * History — the run log.
 
+// On Windows, a GUI app should not allocate a console (no black window flashing
+// behind it). Release builds use the "windows" subsystem; debug builds keep the
+// console so `eprintln!` diagnostics are visible. No effect on Linux/macOS.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use gtk4 as gtk;
 
 use gtk::gio;
