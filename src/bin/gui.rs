@@ -18,7 +18,7 @@ use gtk::prelude::*;
 
 use ksni::blocking::TrayMethods;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::{BufReader, Read as _, Write as _};
 use std::path::Path;
@@ -649,11 +649,55 @@ fn build_ui(app: &gtk::Application) {
     update_lbl.set_hexpand(true);
     update_lbl.set_wrap(true);
     update_bar.append(&update_lbl);
+    // Download progress, revealed only while a background download is running.
+    let update_progress = gtk::ProgressBar::new();
+    update_progress.set_show_text(true);
+    update_progress.set_valign(gtk::Align::Center);
+    update_progress.set_width_request(240);
+    update_progress.set_visible(false);
+    update_bar.append(&update_progress);
     let dl_btn = gtk::Button::with_label("Download");
     dl_btn.add_css_class("accent");
-    dl_btn.connect_clicked(|_| {
-        let _ = gio::AppInfo::launch_default_for_uri(RELEASES_URL, gio::AppLaunchContext::NONE);
-    });
+    // One handler drives three states: start the background download, open the
+    // finished file, or (after a failure) fall back to the releases page.
+    let dl_state = Rc::new(RefCell::new(DlState::Idle));
+    {
+        let lbl = update_lbl.clone();
+        let progress = update_progress.clone();
+        let state = dl_state.clone();
+        dl_btn.connect_clicked(move |btn| {
+            enum Act {
+                Start,
+                Open(std::path::PathBuf),
+                Browser,
+            }
+            let act = match &*state.borrow() {
+                DlState::Idle => Act::Start,
+                DlState::Ready(p) => Act::Open(p.clone()),
+                DlState::Browser => Act::Browser,
+            };
+            match act {
+                Act::Start => start_background_download(
+                    lbl.clone(),
+                    progress.clone(),
+                    btn.clone(),
+                    state.clone(),
+                ),
+                Act::Open(p) => {
+                    if let Ok(uri) = glib::filename_to_uri(&p, None) {
+                        let _ =
+                            gio::AppInfo::launch_default_for_uri(&uri, gio::AppLaunchContext::NONE);
+                    }
+                }
+                Act::Browser => {
+                    let _ = gio::AppInfo::launch_default_for_uri(
+                        RELEASES_URL,
+                        gio::AppLaunchContext::NONE,
+                    );
+                }
+            }
+        });
+    }
     update_bar.append(&dl_btn);
     let dismiss_btn = gtk::Button::with_label("✕");
     dismiss_btn.add_css_class("linkbtn");
@@ -1212,6 +1256,301 @@ where
     glib::spawn_future_local(async move {
         if let Ok(res) = rx.recv().await {
             on_done(res);
+        }
+    });
+}
+
+// ─────────────────────────── update download ───────────────────────────
+// The banner's Download button doesn't send the user to a browser — it fetches
+// the release asset that matches how this build was installed and downloads it
+// in the background with a progress bar, then turns into an "Open" button that
+// hands the file to the system installer.
+
+/// A single downloadable asset attached to a GitHub release.
+#[derive(Clone)]
+struct ReleaseAsset {
+    name: String,
+    url: String,
+    size: u64,
+}
+
+/// State of the update banner's Download button.
+enum DlState {
+    /// Nothing fetched yet — a click starts the background download.
+    Idle,
+    /// The asset is on disk — a click opens it with the default handler.
+    Ready(std::path::PathBuf),
+    /// A download failed — a click falls back to the releases page.
+    Browser,
+}
+
+/// Latest release: its version plus every attached asset (name, URL, byte size).
+/// Blocking — call off the main thread.
+fn fetch_latest_assets() -> Result<(String, Vec<ReleaseAsset>), String> {
+    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    let out = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "20",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: moraine-gui",
+            &url,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("curl is required to download updates ({e})"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            "could not reach GitHub".into()
+        } else {
+            err
+        });
+    }
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("bad response ({e})"))?;
+    let version = json
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .ok_or("no published release found")?
+        .trim()
+        .trim_start_matches('v')
+        .trim()
+        .to_string();
+    let assets = json
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    Some(ReleaseAsset {
+                        name: a.get("name")?.as_str()?.to_string(),
+                        url: a.get("browser_download_url")?.as_str()?.to_string(),
+                        size: a.get("size").and_then(|s| s.as_u64()).unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok((version, assets))
+}
+
+/// Filename suffix of the release asset that matches how this build was installed.
+/// On Linux we ask the owning package manager about our own binary, so a .deb
+/// user gets a .deb, an Arch user a .pkg.tar.zst, and so on; anything unrecognised
+/// (or a plain tarball install) falls back to the portable tar.gz.
+fn preferred_asset_suffix() -> &'static str {
+    if cfg!(target_os = "windows") {
+        return "-windows-x86_64.zip";
+    }
+    if cfg!(target_os = "macos") {
+        return "-macos-arm64.tar.gz";
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let exe = exe.to_string_lossy();
+        let owned = |cmd: &str, flag: &str| {
+            Command::new(cmd)
+                .arg(flag)
+                .arg(exe.as_ref())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if owned("dpkg", "-S") {
+            return "_amd64.deb";
+        }
+        if owned("rpm", "-qf") {
+            return ".x86_64.rpm";
+        }
+        if owned("pacman", "-Qo") {
+            return "-x86_64.pkg.tar.zst";
+        }
+    }
+    "-linux-x86_64.tar.gz"
+}
+
+/// Pick the asset for this platform, falling back to the Linux tarball.
+fn pick_asset(assets: &[ReleaseAsset]) -> Option<ReleaseAsset> {
+    let suffix = preferred_asset_suffix();
+    assets
+        .iter()
+        .find(|a| a.name.ends_with(suffix))
+        .or_else(|| {
+            assets
+                .iter()
+                .find(|a| a.name.ends_with("-linux-x86_64.tar.gz"))
+        })
+        .cloned()
+}
+
+/// The user's Downloads folder (honouring `XDG_DOWNLOAD_DIR`), created if needed.
+/// Falls back to the system temp dir when there's no home or it can't be created.
+fn downloads_dir() -> std::path::PathBuf {
+    let dir = std::env::var_os("XDG_DOWNLOAD_DIR")
+        .map(std::path::PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(|h| std::path::Path::new(&h).join("Downloads"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return std::env::temp_dir();
+    }
+    dir
+}
+
+/// Download `url` to `dest` with curl (following redirects). Blocking; run off the
+/// main thread. curl streams the body straight to the file so the caller can poll
+/// `dest`'s size for progress.
+fn download_file(url: &str, dest: &Path) -> Result<(), String> {
+    let out = Command::new("curl")
+        .args([
+            "-fL",
+            "--max-time",
+            "600",
+            "-H",
+            "User-Agent: moraine-gui",
+            "-o",
+            &dest.to_string_lossy(),
+            url,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("curl failed to start ({e})"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            "download failed".into()
+        } else {
+            err
+        });
+    }
+    Ok(())
+}
+
+/// Revert the banner to a browser fallback after a failed download.
+fn download_failed(
+    lbl: &gtk::Label,
+    progress: &gtk::ProgressBar,
+    dl_btn: &gtk::Button,
+    state: &Rc<RefCell<DlState>>,
+    err: &str,
+) {
+    progress.set_visible(false);
+    lbl.set_markup(&format!(
+        "⚠️ <b>Download failed</b> — {}. Click Download to open the releases page.",
+        glib::markup_escape_text(err)
+    ));
+    dl_btn.set_label("Download");
+    dl_btn.set_visible(true);
+    *state.borrow_mut() = DlState::Browser;
+}
+
+/// Fetch the matching release asset and download it in the background, streaming
+/// progress into `progress`. On success the button becomes "Open" and opens the
+/// finished file with the default handler; on failure it reverts to a
+/// releases-page fallback.
+fn start_background_download(
+    lbl: gtk::Label,
+    progress: gtk::ProgressBar,
+    dl_btn: gtk::Button,
+    state: Rc<RefCell<DlState>>,
+) {
+    dl_btn.set_visible(false);
+    progress.set_visible(true);
+    progress.set_fraction(0.0);
+    progress.set_text(Some("Preparing…"));
+
+    // Stage 1: resolve the asset for this platform (network + package-manager
+    // probe, so off the main thread).
+    let (tx, rx) = async_channel::bounded::<Result<ReleaseAsset, String>>(1);
+    std::thread::spawn(move || {
+        let res = fetch_latest_assets().and_then(|(_v, assets)| {
+            pick_asset(&assets).ok_or_else(|| "no downloadable build for this platform".to_string())
+        });
+        let _ = tx.send_blocking(res);
+    });
+
+    glib::spawn_future_local(async move {
+        let asset = match rx.recv().await {
+            Ok(Ok(a)) => a,
+            Ok(Err(e)) => return download_failed(&lbl, &progress, &dl_btn, &state, &e),
+            Err(_) => return,
+        };
+
+        let dir = downloads_dir();
+        let dest = dir.join(&asset.name);
+        let part = dir.join(format!("{}.part", &asset.name));
+        let total = asset.size;
+        progress.set_text(Some(&format!("0 % — {}", asset.name)));
+
+        // Stage 2: download to a .part file so a crash never leaves a truncated
+        // file looking complete.
+        let (dtx, drx) = async_channel::bounded::<Result<(), String>>(1);
+        {
+            let url = asset.url.clone();
+            let part = part.clone();
+            std::thread::spawn(move || {
+                let _ = dtx.send_blocking(download_file(&url, &part));
+            });
+        }
+
+        // Poll the growing .part file for progress until the download signals done.
+        let done = Rc::new(Cell::new(false));
+        {
+            let progress = progress.clone();
+            let part = part.clone();
+            let name = asset.name.clone();
+            let done = done.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+                if done.get() {
+                    return glib::ControlFlow::Break;
+                }
+                if total > 0 {
+                    if let Ok(md) = std::fs::metadata(&part) {
+                        let frac = (md.len() as f64 / total as f64).clamp(0.0, 1.0);
+                        progress.set_fraction(frac);
+                        progress.set_text(Some(&format!("{} % — {}", (frac * 100.0) as u32, name)));
+                    }
+                } else {
+                    progress.pulse();
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+
+        let result = drx
+            .recv()
+            .await
+            .unwrap_or_else(|_| Err("download interrupted".into()));
+        done.set(true);
+
+        match result {
+            Ok(()) => {
+                let _ = std::fs::rename(&part, &dest);
+                progress.set_fraction(1.0);
+                progress.set_visible(false);
+                lbl.set_markup(&format!(
+                    "✅ <b>Downloaded</b> {} to your Downloads folder — click Open to install.",
+                    glib::markup_escape_text(&asset.name)
+                ));
+                dl_btn.set_label("Open");
+                dl_btn.set_visible(true);
+                *state.borrow_mut() = DlState::Ready(dest);
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&part);
+                download_failed(&lbl, &progress, &dl_btn, &state, &e);
+            }
         }
     });
 }

@@ -7,6 +7,17 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Changed
+- **Update download happens in-app.** When the update banner offers a new version,
+  the Download button now fetches the release in the background with a progress
+  bar instead of opening the browser. It picks the asset matching how this build
+  was installed — asking `dpkg`/`rpm`/`pacman` which one owns the binary (deb, rpm
+  or pkg.tar.zst), falling back to the portable tarball — saves it to your
+  Downloads folder, then becomes an **Open** button that hands the file to the
+  system installer. A failed download reverts to opening the releases page.
+
 ## [0.1.22] — 2026-07-05
 
 ### Added
