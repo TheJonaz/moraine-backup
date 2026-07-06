@@ -12,15 +12,33 @@ install commands in `README.md` and every version label + `cdn.thern.io` downloa
 URL in `site/index.html`, then commits `release: vX.Y.Z`, tags `vX.Y.Z` and pushes
 (it asks first; `-y` skips the prompt, `--no-push` stops after the commit).
 
-Pushing the tag triggers [`release.yml`](../.github/workflows/release.yml):
+Pushing the tag triggers [`release.yml`](../.github/workflows/release.yml): it
+builds the per-OS archives, the `.deb`, `.rpm` and `.pkg.tar.zst`, and attaches
+them to the GitHub Release.
 
-1. Builds the per-OS archives, the `.deb`, `.rpm` and `.pkg.tar.zst`, and attaches
-   them to the GitHub Release.
-2. The **`cdn`** job downloads those packages and runs
-   [`deploy/cdn-publish.sh`](../deploy/cdn-publish.sh) on `cdn.thern.io`, refreshing
-   the apt/dnf/pacman repo metadata — so the CDN serves the new version
-   automatically. This job is a no-op unless the `CDN_SSH_KEY` / `CDN_HOST` /
-   `CDN_USER` repo secrets are set (see the header of `release.yml`).
+## CDN (cdn.thern.io) is pull-based
+
+The CDN host firewalls inbound SSH, so GitHub Actions can't push to it. Instead the
+host **pulls**: [`deploy/cdn-pull.sh`](../deploy/cdn-pull.sh), run by a systemd timer
+on the server, polls the latest GitHub release, downloads the packages and runs
+[`deploy/cdn-publish.sh`](../deploy/cdn-publish.sh) locally to refresh the
+apt/dnf/pacman metadata. Nothing to do at release time — the CDN picks up the new
+version within the timer interval (~10 min).
+
+One-time server setup (on `cdn.thern.io`, as the account that owns the web root):
+
+```bash
+sudo cp deploy/cdn-pull.sh deploy/cdn-publish.sh /usr/local/bin/
+sudo chmod +x /usr/local/bin/cdn-pull.sh /usr/local/bin/cdn-publish.sh
+sudo cp deploy/systemd/moraine-cdn-pull.* /etc/systemd/system/
+# edit the .service User= / paths if the CDN account isn't `notroot`
+sudo systemctl daemon-reload
+sudo systemctl enable --now moraine-cdn-pull.timer
+sudo systemctl start moraine-cdn-pull.service    # publish the current release now
+```
+
+Verify the repo-path defaults at the top of `cdn-publish.sh` match the real server
+first. To force an immediate publish later: `cdn-pull.sh --force`.
 
 ## Two manual follow-ups
 

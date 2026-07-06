@@ -1,0 +1,14 @@
+# Install on the CDN host as /etc/systemd/system/moraine-cdn-pull.timer.
+# Fires cdn-pull.sh a few minutes after boot and every 10 minutes after, so the
+# CDN picks up a new GitHub release within ~10 minutes. cdn-pull.sh is a no-op
+# when the latest is already published, so a tight interval is cheap.
+[Unit]
+Description=Check GitHub for a new Moraine release and publish it to the CDN
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

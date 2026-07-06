@@ -1,0 +1,22 @@
+# Install on the CDN host as /etc/systemd/system/moraine-cdn-pull.service
+# (pair with moraine-cdn-pull.timer). Adjust User= and the paths to your setup.
+#
+#   sudo cp deploy/cdn-pull.sh deploy/cdn-publish.sh /usr/local/bin/
+#   sudo chmod +x /usr/local/bin/cdn-pull.sh /usr/local/bin/cdn-publish.sh
+#   sudo cp deploy/systemd/moraine-cdn-pull.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now moraine-cdn-pull.timer
+#   sudo systemctl start moraine-cdn-pull.service   # publish immediately, once
+[Unit]
+Description=Publish the latest Moraine release to the CDN repos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The account that owns the CDN web root and can run reprepro/createrepo_c/repo-add
+# (the same identity that published earlier releases). Change if it is not notroot.
+User=notroot
+ExecStart=/usr/local/bin/cdn-pull.sh
+# cdn-pull.sh looks for cdn-publish.sh next to itself; override with:
+# Environment=MORAINE_CDN_PUBLISH=/usr/local/bin/cdn-publish.sh

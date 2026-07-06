@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # cdn-publish.sh — publish Moraine packages into the cdn.thern.io repos.
 #
-# Runs ON the CDN host (notroot@cdn.thern.io). The Release workflow uploads the
-# built packages to a staging dir and then invokes this script over SSH:
+# Runs ON the CDN host (notroot@cdn.thern.io). cdn-pull.sh (a systemd timer)
+# downloads the release packages into a staging dir and then invokes this script:
 #
 #     cdn-publish.sh <version> <staging-dir>
 #
