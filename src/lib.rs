@@ -1,7 +1,9 @@
 //! moraine — shared engine for the CLI and the desktop client.
 
 pub mod config;
+pub mod healthcheck;
 pub mod history;
+pub mod notify;
 pub mod prune;
 pub mod rclone;
 pub mod rsync;

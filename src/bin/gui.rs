@@ -27,7 +27,7 @@ use std::rc::Rc;
 
 use moraine::config::{Backend, Config, Frequency, Retention, Schedule, Target};
 use moraine::history::{self, LogEntry};
-use moraine::{prune, rclone, rsync, snapshot, ssh};
+use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh};
 
 const CONFIG_PATH: &str = "moraine.toml";
 const APP_ID: &str = "io.thern.moraine";
@@ -120,6 +120,7 @@ struct TargetForm {
     sources: Vec<String>,
     exclude: Vec<String>,
     vpn: String,
+    healthcheck: String,
     keep_last: String,
     keep_daily: String,
     keep_weekly: String,
@@ -142,6 +143,7 @@ impl TargetForm {
             sources: t.sources.clone(),
             exclude: t.exclude.clone(),
             vpn: t.vpn.clone(),
+            healthcheck: t.healthcheck.clone(),
             keep_last: r.keep_last.to_string(),
             keep_daily: r.keep_daily.to_string(),
             keep_weekly: r.keep_weekly.to_string(),
@@ -178,6 +180,7 @@ impl TargetForm {
             sources: clean(&self.sources),
             exclude: clean(&self.exclude),
             vpn: self.vpn.trim().to_string(),
+            healthcheck: self.healthcheck.trim().to_string(),
             retention: if retention.is_empty() {
                 None
             } else {
@@ -288,6 +291,8 @@ struct State {
     /// navigation and doesn't depend on which rows are currently visible.
     checked: std::collections::HashSet<String>,
     cwd: String,
+    /// Show a desktop notification when a backup finishes (global, default on).
+    notify: bool,
     running: bool,
     /// True while widget models are being rebuilt — selection handlers that
     /// would otherwise fire network calls (e.g. loading snapshots over SSH at
@@ -300,10 +305,15 @@ struct State {
 
 impl State {
     fn load() -> State {
-        let mut st = State::default();
+        // notify defaults on; a config with `notify = false` overrides it below.
+        let mut st = State {
+            notify: true,
+            ..State::default()
+        };
         let path = Path::new(CONFIG_PATH);
         match Config::load(path) {
             Ok(cfg) => {
+                st.notify = cfg.notify_enabled();
                 st.targets = cfg.targets.iter().map(TargetForm::from_target).collect();
                 st.schedules = cfg
                     .schedules
@@ -327,6 +337,8 @@ impl State {
 
     fn build_config(&self) -> Config {
         Config {
+            // Keep the TOML clean: only write `notify` when it's been turned off.
+            notify: if self.notify { None } else { Some(false) },
             targets: self.targets.iter().map(|f| f.to_target()).collect(),
             schedules: self.schedules.iter().map(|f| f.to_schedule()).collect(),
         }
@@ -1941,6 +1953,26 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         });
     }
 
+    // Healthcheck URL — a "dead man's switch" pinged after each backup (the URL
+    // on success, <url>/fail on failure), so a monitor can alert you if a
+    // scheduled backup silently stops running.
+    {
+        let hc = gtk::Entry::new();
+        hc.set_text(&f.healthcheck);
+        hc.set_placeholder_text(Some("https://hc-ping.com/…  (optional)"));
+        let hbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        let hl = gtk::Label::new(Some(
+            "Healthcheck URL (pinged after each backup; /fail on failure)",
+        ));
+        hl.add_css_class("muted");
+        hl.set_halign(gtk::Align::Start);
+        hbox.append(&hl);
+        hbox.append(&hc);
+        body.append(&hbox);
+        let st = state.clone();
+        hc.connect_changed(move |e| st.borrow_mut().targets[i].healthcheck = e.text().to_string());
+    }
+
     // Sources + exclude list editors
     body.append(&list_editor(
         state,
@@ -2857,6 +2889,9 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     cfg.append(&btns);
     outer.append(&cfg);
 
+    // ── Notifications ──
+    build_notifications_card(state, ui, &outer);
+
     // ── Startup ── (desktop-autostart entries are a freedesktop/Linux thing)
     if !cfg!(windows) {
         build_startup_card(ui, &outer);
@@ -2864,6 +2899,59 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
 
     // ── About ──
     build_about_and_finish(state, ui, &outer, scroll)
+}
+
+fn build_notifications_card(state: &Shared, ui: &Rc<Ui>, outer: &gtk::Box) {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    card.add_css_class("card");
+    let title = gtk::Label::new(Some("Notifications"));
+    title.add_css_class("section");
+    title.set_halign(gtk::Align::Start);
+    card.append(&title);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let toggle = gtk::Switch::new();
+    toggle.set_active(state.borrow().notify);
+    toggle.set_valign(gtk::Align::Center);
+    let tl = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let main = gtk::Label::new(Some("Desktop notification when a backup finishes"));
+    main.set_halign(gtk::Align::Start);
+    let sub = gtk::Label::new(Some(
+        "A normal notification on success, a critical one on failure (via notify-send / \
+         libnotify). Independent of each target's healthcheck URL, which still pings on \
+         every run — including scheduled ones.",
+    ));
+    sub.add_css_class("muted");
+    sub.set_halign(gtk::Align::Start);
+    sub.set_wrap(true);
+    tl.append(&main);
+    tl.append(&sub);
+    tl.set_hexpand(true);
+    row.append(&tl);
+    row.append(&toggle);
+    card.append(&row);
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        toggle.connect_state_set(move |sw, want| {
+            st.borrow_mut().notify = want;
+            let saved = st.borrow().save();
+            match saved {
+                Ok(()) => set_status(
+                    &ui2,
+                    if want {
+                        "Notifications enabled"
+                    } else {
+                        "Notifications disabled"
+                    },
+                ),
+                Err(e) => set_status(&ui2, &format!("Couldn't save the setting: {e}")),
+            }
+            sw.set_state(want);
+            glib::Propagation::Stop
+        });
+    }
+    outer.append(&card);
 }
 
 fn build_startup_card(ui: &Rc<Ui>, outer: &gtk::Box) {
@@ -3477,9 +3565,6 @@ fn run_stream(
                     ui.progress_lbl.set_visible(false);
                     if ok {
                         set_status(&ui, "Done");
-                        if let Some((op, target, info)) = pending {
-                            log_entry(&state, &op, &target, true, info);
-                        }
                     } else {
                         append_log(&ui, &detail);
                         // Scan the whole run output for a known problem and
@@ -3490,11 +3575,33 @@ fn run_stream(
                             append_log(&ui, &hint);
                         }
                         set_status(&ui, "Failed — see the log for details");
-                        // Record the failure in history too (first line only —
-                        // the full detail lives in the log).
-                        if let Some((op, target, _)) = pending {
-                            let short = detail.lines().next().unwrap_or("failed").to_string();
-                            log_entry(&state, &op, &target, false, short);
+                    }
+                    if let Some((op, target, info)) = pending {
+                        // Success carries the snapshot id; a failure records the
+                        // first line (the full detail stays in the log).
+                        let line = if ok {
+                            info
+                        } else {
+                            detail.lines().next().unwrap_or("failed").to_string()
+                        };
+                        log_entry(&state, &op, &target, ok, line.clone());
+                        // A backup also pings the target's healthcheck and (unless
+                        // disabled) raises a desktop notification.
+                        if op == "backup" {
+                            let (hc, notify_on) = {
+                                let s = state.borrow();
+                                let hc = s
+                                    .targets
+                                    .iter()
+                                    .find(|f| f.name.trim() == target)
+                                    .map(|f| f.healthcheck.trim().to_string())
+                                    .unwrap_or_default();
+                                (hc, s.notify)
+                            };
+                            healthcheck::ping(&hc, ok);
+                            if notify_on {
+                                notify::backup_done(&target, ok, &line);
+                            }
                         }
                     }
                     refresh_history(&state, &ui);

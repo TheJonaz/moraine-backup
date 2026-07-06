@@ -7,6 +7,20 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Added
+- **Desktop notifications** when a backup finishes — a normal one on success, a
+  critical one on failure (so a failed scheduled run doesn't go unnoticed). On by
+  default; toggle in Settings → Notifications, or set `notify = false` in the
+  config. Uses `notify-send` (libnotify), best-effort — silent if unavailable.
+- **Healthcheck pings ("dead man's switch")** per target: an optional URL pinged
+  after each backup — the URL on success, `<url>/fail` on failure (the
+  healthchecks.io convention). An uptime monitor then alerts you if a *scheduled*
+  backup silently stops running — the one failure a desktop notification can't
+  catch. Set it per target in the connection editor or via `healthcheck = "…"`.
+  Both fire for CLI/cron runs too, so scheduled backups are covered.
+
 ## [0.1.23] — 2026-07-06
 
 ### Changed

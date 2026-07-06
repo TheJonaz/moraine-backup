@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 /// The entire config file: targets and schedules.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
+    /// Show a desktop notification when a backup finishes. Default on; set
+    /// `notify = false` at the top of the config to silence them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notify: Option<bool>,
     #[serde(default, rename = "target")]
     pub targets: Vec<Target>,
     #[serde(default, rename = "schedule", skip_serializing_if = "Vec::is_empty")]
@@ -154,6 +158,12 @@ pub struct Target {
     /// configured in your desktop's network settings.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub vpn: String,
+    /// Optional "dead man's switch" URL, pinged after each backup of this target:
+    /// the URL on success, `<url>/fail` on failure (the healthchecks.io
+    /// convention, understood by many uptime monitors). Lets a monitor alert you
+    /// when a scheduled backup silently stops running. Empty/omitted = no ping.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub healthcheck: String,
     /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
@@ -263,6 +273,21 @@ impl Config {
                     );
                 }
             }
+            // The healthcheck URL is handed to curl as a single argument. Require
+            // an http(s):// scheme (which also rules out a leading '-' being read
+            // as a curl flag) and no whitespace/control characters.
+            let hc = t.healthcheck.trim();
+            if !hc.is_empty() {
+                if !(hc.starts_with("http://") || hc.starts_with("https://")) {
+                    bail!("target '{name}': healthcheck must be an http:// or https:// URL");
+                }
+                if hc.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                    bail!(
+                        "target '{name}': healthcheck URL must not contain whitespace or \
+                         control characters"
+                    );
+                }
+            }
             if t.sources.is_empty() {
                 bail!("target '{name}' is missing 'sources'");
             }
@@ -305,6 +330,11 @@ impl Config {
     /// Find a target by name.
     pub fn target(&self, name: &str) -> Option<&Target> {
         self.targets.iter().find(|t| t.name == name)
+    }
+
+    /// Whether backup-completion desktop notifications are enabled (default on).
+    pub fn notify_enabled(&self) -> bool {
+        self.notify != Some(false)
     }
 }
 
@@ -473,6 +503,46 @@ mod tests {
         )
         .unwrap();
         assert!(ipv6.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_checks_healthcheck_url() {
+        let target = |hc: &str| {
+            format!(
+                r#"
+                [[target]]
+                name = "n"
+                host = "h"
+                user = "u"
+                dest = "/tmp/x"
+                sources = ["/tmp"]
+                healthcheck = "{hc}"
+                "#
+            )
+        };
+        // Only http(s):// schemes are accepted (rules out a '-'-led curl flag too).
+        for bad in ["ftp://x", "-evil", "hc-ping.com/abc", "https://x y"] {
+            let cfg: Config = toml::from_str(&target(bad)).unwrap();
+            assert!(cfg.validate().is_err(), "healthcheck {bad:?} should reject");
+        }
+        let ok: Config = toml::from_str(&target("https://hc-ping.com/abc")).unwrap();
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn notify_defaults_on_and_can_be_disabled() {
+        let base = r#"
+            [[target]]
+            name = "n"
+            host = "h"
+            user = "u"
+            dest = "/tmp/x"
+            sources = ["/tmp"]
+        "#;
+        let on: Config = toml::from_str(base).unwrap();
+        assert!(on.notify_enabled(), "notify should default on");
+        let off: Config = toml::from_str(&format!("notify = false\n{base}")).unwrap();
+        assert!(!off.notify_enabled());
     }
 
     fn mode(p: &std::path::Path) -> u32 {

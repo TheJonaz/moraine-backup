@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{prune, rclone, rsync, snapshot, ssh, vpn};
+use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, vpn};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -93,7 +93,18 @@ fn cmd_init(path: &Path, force: bool) -> Result<()> {
 fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
+    let notify_on = config.notify_enabled();
     let mut failures = 0;
+    // Record the outcome in history, ping the target's healthcheck, and (unless
+    // disabled) raise a desktop notification. Called for every real run so cron
+    // jobs get the healthcheck ping too.
+    let finish = |t: &config::Target, ok: bool, detail: String| {
+        log(path, LogEntry::new("backup", &t.name, ok, detail.clone()));
+        healthcheck::ping(&t.healthcheck, ok);
+        if notify_on {
+            notify::backup_done(&t.name, ok, &detail);
+        }
+    };
     for t in targets {
         println!("== {} ({}) ==", t.name, backend_dest(t));
         // The destination is used to build remote paths (and prune runs
@@ -103,10 +114,7 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
             let msg = "empty 'dest' — refusing to run";
             eprintln!("  target '{}': {msg}", t.name);
             if !dry_run {
-                log(
-                    path,
-                    LogEntry::new("backup", &t.name, false, msg.to_string()),
-                );
+                finish(t, false, msg.to_string());
             }
             continue;
         }
@@ -120,10 +128,7 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(
-                        path,
-                        LogEntry::new("backup", &t.name, false, format!("{e:#}")),
-                    );
+                    finish(t, false, format!("{e:#}"));
                 }
                 continue;
             }
@@ -142,10 +147,7 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
         match result {
             Ok(ts) => {
                 if !dry_run {
-                    log(
-                        path,
-                        LogEntry::new("backup", &t.name, true, format!("snapshot {ts}")),
-                    );
+                    finish(t, true, format!("snapshot {ts}"));
                 }
                 // Auto-prune after a successful backup if the target has retention.
                 if let Err(e) = prune_target(path, t, dry_run) {
@@ -156,10 +158,7 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
                 failures += 1;
                 eprintln!("  {e:#}");
                 if !dry_run {
-                    log(
-                        path,
-                        LogEntry::new("backup", &t.name, false, format!("{e:#}")),
-                    );
+                    finish(t, false, format!("{e:#}"));
                 }
             }
         }

@@ -1,6 +1,10 @@
 # moraine.toml — one or more [[target]] blocks.
 # Run `moraine run --dry-run` when you're done editing.
 
+# Show a desktop notification when a backup finishes (success or failure).
+# Optional, default true. Set to false to silence them.
+# notify = false
+
 [[target]]
 # Short name. Used as the folder on the target and with --target.
 name = "nas"
@@ -36,6 +40,11 @@ exclude = [
     "node_modules",
     ".cache",
 ]
+
+# "Dead man's switch": a URL pinged after each backup of this target — the URL on
+# success, <url>/fail on failure (the healthchecks.io convention). An uptime
+# monitor then alerts you if a scheduled backup silently stops running. Optional.
+# healthcheck = "https://hc-ping.com/your-uuid-here"
 
 # Add more targets by copying the block:
 # [[target]]
