@@ -32,9 +32,17 @@ jobs:
           $src = (Resolve-Path "dist/$art").Path
           & $iscc "/DMyAppVersion=$ver-test" "/DSrcDir=$src" packaging\windows\moraine.iss
           Copy-Item "packaging\windows\Output\moraine-$ver-test-setup.exe" .
+          Copy-Item target/release/moraine.exe .   # raw exe, for dependency inspection
+
+      - name: Show DLL dependencies (should NOT list VCRUNTIME140.dll)
+        shell: pwsh
+        continue-on-error: true
+        run: dumpbin /dependents target\release\moraine.exe
 
       - uses: actions/upload-artifact@v4
         with:
           name: moraine-setup
-          path: moraine-*-test-setup.exe
+          path: |
+            moraine-*-test-setup.exe
+            moraine.exe
           if-no-files-found: error

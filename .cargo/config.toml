@@ -1,0 +1,6 @@
+# Statically link the MSVC C runtime into Windows builds, so moraine.exe runs on a
+# clean Windows without the "Visual C++ Redistributable" installed (no
+# VCRUNTIME140.dll / api-ms-win-crt-* dependency). Target-specific, so the
+# Linux and macOS builds are completely unaffected.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
