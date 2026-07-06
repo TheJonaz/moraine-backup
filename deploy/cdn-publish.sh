@@ -22,7 +22,7 @@ DEB_BASE="${DEB_BASE:-$CDN_WWW/deb}"           # reprepro base (serves /deb)
 DEB_CODENAME="${DEB_CODENAME:-stable}"
 RPM_DIR="${RPM_DIR:-$CDN_WWW/rpm/stable}"
 ARCH_DIR="${ARCH_DIR:-$CDN_WWW/arch/x86_64}"
-ARCH_DB="${ARCH_DB:-thern.db.tar.zst}"         # pacman repo db name (repo-add)
+ARCH_DB="${ARCH_DB:-thern-cdn.db.tar.gz}"      # pacman repo db name (repo-add)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
