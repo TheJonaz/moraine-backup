@@ -23,6 +23,7 @@ DEB_CODENAME="${DEB_CODENAME:-stable}"
 RPM_DIR="${RPM_DIR:-$CDN_WWW/rpm/stable}"
 ARCH_DIR="${ARCH_DIR:-$CDN_WWW/arch/x86_64}"
 ARCH_DB="${ARCH_DB:-thern-cdn.db.tar.gz}"      # pacman repo db name (repo-add)
+FILES_BASE="${FILES_BASE:-$CDN_WWW/files}"     # version-less "latest" downloads
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -63,5 +64,21 @@ if [ -n "$pkg" ] && command -v repo-add >/dev/null; then
 else
     log "SKIP arch (no .pkg.tar.zst in staging or repo-add missing)"
 fi
+
+# ── Static "latest" downloads the website links to (files/{linux,macos,windows}) ──
+# Version-less names so moraine.thern.io's download buttons always point here.
+put_latest() {  # put_latest <staged-basename> <subdir>
+    local src="$STAGE/$1"
+    if [ -f "$src" ]; then
+        mkdir -p "$FILES_BASE/$2"
+        cp -f "$src" "$FILES_BASE/$2/$1"
+        log "files/$2/$1 updated"
+    else
+        log "SKIP files/$2/$1 (not in staging)"
+    fi
+}
+put_latest moraine-linux-x86_64.tar.gz linux
+put_latest moraine-macos-arm64.tar.gz macos
+put_latest moraine-windows-x86_64.zip windows
 
 log "done — published moraine $VERSION to the CDN repos"

@@ -60,10 +60,16 @@ pick(){ printf '%s\n' "$urls" | grep -E "$1" | head -1; }
 deb_url="$(pick '_amd64\.deb$')"
 rpm_url="$(pick '\.x86_64\.rpm$')"
 pkg_url="$(pick '\.pkg\.tar\.zst$')"
+# The version-less "latest" downloads the website links to (files/{linux,macos,windows}).
+tgz_url="$(pick '\-linux-x86_64\.tar\.gz$')"
+mac_url="$(pick '\-macos-arm64\.tar\.gz$')"
+win_url="$(pick '\-windows-x86_64\.zip$')"
 
 if [ "$DRY" = 1 ]; then
     log "dry run — resolved assets for v$VERSION:"
-    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n' "${deb_url:-<none>}" "${rpm_url:-<none>}" "${pkg_url:-<none>}"
+    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n  tgz: %s\n  mac: %s\n  win: %s\n' \
+        "${deb_url:-<none>}" "${rpm_url:-<none>}" "${pkg_url:-<none>}" \
+        "${tgz_url:-<none>}" "${mac_url:-<none>}" "${win_url:-<none>}"
     exit 0
 fi
 
@@ -87,6 +93,9 @@ get(){  # get <kind> <url>
 get deb "$deb_url"
 get rpm "$rpm_url"
 get pkg "$pkg_url"
+get tgz "$tgz_url"
+get mac "$mac_url"
+get win "$win_url"
 
 log "publishing via $PUBLISH"
 "$PUBLISH" "$VERSION" "$STAGE"
