@@ -72,9 +72,18 @@ jobs:
           mkdir -p bundle/share/icons
           cp -r /ucrt64/share/icons/Adwaita bundle/share/icons/
           cp -r /ucrt64/share/icons/hicolor bundle/share/icons/ 2>/dev/null || true
+          # Install our own icon into hicolor so set_icon_name("moraine") resolves
+          # the window/taskbar icon.
+          for s in 16 24 32 48 64 128 256; do
+            mkdir -p "bundle/share/icons/hicolor/${s}x${s}/apps"
+            cp "assets/moraine-${s}.png" "bundle/share/icons/hicolor/${s}x${s}/apps/moraine.png"
+          done
+          mkdir -p bundle/share/icons/hicolor/scalable/apps
+          cp assets/moraine.svg bundle/share/icons/hicolor/scalable/apps/moraine.svg
           gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/Adwaita || true
+          gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/hicolor || true
 
-          # App icon for the shortcuts.
+          # App icon for the installer shortcuts.
           cp assets/moraine.ico bundle/
 
           echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs ==="

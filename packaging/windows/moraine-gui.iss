@@ -37,13 +37,14 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a Desktop shortcut"; GroupDescription: "Shortcuts:"
+Name: "startmenuicon"; Description: "Add a Start menu shortcut"; GroupDescription: "Shortcuts:"
+Name: "desktopicon"; Description: "Add a Desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
 Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Moraine"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\moraine.ico"
+Name: "{autoprograms}\Moraine"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\moraine.ico"; Tasks: startmenuicon
 Name: "{autodesktop}\Moraine"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\moraine.ico"; Tasks: desktopicon
 
 [Run]
