@@ -99,6 +99,7 @@ edit site/index.html '
     s{moraine-\d+\.\d+\.\d+-1-x86_64\.pkg\.tar\.zst}{moraine-'"$N"'-1-x86_64.pkg.tar.zst}g;
     s{moraine-\d+\.\d+\.\d+-1\.fc44\.x86_64\.rpm}{moraine-'"$N"'-1.fc44.x86_64.rpm}g;
     s{archive/refs/tags/v\d+\.\d+\.\d+\.tar\.gz}{archive/refs/tags/v'"$N"'.tar.gz}g;
+    s{("softwareVersion": ")\d+\.\d+\.\d+}{${1}'"$N"'}g;
 '
 
 if [ "$DRYRUN" = 1 ]; then
