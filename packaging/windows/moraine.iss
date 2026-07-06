@@ -40,6 +40,8 @@ ChangesEnvironment=yes
 
 [Tasks]
 Name: "addtopath"; Description: "Add Moraine to my PATH (run ""moraine"" from any terminal)"; GroupDescription: "Options:"
+Name: "startmenuicon"; Description: "Add a Start menu shortcut"; GroupDescription: "Shortcuts:"
+Name: "desktopicon"; Description: "Add a Desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
 Source: "{#SrcDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -47,6 +49,12 @@ Source: "{#SrcDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsour
 Source: "{#SrcDir}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SrcDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SrcDir}\moraine.example.toml"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+
+[Icons]
+; Moraine is a CLI, so the shortcuts open a terminal in the install folder with
+; `moraine` ready to use (and carry the Moraine icon). Optional per the tasks above.
+Name: "{autoprograms}\Moraine"; Filename: "{cmd}"; Parameters: "/K moraine --help"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Comment: "Open a terminal with the Moraine CLI"; Tasks: startmenuicon
+Name: "{autodesktop}\Moraine"; Filename: "{cmd}"; Parameters: "/K moraine --help"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; Comment: "Open a terminal with the Moraine CLI"; Tasks: desktopicon
 
 [Registry]
 ; Append {app} to the per-user PATH (only if the task is chosen and it isn't
