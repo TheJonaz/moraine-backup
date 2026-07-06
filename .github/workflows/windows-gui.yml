@@ -74,16 +74,28 @@ jobs:
           cp -r /ucrt64/share/icons/hicolor bundle/share/icons/ 2>/dev/null || true
           gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/Adwaita || true
 
+          # App icon for the shortcuts.
+          cp assets/moraine.ico bundle/
+
           echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs ==="
 
-      - name: Zip bundle
+      - name: Build installer + zip
         shell: pwsh
         run: |
           Compress-Archive -Path bundle/* -DestinationPath moraine-gui-windows.zip -Force
-          Get-Item moraine-gui-windows.zip | Select-Object Name,Length
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          $ver = (Get-Content Cargo.toml | Where-Object { $_ -match '^version = "(.+)"' } |
+                  Select-Object -First 1 | ForEach-Object { $Matches[1] })
+          $src = (Resolve-Path "bundle").Path
+          & $iscc "/DMyAppVersion=$ver-test" "/DSrcDir=$src" packaging\windows\moraine-gui.iss
+          Copy-Item "packaging\windows\Output\moraine-gui-$ver-test-setup.exe" .
+          Get-Item moraine-gui-*-setup.exe,moraine-gui-windows.zip | Select-Object Name,Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: moraine-gui-windows
-          path: moraine-gui-windows.zip
+          path: |
+            moraine-gui-*-setup.exe
+            moraine-gui-windows.zip
           if-no-files-found: error
