@@ -60,7 +60,7 @@
   <releases>
     <release version="0.1.24" date="2026-07-06">
       <description>
-        <p>Desktop notifications when a backup finishes — a normal one on success, a.</p>
+        <p>Desktop notifications when a backup finishes — a normal one on success, a critical one on failure (so a failed scheduled run doesn't go unnoticed).</p>
       </description>
     </release>
     <release version="0.1.23" date="2026-07-06">

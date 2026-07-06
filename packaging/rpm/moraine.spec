@@ -74,7 +74,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 
 %changelog
 * Mon Jul 06 2026 Jonaz Thern <info@thern.io> - 0.1.24-1
-- Desktop notifications when a backup finishes — a normal one on success, a.
+- Desktop notifications when a backup finishes — a normal one on success, a critical one on failure (so a failed scheduled run doesn't go unnoticed).
 
 * Mon Jul 06 2026 Jonaz Thern <info@thern.io> - 0.1.23-1
 - In-app background update download with a progress bar.

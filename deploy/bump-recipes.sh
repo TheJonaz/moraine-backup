@@ -71,10 +71,15 @@ NEW_WIN256="$(sha256sum "$TMP/win.zip" | cut -d' ' -f1)"
 DATE="$(date +%F)"
 RPMDATE="$(LC_ALL=C date '+%a %b %d %Y')"
 # One-line release note: first bullet of the CHANGELOG section for this version.
+# Grab the first bullet of the CHANGELOG section, joining its wrapped
+# continuation lines, then strip markdown so it reads as plain prose.
 NOTE="$(awk -v v="$NEW" '
     index($0,"## ["v"]")==1 {s=1; next}
     s && /^## \[/ {exit}
-    s && /^- / {l=$0; sub(/^- +/,"",l); gsub(/\*\*/,"",l); print l; exit}
+    s && !cap && /^- / {cap=1; sub(/^- +/,""); buf=$0; next}
+    cap && (/^-/ || /^#/ || /^[[:space:]]*$/) {exit}
+    cap {t=$0; sub(/^[[:space:]]+/,"",t); buf=buf " " t}
+    END {gsub(/\*\*/,"",buf); gsub(/`/,"",buf); print buf}
 ' "$ROOT/CHANGELOG.md" 2>/dev/null || true)"
 NOTE="${NOTE%%. *}."; [ "$NOTE" = "." ] && NOTE=""
 [ -n "$NOTE" ] || NOTE="Maintenance release."
