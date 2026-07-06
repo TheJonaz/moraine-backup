@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "moraine"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "async-channel",
