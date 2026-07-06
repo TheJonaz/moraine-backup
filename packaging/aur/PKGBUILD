@@ -1,6 +1,6 @@
 # Maintainer: Jonaz Thern <info@thern.io>
 pkgname=moraine
-pkgver=0.1.23
+pkgver=0.1.24
 pkgrel=1
 pkgdesc='Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)'
 arch=('x86_64')
@@ -13,7 +13,7 @@ optdepends=('rclone: cloud/FTP/SMB/WebDAV/S3 backends'
             'networkmanager: per-target VPN')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('0ba8606cf3be22f3e5c6dacef5fd43b3a4efa9616b2a2cadff967d037d276746')
+sha256sums=('22bee4fc5ad5b9c13e95b8cc0db23840fe04f4fe67052923b37a0853ea672764')
 _srcdir="moraine-backup-$pkgver"
 
 prepare() {
