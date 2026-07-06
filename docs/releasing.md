@@ -48,7 +48,11 @@ before the tag exists:
 - **Deploy the website.** `site/` is gitignored and hosted separately. Publish the
   updated `site/index.html` to `moraine.thern.io` *after* `release.yml` has pushed
   the new packages to the CDN — otherwise the download buttons 404.
-- **Refresh downstream packaging recipes.** The AUR / Homebrew / nixpkgs / … recipes
-  under `packaging/` pin source and binary checksums that can only be computed from
-  the published tag tarball. Update their versions and checksums with the platform
-  tools once the tag is live.
+- **Bump the downstream packaging recipes.** Once the release is published, run
+  [`deploy/bump-recipes.sh`](../deploy/bump-recipes.sh)`<version>` — it bumps every
+  recipe (AUR, Homebrew, nixpkgs, Alpine, Scoop, Chocolatey, winget, RPM, Snap,
+  Flatpak, FreeBSD, …), refreshes the source `sha256`/`sha512` and the Windows-zip
+  `sha256` from the live tag, renames the Gentoo ebuild, adds RPM/Flatpak release
+  notes, and commits + pushes. It leaves the vendored crate lists
+  (`cargo-sources.json`, Gentoo `CRATES`, FreeBSD `CARGO_CRATES`) alone — regenerate
+  those with their platform tools only when `Cargo.lock`'s dependencies change.

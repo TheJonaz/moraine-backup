@@ -137,6 +137,7 @@ cat <<EOF
 bump: two follow-ups the script deliberately leaves to you —
   1. site/index.html is updated but gitignored. Deploy it to moraine.thern.io
      once release.yml has published v$N to the CDN (else the download links 404).
-  2. downstream packaging recipes (AUR / Homebrew / nixpkgs / …) still need a
-     checksum refresh against the new tag tarball.
+  2. downstream packaging recipes (AUR / Homebrew / nixpkgs / …): once the release
+     is published, run  deploy/bump-recipes.sh $N  to bump their versions and
+     refresh the tag-tarball / Windows-zip checksums.
 EOF
