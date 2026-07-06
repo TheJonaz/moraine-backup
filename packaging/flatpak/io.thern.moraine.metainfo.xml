@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.1.23" date="2026-07-06">
+      <description>
+        <p>The update notification now downloads the new release in the background with a progress bar and hands it to the system installer.</p>
+      </description>
+    </release>
     <release version="0.1.22" date="2026-07-05">
       <description>
         <p>System-tray icon, in-app update check, and a window icon fix.</p>

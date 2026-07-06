@@ -95,6 +95,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/TheJonaz/moraine-backup.git
-        tag: v0.1.22
+        tag: v0.1.23
         commit: 47e5b6f1d68fa48e34b32f952d629cd79cf47ef0
       - cargo-sources.json
