@@ -161,6 +161,36 @@ jobs:
           files: "*.pkg.tar.zst"
           fail_on_unmatched_files: false
 
+  # ── Bump the downstream packaging recipes (AUR, Homebrew, nixpkgs, winget, …) ──
+  # Runs after the packages are built and uploaded, so the source tarball and the
+  # Windows zip exist for the checksums. deploy/bump-recipes.sh refreshes every
+  # recipe's version + checksums and commits the result back to main. Pushed with
+  # GITHUB_TOKEN, which by design does NOT re-trigger workflows — no release loop.
+  # Idempotent: a re-dispatched build whose recipes are already current is a no-op.
+  recipes:
+    name: bump downstream recipes
+    needs: [release, rpm, arch]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Bump recipes and commit to main
+        run: |
+          set -eux
+          VER="${RELEASE_TAG#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # --no-push: commit only; we push HEAD:main explicitly (robust regardless
+          # of branch/detached state). Skips committing if already at VER.
+          deploy/bump-recipes.sh "$VER" --no-push
+          if git log --oneline -1 | grep -q "bump downstream recipes to v${VER}\$"; then
+            git push origin HEAD:main
+          else
+            echo "recipes already at ${VER} — nothing to push"
+          fi
+
   # ── CDN publish (cdn.thern.io) is pull-based, not pushed from here ──
   # The CDN host firewalls inbound SSH, so GitHub Actions cannot push to it.
   # Instead the host pulls: deploy/cdn-pull.sh — run by a systemd timer on the

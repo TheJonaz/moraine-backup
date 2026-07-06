@@ -45,13 +45,22 @@ sudo systemctl start moraine-cdn-pull.service    # publish the current release n
 Verify the repo-path defaults at the top of `cdn-publish.sh` match the real server
 first. To force an immediate publish later: `cdn-pull.sh --force`.
 
-## Manual follow-up
+## Downstream packaging recipes (automatic)
 
-- **Bump the downstream packaging recipes.** Once the release is published, run
-  [`deploy/bump-recipes.sh`](../deploy/bump-recipes.sh)`<version>` — it bumps every
-  recipe (AUR, Homebrew, nixpkgs, Alpine, Scoop, Chocolatey, winget, RPM, Snap,
-  Flatpak, FreeBSD, …), refreshes the source `sha256`/`sha512` and the Windows-zip
-  `sha256` from the live tag, renames the Gentoo ebuild, adds RPM/Flatpak release
-  notes, and commits + pushes. It leaves the vendored crate lists
-  (`cargo-sources.json`, Gentoo `CRATES`, FreeBSD `CARGO_CRATES`) alone — regenerate
-  those with their platform tools only when `Cargo.lock`'s dependencies change.
+After the packages are built, `release.yml`'s **`recipes`** job runs
+[`deploy/bump-recipes.sh`](../deploy/bump-recipes.sh), which bumps every downstream
+recipe (AUR, Homebrew, nixpkgs, Alpine, Scoop, Chocolatey, winget, RPM, Snap,
+Flatpak, FreeBSD, …), refreshes the source `sha256`/`sha512` and the Windows-zip
+`sha256` from the just-built release, renames the Gentoo ebuild, adds RPM/Flatpak
+release notes, and commits the result back to `main`. It's idempotent, so a
+re-dispatched build is a no-op. (Run `deploy/bump-recipes.sh <version>` by hand as a
+fallback.)
+
+So a release is now a single command — `deploy/bump.sh <version>` — and the rest
+(build, recipe bump, CDN publish, website) follows automatically.
+
+## The one thing still manual
+
+The vendored crate lists (`cargo-sources.json`, Gentoo `CRATES`, FreeBSD
+`CARGO_CRATES`) are left untouched — regenerate them with their platform tools only
+when `Cargo.lock`'s dependencies actually change.

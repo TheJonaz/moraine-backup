@@ -167,8 +167,9 @@ fi
 
 cat <<EOF
 
-bump: one follow-up the script leaves to you —
-  downstream packaging recipes (AUR / Homebrew / nixpkgs / …): once the release is
-  published, run  deploy/bump-recipes.sh $N  to bump their versions and refresh the
-  tag-tarball / Windows-zip checksums.
+bump: done. The rest is automatic —
+  * release.yml builds the packages, then its 'recipes' job bumps the downstream
+    packaging recipes (AUR / Homebrew / nixpkgs / …) and commits them to main.
+  * cdn-pull publishes the packages to cdn.thern.io within ~10 min.
+  (Manual fallback if ever needed:  deploy/bump-recipes.sh $N)
 EOF
