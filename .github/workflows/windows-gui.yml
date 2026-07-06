@@ -1,0 +1,47 @@
+name: Windows GUI (experimental)
+
+# On-demand: proves moraine-gui (GTK4) builds on Windows via MSYS2/UCRT64, and
+# lists the DLLs it links so we know what to bundle. Not wired into releases yet.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build moraine-gui (MSYS2 UCRT64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-rust
+
+      - name: Toolchain + GTK versions
+        run: |
+          rustc --version
+          cargo --version
+          pkg-config --modversion gtk4
+
+      - name: Build moraine-gui (gui, no tray)
+        run: cargo build --release --no-default-features --features gui --bin moraine-gui
+
+      - name: Inspect the result
+        run: |
+          ls -la target/release/moraine-gui.exe
+          echo "=== non-system DLL dependencies (what we'll bundle) ==="
+          ldd target/release/moraine-gui.exe | grep -iv '/c/windows/' || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-gui-exe
+          path: target/release/moraine-gui.exe
+          if-no-files-found: error
