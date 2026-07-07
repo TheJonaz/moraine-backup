@@ -1,14 +1,14 @@
 name: Windows GUI (experimental)
 
-# On-demand: builds moraine-gui (GTK4) on Windows via MSYS2, assembles a
-# self-contained GTK runtime bundle, and uploads it as a zip. Also reports whether
-# GStreamer is a hard dependency of GTK (i.e. whether it can be trimmed).
+# On-demand: builds the Windows desktop app (GTK4) via MSYS2, bundles the GTK
+# runtime and packages a test installer. Same build path as the release job, so
+# it's the place to test GUI changes before cutting a release.
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: build + bundle moraine-gui
+    name: build + package moraine-gui
     runs-on: windows-latest
     defaults:
       run:
@@ -30,68 +30,12 @@ jobs:
       - name: Build moraine-gui (gui, no tray)
         run: cargo build --release --no-default-features --features gui --bin moraine-gui
 
-      - name: Diagnose GStreamer (direct imports of libgtk)
-        run: |
-          echo "=== libgtk-4-1.dll direct imports containing 'gst' ==="
-          if objdump -p /ucrt64/bin/libgtk-4-1.dll | awk '/DLL Name:/{print $3}' | grep -i gst; then
-            echo ">> GStreamer IS a hard dependency of GTK — cannot trim without rebuilding GTK."
-          else
-            echo ">> GStreamer is NOT hard-linked by GTK — trimmable."
-          fi
+      - name: Bundle GTK runtime
+        run: bash packaging/windows/bundle-gtk.sh
 
-      - name: Assemble bundle
-        run: |
-          set -e
-          BIN=/ucrt64/bin
-          mkdir -p bundle
-          cp target/release/moraine-gui.exe bundle/
-
-          # gdk-pixbuf image loaders (for icons) + a relative-path cache.
-          PBVER=$(ls /ucrt64/lib/gdk-pixbuf-2.0)
-          LOADERS="bundle/lib/gdk-pixbuf-2.0/$PBVER/loaders"
-          mkdir -p "$LOADERS"
-          cp $BIN/../lib/gdk-pixbuf-2.0/$PBVER/loaders/*.dll "$LOADERS/"
-          ( cd "$LOADERS" && gdk-pixbuf-query-loaders.exe *.dll > ../loaders.cache )
-
-          # Full working DLL closure of the exe + the loaders (from /ucrt64/bin).
-          { ldd bundle/moraine-gui.exe; for l in "$LOADERS"/*.dll; do ldd "$l"; done; } \
-            | awk '{print $3}' | grep -iE '^/ucrt64/bin/' | sort -u \
-            | while read -r d; do cp -n "$d" bundle/ || true; done
-
-          # If GStreamer is trimmable, drop its DLLs (unused media backend).
-          if ! objdump -p /ucrt64/bin/libgtk-4-1.dll | awk '/DLL Name:/{print $3}' | grep -qi gst; then
-            rm -f bundle/libgst*.dll && echo "Trimmed GStreamer DLLs."
-          fi
-
-          # Compiled GSettings schemas (GTK reads these at startup).
-          mkdir -p bundle/share/glib-2.0/schemas
-          cp /ucrt64/share/glib-2.0/schemas/gschemas.compiled bundle/share/glib-2.0/schemas/ 2>/dev/null \
-            || glib-compile-schemas /ucrt64/share/glib-2.0/schemas --targetdir bundle/share/glib-2.0/schemas
-
-          # Icon themes (Adwaita for the app's symbolic icons, hicolor as fallback).
-          mkdir -p bundle/share/icons
-          cp -r /ucrt64/share/icons/Adwaita bundle/share/icons/
-          cp -r /ucrt64/share/icons/hicolor bundle/share/icons/ 2>/dev/null || true
-          # Install our own icon into hicolor so set_icon_name("moraine") resolves
-          # the window/taskbar icon.
-          for s in 16 24 32 48 64 128 256; do
-            mkdir -p "bundle/share/icons/hicolor/${s}x${s}/apps"
-            cp "assets/moraine-${s}.png" "bundle/share/icons/hicolor/${s}x${s}/apps/moraine.png"
-          done
-          mkdir -p bundle/share/icons/hicolor/scalable/apps
-          cp assets/moraine.svg bundle/share/icons/hicolor/scalable/apps/moraine.svg
-          gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/Adwaita || true
-          gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/hicolor || true
-
-          # App icon for the installer shortcuts.
-          cp assets/moraine.ico bundle/
-
-          echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs ==="
-
-      - name: Build installer + zip
+      - name: Package test installer
         shell: pwsh
         run: |
-          Compress-Archive -Path bundle/* -DestinationPath moraine-gui-windows.zip -Force
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
           $ver = (Get-Content Cargo.toml | Where-Object { $_ -match '^version = "(.+)"' } |
@@ -99,12 +43,9 @@ jobs:
           $src = (Resolve-Path "bundle").Path
           & $iscc "/DMyAppVersion=$ver-test" "/DSrcDir=$src" packaging\windows\moraine-gui.iss
           Copy-Item "packaging\windows\Output\moraine-gui-$ver-test-setup.exe" .
-          Get-Item moraine-gui-*-setup.exe,moraine-gui-windows.zip | Select-Object Name,Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: moraine-gui-windows
-          path: |
-            moraine-gui-*-setup.exe
-            moraine-gui-windows.zip
+          path: moraine-gui-*-setup.exe
           if-no-files-found: error

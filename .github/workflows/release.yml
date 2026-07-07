@@ -169,6 +169,48 @@ jobs:
           files: "*.pkg.tar.zst"
           fail_on_unmatched_files: false
 
+  # ── Windows desktop app (GTK4) — built via MSYS2, bundled with the GTK runtime ──
+  # Ships alongside the Windows CLI zip/installer as a one-click app installer.
+  windows-gui:
+    name: windows desktop app (GTK)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-binutils
+      - name: Build moraine-gui
+        run: cargo build --release --no-default-features --features gui --bin moraine-gui
+      - name: Bundle GTK runtime
+        run: bash packaging/windows/bundle-gtk.sh
+      - name: Package installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          $ver = "${{ env.RELEASE_TAG }}".TrimStart('v')
+          $src = (Resolve-Path "bundle").Path
+          & $iscc "/DMyAppVersion=$ver" "/DSrcDir=$src" packaging\windows\moraine-gui.iss
+          Copy-Item "packaging\windows\Output\moraine-gui-$ver-setup.exe" .
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: moraine-gui-*-setup.exe
+          fail_on_unmatched_files: false
+
   # ── Bump the downstream packaging recipes (AUR, Homebrew, nixpkgs, winget, …) ──
   # Runs after the packages are built and uploaded, so the source tarball and the
   # Windows zip exist for the checksums. deploy/bump-recipes.sh refreshes every

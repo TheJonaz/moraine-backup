@@ -24,6 +24,11 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   (Inno Setup) that installs the CLI per-user and adds it to PATH, alongside the
   existing zip. The Windows `.exe` also carries the Moraine icon now (embedded via
   a build-script resource) instead of the generic default.
+- **Windows desktop app** — the GTK GUI now builds and ships for Windows
+  (`moraine-gui-<ver>-setup.exe`), bundling the GTK4 runtime. It uses **native
+  Windows window controls** (`GTK_CSD=0`), shows the Moraine icon, and installs
+  per-user with optional Start-menu / Desktop shortcuts. The system tray stays
+  Linux-only (moved behind a `tray` feature).
 
 ## [0.1.24] — 2026-07-06
 

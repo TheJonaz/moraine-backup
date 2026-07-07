@@ -56,7 +56,9 @@ log "target version: $VERSION"
 # Pick the three repo packages by suffix from the release's asset URLs (parsing
 # the URLs avoids hardcoding the .fcNN / -1 / v-prefix naming quirks).
 urls="$(printf '%s' "$json" | grep -oE '"browser_download_url":[[:space:]]*"[^"]*"' | sed -E 's/.*"(https[^"]*)"/\1/')"
-pick(){ printf '%s\n' "$urls" | grep -E "$1" | head -1; }
+# Pick the first asset URL matching a suffix regex. Never fails the script when
+# there's no match (or on the SIGPIPE from head) — a missing asset just yields "".
+pick(){ printf '%s\n' "$urls" | grep -E "$1" | head -1 || true; }
 deb_url="$(pick '_amd64\.deb$')"
 rpm_url="$(pick '\.x86_64\.rpm$')"
 pkg_url="$(pick '\.pkg\.tar\.zst$')"
@@ -64,13 +66,15 @@ pkg_url="$(pick '\.pkg\.tar\.zst$')"
 tgz_url="$(pick '\-linux-x86_64\.tar\.gz$')"
 mac_url="$(pick '\-macos-arm64\.tar\.gz$')"
 win_url="$(pick '\-windows-x86_64\.zip$')"
-exe_url="$(pick '\-setup\.exe$')"
+exe_url="$(pick 'moraine-[0-9][^/]*-setup\.exe$')"   # CLI installer
+gexe_url="$(pick 'moraine-gui-[^/]*-setup\.exe$')"   # desktop-app installer
 
 if [ "$DRY" = 1 ]; then
     log "dry run — resolved assets for v$VERSION:"
-    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n  tgz: %s\n  mac: %s\n  win: %s\n  exe: %s\n' \
+    printf '  deb: %s\n  rpm: %s\n  pkg: %s\n  tgz: %s\n  mac: %s\n  win: %s\n  exe: %s\n  gexe: %s\n' \
         "${deb_url:-<none>}" "${rpm_url:-<none>}" "${pkg_url:-<none>}" \
-        "${tgz_url:-<none>}" "${mac_url:-<none>}" "${win_url:-<none>}" "${exe_url:-<none>}"
+        "${tgz_url:-<none>}" "${mac_url:-<none>}" "${win_url:-<none>}" \
+        "${exe_url:-<none>}" "${gexe_url:-<none>}"
     exit 0
 fi
 
@@ -98,6 +102,7 @@ get tgz "$tgz_url"
 get mac "$mac_url"
 get win "$win_url"
 get exe "$exe_url"
+get gexe "$gexe_url"
 
 log "publishing via $PUBLISH"
 "$PUBLISH" "$VERSION" "$STAGE"

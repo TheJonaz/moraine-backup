@@ -81,13 +81,20 @@ put_latest moraine-linux-x86_64.tar.gz linux
 put_latest moraine-macos-arm64.tar.gz macos
 put_latest moraine-windows-x86_64.zip windows
 
-# The Windows installer is versioned (moraine-<ver>-setup.exe); publish it under a
-# version-less name so the website's "Installer" button is stable.
-exe=$(ls "$STAGE"/moraine-*-setup.exe 2>/dev/null | head -1 || true)
-if [ -n "$exe" ]; then
+# The Windows installers are versioned; publish them under version-less names so
+# the website's download buttons are stable. moraine-[0-9]… is the CLI installer;
+# moraine-gui-… is the desktop-app installer.
+cli_exe=$(ls "$STAGE"/moraine-[0-9]*-setup.exe 2>/dev/null | head -1 || true)
+if [ -n "$cli_exe" ]; then
     mkdir -p "$FILES_BASE/windows"
-    cp -f "$exe" "$FILES_BASE/windows/moraine-setup.exe"
-    log "files/windows/moraine-setup.exe <- $(basename "$exe")"
+    cp -f "$cli_exe" "$FILES_BASE/windows/moraine-setup.exe"
+    log "files/windows/moraine-setup.exe <- $(basename "$cli_exe")"
+fi
+gui_exe=$(ls "$STAGE"/moraine-gui-*-setup.exe 2>/dev/null | head -1 || true)
+if [ -n "$gui_exe" ]; then
+    mkdir -p "$FILES_BASE/windows"
+    cp -f "$gui_exe" "$FILES_BASE/windows/moraine-gui-setup.exe"
+    log "files/windows/moraine-gui-setup.exe <- $(basename "$gui_exe")"
 fi
 
 log "done — published moraine $VERSION to the CDN repos"
