@@ -103,7 +103,16 @@ pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
     // there); MORAINE_ASKPASS tells it to print the secret and exit instead of
     // starting the app. See the check at the top of each binary's main().
     #[cfg(windows)]
-    env.push(("MORAINE_ASKPASS".to_string(), "1".to_string()));
+    {
+        env.push(("MORAINE_ASKPASS".to_string(), "1".to_string()));
+        // The bundled cygwin `moraine-ssh` derives HOME as `/home/<user>` — a path
+        // that doesn't exist on Windows — so it can't create ~/.ssh or write
+        // known_hosts ("Could not create directory '/home/…/.ssh'"). Point HOME at
+        // the real Windows profile; cygwin converts the `C:\…` value itself.
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            env.push(("HOME".to_string(), profile.to_string_lossy().into_owned()));
+        }
+    }
     env
 }
 

@@ -32,6 +32,34 @@ fn local_operand(p: &std::path::Path) -> String {
     s
 }
 
+/// Local source paths that don't exist on this machine (with `~` expanded),
+/// checked natively — before rsync's own msys-path rewriting. rsync reports a
+/// missing source as an opaque `change_dir "/c/…" failed` on Windows; catching
+/// it here lets the caller show the real Windows path. Empty vec = all present.
+pub fn missing_sources(target: &Target) -> Vec<String> {
+    target
+        .sources
+        .iter()
+        .filter(|src| !expand_tilde(src).exists())
+        .cloned()
+        .collect()
+}
+
+/// A caller-facing hint for a source path that isn't on disk. On Windows,
+/// `Documents`/`Pictures` are often redirected into OneDrive, so the plain
+/// `C:\Users\<you>\Documents` path doesn't exist — the usual cause.
+pub fn missing_sources_hint(missing: &[String]) -> String {
+    let list = missing.join(", ");
+    if cfg!(windows) {
+        format!(
+            "Source not found on this PC: {list}. Check the exact path — on Windows, \
+             Documents/Pictures are often under OneDrive (e.g. C:\\Users\\you\\OneDrive\\Documents)."
+        )
+    } else {
+        format!("Source not found on this machine: {list}.")
+    }
+}
+
 /// Builds the argument list for `rsync` (everything except the program name itself).
 /// `link_dest` hardlinks unchanged files against a previous snapshot.
 pub fn build_args(
@@ -200,6 +228,10 @@ pub fn verify_args(target: &Target, timestamp: &str) -> Vec<String> {
 /// Runs a snapshot backup for a target (CLI). Inherits stdio so rsync writes
 /// directly to the terminal. Returns the timestamp on a successful run.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
+    let missing = missing_sources(target);
+    if !missing.is_empty() {
+        bail!("{}", missing_sources_hint(&missing));
+    }
     let ts = snapshot::timestamp();
     let dest = snapshot::snapshot_dir(target, &ts);
     let args = build_args(target, &dest, Some(LINK_DEST), dry_run);

@@ -3722,6 +3722,15 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         set_status(ui, "Target needs at least one source");
         return;
     }
+    // Catch a source path that isn't on disk *before* rsync turns it into an
+    // opaque `change_dir "/c/…" failed` (Windows: usually a OneDrive redirect).
+    if target.backend.is_ssh() {
+        let missing = rsync::missing_sources(&target);
+        if !missing.is_empty() {
+            set_status(ui, &rsync::missing_sources_hint(&missing));
+            return;
+        }
+    }
     // Surface form errors (bad port etc.) instead of running with defaults.
     if let Err(e) = state.borrow().save() {
         set_status(ui, &e);
