@@ -60,5 +60,15 @@ cp /usr/bin/rsync.exe bundle/
 cp /usr/bin/msys-2.0.dll bundle/ 2>/dev/null || true
 ldd /usr/bin/rsync.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
   | while read -r d; do cp -n "$d" bundle/ || true; done
+# A matching cygwin ssh for the bundled rsync (native Windows OpenSSH as the
+# transport garbles the remote command). Renamed to `moraine-ssh` so it doesn't
+# shadow the system ssh that Moraine's own ssh calls use.
+cp /usr/bin/ssh.exe bundle/moraine-ssh.exe
+ldd /usr/bin/ssh.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
+  | while read -r d; do cp -n "$d" bundle/ || true; done
 
-echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs; tools: $(ls bundle/rclone.exe bundle/rsync.exe 2>/dev/null | wc -l)/2 ==="
+# GUI assets (logo + hero background) — asset() looks for these next to the exe.
+mkdir -p bundle/assets
+cp assets/moraine-64.png assets/hero-bg.png bundle/assets/
+
+echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs; tools: $(ls bundle/rclone.exe bundle/rsync.exe bundle/moraine-ssh.exe 2>/dev/null | wc -l)/3 ==="

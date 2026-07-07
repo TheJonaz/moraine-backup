@@ -1001,6 +1001,16 @@ fn show_close_dialog(window: &gtk::ApplicationWindow, app: &gtk::Application) {
 }
 
 fn asset(name: &str) -> String {
+    // 0) Next to the executable — the Windows bundle ships an `assets/` folder
+    //    alongside moraine-gui.exe (there is no /usr/share there).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("assets").join(name);
+            if p.exists() {
+                return p.to_string_lossy().into_owned();
+            }
+        }
+    }
     // 1) $XDG_DATA_DIRS/moraine/assets — the portable path that works for a
     //    distro install (/usr/share), Flatpak (/app/share), Snap ($SNAP/... via
     //    XDG_DATA_DIRS), AppImage (AppRun exports it) and Nix (wrapGAppsHook).

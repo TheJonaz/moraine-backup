@@ -37,7 +37,13 @@ pub fn ssh_options(target: &Target) -> Vec<String> {
 
 /// The `-e` string rsync uses to start ssh.
 pub fn transport(target: &Target) -> String {
-    let mut parts = vec!["ssh".to_string()];
+    // On Windows the bundled (cygwin/msys) rsync needs a *matching* cygwin ssh —
+    // native Windows OpenSSH as the transport garbles the remote command
+    // ("rsync: argc is zero!"). We ship MSYS2's ssh as `moraine-ssh` (found on PATH
+    // next to the exe), and use it only here; Moraine's own direct ssh calls stay
+    // on the system OpenSSH.
+    let prog = if cfg!(windows) { "moraine-ssh" } else { "ssh" };
+    let mut parts = vec![prog.to_string()];
     parts.extend(ssh_options(target));
     parts.join(" ")
 }
@@ -87,8 +93,8 @@ pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
         ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),
         ("MORAINE_SSH_SECRET".to_string(), target.password.clone()),
     ];
-    // Unix ssh only consults askpass when DISPLAY is set; value is unused.
-    #[cfg(unix)]
+    // ssh consults askpass only when DISPLAY is set (the value is unused). Set it
+    // on Windows too — the bundled cygwin `moraine-ssh` wants it as well.
     env.push((
         "DISPLAY".to_string(),
         std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()),
