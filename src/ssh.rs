@@ -20,6 +20,17 @@ pub fn ssh_options(target: &Target) -> Vec<String> {
     } else {
         "StrictHostKeyChecking=accept-new".to_string()
     });
+    // When a login password (or key passphrase) is set, we authenticate via
+    // SSH_ASKPASS. Force-enable password + keyboard-interactive *for this
+    // connection* so a client ssh_config that disables them — common on Windows,
+    // where `KbdInteractiveAuthentication no` silently breaks password logins —
+    // can't get in the way. Per-connection `-o` overrides the config file.
+    if !target.password.trim().is_empty() {
+        opts.push("-o".to_string());
+        opts.push("PasswordAuthentication=yes".to_string());
+        opts.push("-o".to_string());
+        opts.push("KbdInteractiveAuthentication=yes".to_string());
+    }
     opts
 }
 
@@ -123,4 +134,38 @@ fn askpass_dir() -> Option<PathBuf> {
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
     Some(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{Config, Target};
+
+    fn target(password: &str) -> Target {
+        let cfg: Config = toml::from_str(&format!(
+            r#"
+            [[target]]
+            name = "n"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "{password}"
+            "#
+        ))
+        .unwrap();
+        cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn password_forces_password_and_kbdinteractive_auth() {
+        // With a password/passphrase set, moraine overrides the client config so
+        // a disabled KbdInteractive/Password method can't break the login.
+        let opts = super::ssh_options(&target("secret")).join(" ");
+        assert!(opts.contains("PasswordAuthentication=yes"), "{opts}");
+        assert!(opts.contains("KbdInteractiveAuthentication=yes"), "{opts}");
+        // Without one, we don't force those methods (avoids an interactive prompt
+        // when key/agent auth is intended).
+        let none = super::ssh_options(&target("")).join(" ");
+        assert!(!none.contains("PasswordAuthentication"), "{none}");
+    }
 }

@@ -3228,7 +3228,12 @@ fn diagnose_failure(out: &str) -> Option<String> {
         return hint(
             "SSH authentication was rejected by the server.",
             "Check the SSH key path and that the key is authorized on the server. If the \
-             key has a passphrase, set it under the target's ⚙ Settings.",
+             key has a passphrase, set it under the target's ⚙ Settings. If you're using a \
+             login password, the offered methods above show what the server accepts — a \
+             server with 'PasswordAuthentication no' or 'KbdInteractiveAuthentication no' \
+             won't take a password, so use an SSH key instead. (Moraine already forces \
+             those methods on for its own connection, so a client-side ssh_config setting \
+             isn't the cause.)",
         );
     }
     if l.contains("host key verification failed") {

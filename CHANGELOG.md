@@ -9,6 +9,14 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
 ## [Unreleased]
 
+### Fixed
+- **Password logins survive a restrictive client ssh_config.** When a target uses a
+  login password (or key passphrase), Moraine now passes
+  `-o PasswordAuthentication=yes -o KbdInteractiveAuthentication=yes` on its own ssh
+  command, overriding a client `ssh_config` that disables those methods — common on
+  Windows, where `KbdInteractiveAuthentication no` silently broke password logins.
+  The connection-failure diagnostics also explain the server-side variant.
+
 ### Added
 - **Verify a snapshot** against the current sources by checksum — a new `moraine
   check [--target T] [--snapshot TS]` CLI command and a **Verify** button in the
