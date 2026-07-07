@@ -468,7 +468,14 @@ fn verify_rclone(t: &config::Target) -> bool {
         }
         _ => {
             ok = false;
-            check(false, "rclone not installed (apt install rclone)");
+            let how = if cfg!(windows) {
+                "winget install Rclone.Rclone, or rclone.org"
+            } else if cfg!(target_os = "macos") {
+                "brew install rclone, or rclone.org"
+            } else {
+                "apt install rclone, or rclone.org"
+            };
+            check(false, &format!("rclone not installed ({how})"));
         }
     }
     ok

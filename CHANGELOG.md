@@ -10,6 +10,11 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ## [Unreleased]
 
 ### Fixed
+- **Per-OS install advice.** When rsync/rclone is missing, the error and the
+  connection diagnostics now suggest the right thing for the OS you're on —
+  `brew` on macOS, `winget`/`rclone.org` (and "use the rclone backend or WSL" for
+  rsync) on Windows, the distro package managers on Linux — instead of always
+  saying `sudo apt install`.
 - **Password logins survive a restrictive client ssh_config.** When a target uses a
   login password (or key passphrase), Moraine now passes
   `-o PasswordAuthentication=yes -o KbdInteractiveAuthentication=yes` on its own ssh

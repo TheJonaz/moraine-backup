@@ -191,7 +191,16 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         .args(&args)
         .envs(ssh::askpass_env(target))
         .status()
-        .context("could not start rsync — is it installed?")?;
+        .with_context(|| {
+            let how = if cfg!(windows) {
+                "Windows has no built-in rsync — use the rclone backend, or run Moraine in WSL"
+            } else if cfg!(target_os = "macos") {
+                "install it with: brew install rsync"
+            } else {
+                "install it with: apt install rsync (or your package manager)"
+            };
+            format!("could not start rsync — is it installed? ({how})")
+        })?;
     // rsync 23 (partial transfer) / 24 (source files vanished) mean *some*
     // files were skipped, but the snapshot is still valid — treat as success
     // (with a warning) so `latest` is still updated, like rsnapshot does.

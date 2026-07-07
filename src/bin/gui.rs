@@ -3215,16 +3215,31 @@ fn diagnose_failure(out: &str) -> Option<String> {
         );
     }
     if l.contains("could not start rsync") || l.contains("rsync — is it installed") {
-        return hint(
-            "rsync is not installed on this computer.",
-            "Install it:  sudo apt install rsync",
-        );
+        let fix = if cfg!(windows) {
+            "Windows has no built-in rsync. Easiest: switch this target to the rclone \
+             backend (Backend → rclone) — it needs no rsync and runs natively on \
+             Windows. If you specifically want rsync over SSH, run Moraine inside WSL."
+        } else if cfg!(target_os = "macos") {
+            "Install a modern rsync:  brew install rsync  (macOS ships an old one) — or \
+             switch this target to the rclone backend."
+        } else {
+            "Install it with your package manager, e.g.  sudo apt install rsync  \
+             (Debian/Ubuntu),  sudo dnf install rsync  (Fedora), or  sudo pacman -S rsync \
+             (Arch)."
+        };
+        return hint("rsync is not installed on this computer.", fix);
     }
     if l.contains("could not start rclone") || l.contains("rclone: command not found") {
-        return hint(
-            "rclone is not installed on this computer.",
-            "Install it:  sudo apt install rclone  (or from rclone.org).",
-        );
+        let fix = if cfg!(windows) {
+            "Install rclone:  winget install Rclone.Rclone  (or  scoop install rclone, or \
+             download it from rclone.org/downloads)."
+        } else if cfg!(target_os = "macos") {
+            "Install rclone:  brew install rclone  (or from rclone.org)."
+        } else {
+            "Install rclone:  sudo apt install rclone  (or  sudo dnf install rclone, or \
+             from rclone.org)."
+        };
+        return hint("rclone is not installed on this computer.", fix);
     }
 
     // SSH problems.
