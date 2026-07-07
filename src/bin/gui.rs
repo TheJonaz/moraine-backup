@@ -441,12 +441,13 @@ enum Worker {
 // ─────────────────────────── entry point ───────────────────────────
 
 fn main() -> glib::ExitCode {
-    // GTK4 draws its own (client-side) window decorations on Windows by default;
-    // ask the Win32 backend for native decorations so the minimize/maximize/close
-    // buttons are the standard Windows ones. Honored by recent GTK4 win32 builds;
-    // harmless where it isn't. Must be set before GDK initialises.
+    // GTK4 draws its own (client-side) window decorations on Windows by default.
+    // GTK_CSD=0 asks GtkWindow to skip CSD; on the win32 backend this can fall
+    // through to the OS-drawn (native) title bar, giving standard Windows
+    // minimize/maximize/close buttons. Version-dependent — a no-op where it isn't
+    // honored. Must be set before GDK initialises.
     #[cfg(windows)]
-    std::env::set_var("GDK_WIN32_DISABLE_CLIENT_SIDE_DECORATION", "1");
+    std::env::set_var("GTK_CSD", "0");
 
     // Consume our own flags before GTK sees argv — a plain GtkApplication rejects
     // command-line options it wasn't told to handle, so `--minimized` would abort
