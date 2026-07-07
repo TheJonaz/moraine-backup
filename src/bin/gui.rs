@@ -33,7 +33,7 @@ use std::rc::Rc;
 
 use moraine::config::{Backend, Config, Frequency, Retention, Schedule, Target};
 use moraine::history::{self, LogEntry};
-use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh};
+use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools};
 
 const CONFIG_PATH: &str = "moraine.toml";
 const APP_ID: &str = "io.thern.moraine";
@@ -444,6 +444,9 @@ fn main() -> glib::ExitCode {
     // If ssh launched us as its SSH_ASKPASS helper, print the secret and exit
     // before doing anything else (no window). Windows-only; no-op elsewhere.
     ssh::maybe_run_as_askpass();
+
+    // Find rsync/rclone bundled next to the exe (Windows installer).
+    tools::add_bundled_tools_to_path();
 
     // GTK4 draws its own (client-side) window decorations on Windows by default.
     // GTK_CSD=0 asks GtkWindow to skip CSD; on the win32 backend this can fall

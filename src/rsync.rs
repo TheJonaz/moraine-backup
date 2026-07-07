@@ -14,6 +14,24 @@ use std::process::Command;
 /// The `--link-dest` value, relative to the snapshot directory: points to `<base>/latest`.
 pub const LINK_DEST: &str = "../latest";
 
+/// A local path as rsync expects it on the command line. On Windows the bundled
+/// (msys/cygwin) rsync reads a drive path like `C:\dir` as the remote host `C`,
+/// so rewrite it to the msys form `/c/dir`. On Unix — and for any non-drive path
+/// — the path is returned unchanged.
+fn local_operand(p: &std::path::Path) -> String {
+    let s = p.display().to_string();
+    #[cfg(windows)]
+    {
+        let b = s.as_bytes();
+        if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+            let drive = (b[0] as char).to_ascii_lowercase();
+            let rest = s[2..].replace('\\', "/");
+            return format!("/{drive}{rest}");
+        }
+    }
+    s
+}
+
 /// Builds the argument list for `rsync` (everything except the program name itself).
 /// `link_dest` hardlinks unchanged files against a previous snapshot.
 pub fn build_args(
@@ -63,7 +81,7 @@ pub fn build_args(
 
     // Sources on the client (with ~ expanded).
     for src in &target.sources {
-        args.push(expand_tilde(src).display().to_string());
+        args.push(local_operand(&expand_tilde(src)));
     }
 
     // Target: user@host:path
@@ -105,7 +123,7 @@ pub fn restore_args(
     args.push(format!("{}:{}", target.ssh_dest(), remote));
 
     // Target: local directory (with ~ expanded).
-    args.push(expand_tilde(local_dest).display().to_string());
+    args.push(local_operand(&expand_tilde(local_dest)));
     args
 }
 
@@ -146,7 +164,7 @@ pub fn restore_selected_args(
         args.push(format!("{}:{}/./{}", target.ssh_dest(), base, p));
     }
 
-    args.push(expand_tilde(local_dest).display().to_string());
+    args.push(local_operand(&expand_tilde(local_dest)));
     args
 }
 
@@ -172,7 +190,7 @@ pub fn verify_args(target: &Target, timestamp: &str) -> Vec<String> {
     args.push(ssh::transport(target));
     args.push("--".into());
     for src in &target.sources {
-        args.push(expand_tilde(src).display().to_string());
+        args.push(local_operand(&expand_tilde(src)));
     }
     let remote = format!("{}/{}/", snapshot::base_dir(target), timestamp);
     args.push(format!("{}:{}", target.ssh_dest(), remote));

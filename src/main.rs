@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, vpn};
+use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools, vpn};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -69,6 +69,8 @@ fn main() {
     // If ssh launched us as its SSH_ASKPASS helper (Windows), print the secret
     // and exit before doing anything else. No-op unless MORAINE_ASKPASS is set.
     ssh::maybe_run_as_askpass();
+    // Find rsync/rclone bundled next to the exe (Windows installer).
+    tools::add_bundled_tools_to_path();
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);

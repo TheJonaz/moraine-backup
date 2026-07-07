@@ -49,4 +49,16 @@ gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/hicolor || true
 # App icon for the installer's shortcuts.
 cp assets/moraine.ico bundle/
 
-echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs ==="
+# ── Backend tools, so backups work without a separate install ──
+# rclone: the official native Windows build — a single static exe, no DLLs.
+curl -fsSL -o /tmp/rclone.zip https://downloads.rclone.org/rclone-current-windows-amd64.zip
+unzip -j -o /tmp/rclone.zip '*/rclone.exe' -d bundle/
+# rsync: MSYS2's build (msys/cygwin) + its DLL closure. moraine rewrites local
+# Windows paths to msys form (/c/…) so the drive-letter-as-remote quirk is avoided,
+# and finds ssh from the system OpenSSH on PATH.
+cp /usr/bin/rsync.exe bundle/
+cp /usr/bin/msys-2.0.dll bundle/ 2>/dev/null || true
+ldd /usr/bin/rsync.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
+  | while read -r d; do cp -n "$d" bundle/ || true; done
+
+echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs; tools: $(ls bundle/rclone.exe bundle/rsync.exe 2>/dev/null | wc -l)/2 ==="

@@ -9,6 +9,7 @@ pub mod rclone;
 pub mod rsync;
 pub mod snapshot;
 pub mod ssh;
+pub mod tools;
 pub mod vpn;
 
 /// Full version string: semver, plus the git short hash (when built from a
