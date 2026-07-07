@@ -1,6 +1,7 @@
 //! SSH helpers shared by the rsync transport and the snapshot handling.
 
 use crate::config::Target;
+#[cfg(not(windows))]
 use std::path::PathBuf;
 
 /// SSH options (without the program name): port, key if specified, host-key policy.
@@ -77,20 +78,58 @@ pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
     if target.password.is_empty() || !target.backend.is_ssh() {
         return Vec::new();
     }
-    let Some(script) = ensure_askpass_script() else {
+    let Some(askpass) = askpass_program() else {
         return Vec::new();
     };
-    vec![
-        ("SSH_ASKPASS".to_string(), script),
+    let mut env = vec![
+        ("SSH_ASKPASS".to_string(), askpass),
         // Force askpass even when a terminal is attached (OpenSSH >= 8.4).
         ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),
-        // Some ssh builds only use askpass when DISPLAY is set; value is unused.
-        (
-            "DISPLAY".to_string(),
-            std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()),
-        ),
         ("MORAINE_SSH_SECRET".to_string(), target.password.clone()),
-    ]
+    ];
+    // Unix ssh only consults askpass when DISPLAY is set; value is unused.
+    #[cfg(unix)]
+    env.push((
+        "DISPLAY".to_string(),
+        std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()),
+    ));
+    // On Windows the helper is our own executable (a /bin/sh script isn't runnable
+    // there); MORAINE_ASKPASS tells it to print the secret and exit instead of
+    // starting the app. See the check at the top of each binary's main().
+    #[cfg(windows)]
+    env.push(("MORAINE_ASKPASS".to_string(), "1".to_string()));
+    env
+}
+
+/// The program ssh runs as SSH_ASKPASS: a tiny shell script on Unix, and our own
+/// executable on Windows (where Windows OpenSSH needs a real .exe, not a script).
+fn askpass_program() -> Option<String> {
+    #[cfg(windows)]
+    {
+        std::env::current_exe()
+            .ok()
+            .map(|p| p.display().to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        ensure_askpass_script()
+    }
+}
+
+/// If invoked by ssh as its askpass helper (Windows), print the stored secret to
+/// stdout and exit — called first thing in each binary's `main()`, before any UI
+/// or work. No-op unless `MORAINE_ASKPASS` is set (only on Windows).
+pub fn maybe_run_as_askpass() {
+    if std::env::var_os("MORAINE_ASKPASS").is_none() {
+        return;
+    }
+    if let Some(secret) = std::env::var_os("MORAINE_SSH_SECRET") {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        let _ = writeln!(out, "{}", secret.to_string_lossy());
+        let _ = out.flush();
+    }
+    std::process::exit(0);
 }
 
 /// Writes a tiny askpass helper that echoes `$MORAINE_SSH_SECRET`, and returns
@@ -100,6 +139,7 @@ pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
 /// is **always rewritten** — never trusting a pre-existing file. Otherwise a
 /// local attacker could pre-plant a script at a predictable shared /tmp path and
 /// have ssh run it with the secret in the environment.
+#[cfg(not(windows))]
 fn ensure_askpass_script() -> Option<String> {
     let dir = askpass_dir()?;
     let path = dir.join("askpass.sh");
@@ -116,6 +156,7 @@ fn ensure_askpass_script() -> Option<String> {
 /// Prefers `$XDG_RUNTIME_DIR` (`/run/user/UID`, already mode 0700 and per-user),
 /// then the user's cache dir; falls back to the temp dir only if neither is set.
 /// Deliberately avoids a shared, predictable path like `/tmp/moraine`.
+#[cfg(not(windows))]
 fn askpass_dir() -> Option<PathBuf> {
     // Only per-user private locations — never a shared, predictable /tmp path
     // (a local attacker could pre-plant a script there). If none is available

@@ -441,6 +441,10 @@ enum Worker {
 // ─────────────────────────── entry point ───────────────────────────
 
 fn main() -> glib::ExitCode {
+    // If ssh launched us as its SSH_ASKPASS helper, print the secret and exit
+    // before doing anything else (no window). Windows-only; no-op elsewhere.
+    ssh::maybe_run_as_askpass();
+
     // GTK4 draws its own (client-side) window decorations on Windows by default.
     // GTK_CSD=0 asks GtkWindow to skip CSD; on the win32 backend this can fall
     // through to the OS-drawn (native) title bar, giving standard Windows

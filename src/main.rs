@@ -66,6 +66,9 @@ enum Command {
 const EXAMPLE_CONFIG: &str = include_str!("../moraine.example.toml");
 
 fn main() {
+    // If ssh launched us as its SSH_ASKPASS helper (Windows), print the secret
+    // and exit before doing anything else. No-op unless MORAINE_ASKPASS is set.
+    ssh::maybe_run_as_askpass();
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);
