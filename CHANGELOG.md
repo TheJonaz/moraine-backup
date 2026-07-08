@@ -42,8 +42,16 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   Windows window controls** (`GTK_CSD=0`), shows the Moraine icon, and installs
   per-user with optional Start-menu / Desktop shortcuts. The system tray stays
   Linux-only (moved behind a `tray` feature). The installer also **bundles rsync
-  and rclone** so both backends work out of the box — no separate install. (Moraine
-  rewrites local Windows paths to msys form so the bundled rsync accepts them.)
+  and rclone** so both backends work out of the box — no separate install.
+  - The rsync-over-SSH backend works natively on Windows: the bundled rsync ships
+    with a *matching* cygwin ssh (`moraine-ssh`) — native Windows OpenSSH as the
+    transport garbles the remote command ("argc is zero") — laid out in a real
+    `usr\bin` root with `etc/fstab` + `etc/nsswitch.conf`, so `/c/…` drive paths
+    resolve and ssh gets a valid HOME for `known_hosts`. Local Windows source paths
+    are rewritten to msys form (`C:\…` → `/c/…`) so the drive-letter-as-remote
+    quirk is avoided.
+  - A missing local source is caught up front with the real Windows path (and a
+    OneDrive-redirect hint) instead of an opaque rsync `change_dir "/c/…" failed`.
 
 ## [0.1.24] — 2026-07-06
 
