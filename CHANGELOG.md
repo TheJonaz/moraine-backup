@@ -7,6 +7,14 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Fixed
+- **No more console windows on Windows.** The desktop app spawns console programs
+  (rsync, ssh, rclone, curl, schtasks); each one flashed a `cmd` window. Every
+  spawn now sets `CREATE_NO_WINDOW`, so backups, restores, the connection test and
+  scheduling run silently. No-op on Linux/macOS.
+
 ## [0.1.25] — 2026-07-08
 
 ### Fixed

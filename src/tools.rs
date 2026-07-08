@@ -12,6 +12,26 @@
 //! `usr\bin` root — which is what makes `/c/…` drive paths resolve and gives ssh
 //! a valid HOME for known_hosts.
 
+/// Extension on `Command` to stop Windows flashing a console window every time
+/// the (windowless) GUI spawns a console program — rsync, ssh, rclone, curl,
+/// schtasks. Applied at every spawn site; a no-op on Linux/macOS.
+pub trait CommandExt {
+    /// Add `CREATE_NO_WINDOW` on Windows so no `cmd`/console window pops up.
+    fn no_console(&mut self) -> &mut Self;
+}
+
+impl CommandExt for std::process::Command {
+    fn no_console(&mut self) -> &mut Self {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            self.creation_flags(CREATE_NO_WINDOW);
+        }
+        self
+    }
+}
+
 /// On Windows, prepend the executable's directory *and* its `usr\bin` subdir to
 /// `PATH` so bundled `rclone.exe` (next to the app) and the msys `rsync.exe` /
 /// `moraine-ssh.exe` (under `usr\bin`) are all found. No-op on other systems,

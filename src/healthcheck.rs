@@ -10,6 +10,7 @@
 //! feedback), so no HTTP client is pulled in. It is strictly best-effort: any
 //! error is swallowed, because a failed ping must never affect the backup itself.
 
+use crate::tools::CommandExt;
 use std::process::{Command, Stdio};
 
 /// Ping a target's healthcheck endpoint. No-op when `url` is empty.
@@ -29,6 +30,7 @@ pub fn ping(url: &str, ok: bool) {
     // A short timeout and a couple of retries keep a flaky link from stalling the
     // run, without blocking indefinitely.
     let _ = Command::new("curl")
+        .no_console()
         .args([
             "-fsS",
             "-m",

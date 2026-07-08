@@ -6,7 +6,7 @@
 //! remote (`remote:path`) or a local path if `host` is empty.
 
 use crate::config::{expand_tilde, Backend, Target};
-use crate::{rsync, snapshot};
+use crate::{rsync, snapshot, tools::CommandExt};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
@@ -70,6 +70,7 @@ fn obscure(plain: &str) -> String {
     }
     use std::io::Write;
     let child = Command::new("rclone")
+        .no_console()
         .args(["obscure", "-"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -226,6 +227,7 @@ pub fn restore_args(
 /// Lists existing snapshots. Empty list if the base does not exist yet.
 pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
     let out = Command::new("rclone")
+        .no_console()
         .args(list_args(target))
         .envs(env_for(target))
         .output()
@@ -260,6 +262,7 @@ fn features_fs(target: &Target) -> String {
 /// FTP/SMB/WebDAV/local → false; S3/Drive/B2 and others → true.
 pub fn supports_server_side_copy(target: &Target) -> bool {
     let out = Command::new("rclone")
+        .no_console()
         .args(["backend", "features"])
         .arg(features_fs(target))
         .envs(env_for(target))
@@ -299,6 +302,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     for (prog, args) in &cmds {
         println!("$ {prog} {}", rsync::render(args));
         let status = Command::new(prog)
+            .no_console()
             .args(args)
             .envs(env_for(target))
             .status()
@@ -318,6 +322,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
 /// Deletes a snapshot via `rclone purge`.
 pub fn purge(target: &Target, ts: &str) -> Result<()> {
     let status = Command::new("rclone")
+        .no_console()
         .args(prune_args(target, ts))
         .envs(env_for(target))
         .status()

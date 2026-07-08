@@ -7,7 +7,7 @@
 //! The argument building (`build_args`) is shared by the CLI and the desktop client.
 
 use crate::config::{expand_tilde, Target};
-use crate::{snapshot, ssh};
+use crate::{snapshot, ssh, tools::CommandExt};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
@@ -238,6 +238,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
 
     println!("$ rsync {}", render(&args));
     let status = Command::new("rsync")
+        .no_console()
         .args(&args)
         .envs(ssh::askpass_env(target))
         .status()
@@ -280,6 +281,7 @@ pub fn update_latest(target: &Target, timestamp: &str) -> Result<()> {
     let cmd = snapshot::update_latest_cmd(target, timestamp);
     let args = ssh::remote_command_args(target, &cmd);
     let status = Command::new("ssh")
+        .no_console()
         .args(&args)
         .envs(ssh::askpass_env(target))
         .status()

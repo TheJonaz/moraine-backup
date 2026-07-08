@@ -33,6 +33,7 @@ use std::rc::Rc;
 
 use moraine::config::{Backend, Config, Frequency, Retention, Schedule, Target};
 use moraine::history::{self, LogEntry};
+use moraine::tools::CommandExt;
 use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools};
 
 const CONFIG_PATH: &str = "moraine.toml";
@@ -259,6 +260,7 @@ fn clean(items: &[String]) -> Vec<String> {
 /// for the target VPN dropdown. Empty if nmcli is unavailable.
 fn list_vpn_connections() -> Vec<String> {
     let out = match Command::new("nmcli")
+        .no_console()
         .args(["-t", "-f", "NAME,TYPE", "connection", "show"])
         .output()
     {
@@ -1194,6 +1196,7 @@ fn post_feedback(payload: &str) -> Result<(), String> {
     use std::io::Write;
     let key_hdr = format!("X-Moraine-Key: {FEEDBACK_KEY}");
     let mut child = Command::new("curl")
+        .no_console()
         .args([
             "-fsS",
             "--max-time",
@@ -1249,6 +1252,7 @@ fn current_version() -> &'static str {
 fn fetch_latest_release() -> Result<String, String> {
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
     let out = Command::new("curl")
+        .no_console()
         .args([
             "-fsSL",
             "--max-time",
@@ -1345,6 +1349,7 @@ enum DlState {
 fn fetch_latest_assets() -> Result<(String, Vec<ReleaseAsset>), String> {
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
     let out = Command::new("curl")
+        .no_console()
         .args([
             "-fsSL",
             "--max-time",
@@ -1410,6 +1415,7 @@ fn preferred_asset_suffix() -> &'static str {
         let exe = exe.to_string_lossy();
         let owned = |cmd: &str, flag: &str| {
             Command::new(cmd)
+                .no_console()
                 .arg(flag)
                 .arg(exe.as_ref())
                 .stdout(Stdio::null())
@@ -1468,6 +1474,7 @@ fn downloads_dir() -> std::path::PathBuf {
 /// `dest`'s size for progress.
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
     let out = Command::new("curl")
+        .no_console()
         .args([
             "-fL",
             "--max-time",
@@ -3568,6 +3575,7 @@ fn run_stream(
         for (prog, args) in &cmds {
             let _ = tx.send_blocking(Worker::Line(format!("$ {prog} {}", rsync::render(args))));
             let child = Command::new(prog)
+                .no_console()
                 .args(args)
                 .envs(env.clone())
                 .stdout(Stdio::piped())
@@ -4216,6 +4224,7 @@ fn load_tree(state: &Shared, ui: &Rc<Ui>) {
 
 fn ssh_probe(target: &Target, remote_cmd: &str) -> Command {
     let mut cmd = Command::new("ssh");
+    cmd.no_console();
     cmd.args(ssh::probe_command_args(target, remote_cmd));
     cmd.envs(ssh::askpass_env(target));
     cmd
@@ -4269,6 +4278,7 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
             .join("\n")
     } else {
         let out = Command::new("rclone")
+            .no_console()
             .args(rclone::tree_args(target, ts))
             .envs(rclone::env_for(target))
             .output()
@@ -4355,6 +4365,7 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
         }
     } else {
         let ok = Command::new("rclone")
+            .no_console()
             .arg("version")
             .output()
             .map(|o| o.status.success())
@@ -4426,6 +4437,7 @@ fn prune_target(target: &Target) -> Result<String, String> {
 /// Runs gpg with the passphrase fed on stdin (never on the command line).
 fn gpg_with_passphrase(args: &[&str], passphrase: &str) -> Result<Vec<u8>, String> {
     let mut child = Command::new("gpg")
+        .no_console()
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -4721,7 +4733,7 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
     // Include the colon so we only ever remove our own generated lines
     // (`… # moraine:<name>`), never a user's unrelated `# moraine` comment.
     const MARKER: &str = "# moraine:";
-    let existing = match Command::new("crontab").arg("-l").output() {
+    let existing = match Command::new("crontab").no_console().arg("-l").output() {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
         _ => String::new(),
     };
@@ -4753,6 +4765,7 @@ fn install_crontab(schedules: &[Schedule]) -> Result<usize, String> {
     }
     let body = format!("{}\n", lines.join("\n"));
     let mut child = Command::new("crontab")
+        .no_console()
         .arg("-")
         .stdin(Stdio::piped())
         .spawn()
@@ -4805,6 +4818,7 @@ fn install_schtasks(schedules: &[Schedule]) -> Result<usize, String> {
         let tn = format!("{FOLDER}\\{safe}");
         let tr = format!("\"{}\"", wrapper.display());
         let mut cmd = Command::new("schtasks");
+        cmd.no_console();
         cmd.args(["/Create", "/F", "/TN", tn.as_str(), "/TR", tr.as_str()]);
         schtasks_schedule_flags(&mut cmd, s);
         let out = cmd
@@ -4847,6 +4861,7 @@ fn schtasks_schedule_flags(cmd: &mut Command, s: &Schedule) {
 
 fn remove_moraine_tasks(folder: &str) {
     let Ok(out) = Command::new("schtasks")
+        .no_console()
         .args(["/Query", "/FO", "CSV", "/NH"])
         .output()
     else {
@@ -4864,6 +4879,7 @@ fn remove_moraine_tasks(folder: &str) {
         };
         if name.starts_with(&prefix) {
             let _ = Command::new("schtasks")
+                .no_console()
                 .args(["/Delete", "/F", "/TN", name])
                 .output();
         }
