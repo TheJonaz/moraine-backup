@@ -7,7 +7,7 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
-## [Unreleased]
+## [0.1.26] — 2026-07-08
 
 ### Added
 - **In-app Help tab** — a dedicated Help page in the desktop app explaining every
