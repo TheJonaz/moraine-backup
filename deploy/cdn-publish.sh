@@ -15,9 +15,10 @@
 #   https://cdn.thern.io/arch/x86_64/moraine-<ver>-1-x86_64.pkg.tar.zst
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# VERIFY THESE PATHS/NAMES against the real server before enabling the workflow.
-# They are inferred from the public download URLs, not read from the server.
-CDN_WWW="${CDN_WWW:-/var/www/cdn.thern.io}"   # nginx web root
+# Paths verified against the live server (cdn.thern.io). The nginx web root is
+# /srv/cdn; the systemd service also pins CDN_WWW via an Environment= override so
+# a future redeploy of this script can't silently point publishing elsewhere.
+CDN_WWW="${CDN_WWW:-/srv/cdn}"                 # nginx web root
 DEB_BASE="${DEB_BASE:-$CDN_WWW/deb}"           # reprepro base (serves /deb)
 DEB_CODENAME="${DEB_CODENAME:-stable}"
 RPM_DIR="${RPM_DIR:-$CDN_WWW/rpm/stable}"

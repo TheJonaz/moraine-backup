@@ -14,9 +14,12 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# The account that owns the CDN web root and can run reprepro/createrepo_c/repo-add
-# (the same identity that published earlier releases). Change if it is not notroot.
-User=notroot
+# The account that owns the CDN web root and can run reprepro/createrepo_c/repo-add.
+# On cdn.thern.io that's root; change to match the identity that owns your repos.
+User=root
+# nginx web root on the CDN host. Pinned here (not only in cdn-publish.sh's default)
+# so a redeploy of the script can't silently publish to the wrong directory.
+Environment=CDN_WWW=/srv/cdn
 ExecStart=/usr/local/bin/cdn-pull.sh
 # cdn-pull.sh looks for cdn-publish.sh next to itself; override with:
 # Environment=MORAINE_CDN_PUBLISH=/usr/local/bin/cdn-publish.sh
