@@ -10,6 +10,11 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ## [Unreleased]
 
 ### Added
+- **In-app Help tab** — a dedicated Help page in the desktop app explaining every
+  feature in one place: backups & snapshots, the backends, sources/destination,
+  every Advanced target setting (exclude, VPN, healthcheck, bandwidth, encryption,
+  retention, prune), scheduling, restore & verify, settings, and how secrets are
+  handled.
 - **Encrypted destination at rest** (rclone/FTP backends) — set an encryption
   passphrase (and optional salt) on a target and Moraine wraps the destination in
   an `rclone crypt` remote: every file's **contents and name** are encrypted

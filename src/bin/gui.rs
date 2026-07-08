@@ -634,6 +634,7 @@ fn build_ui(app: &gtk::Application) {
         Some("settings"),
         "Settings",
     );
+    stack.add_titled(&build_help_tab(), Some("help"), "Help");
 
     // Opening the Restore tab auto-loads snapshots for the selected target
     // (only when none are loaded yet, so it doesn't clobber a live selection).
@@ -1795,15 +1796,6 @@ fn labeled(label: &str, entry: &gtk::Entry) -> gtk::Box {
     b
 }
 
-/// A small "?" help marker that shows `tip` on hover — for explaining a field
-/// without cluttering its label.
-fn help_icon(tip: &str) -> gtk::Image {
-    let img = gtk::Image::from_icon_name("dialog-question-symbolic");
-    img.add_css_class("dim-label");
-    img.set_tooltip_text(Some(tip));
-    img
-}
-
 /// Wire an entry so editing updates the selected target's field.
 fn bind_entry(entry: &gtk::Entry, state: &Shared, set: fn(&mut TargetForm, String)) {
     let st = state.clone();
@@ -2040,21 +2032,12 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         hc.set_text(&f.healthcheck);
         hc.set_placeholder_text(Some("https://hc-ping.com/…  (optional)"));
         let hbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        let labelrow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let hl = gtk::Label::new(Some(
             "Healthcheck URL (pinged after each backup; /fail on failure)",
         ));
         hl.add_css_class("muted");
         hl.set_halign(gtk::Align::Start);
-        labelrow.append(&hl);
-        labelrow.append(&help_icon(
-            "A \"dead man's switch\". Moraine pings this URL after each backup — the \
-             URL itself on success, <url>/fail on failure. Point it at healthchecks.io \
-             (or any uptime monitor) and it alerts you if a scheduled backup silently \
-             stops running — the one failure a desktop notification can't catch. \
-             Optional.",
-        ));
-        hbox.append(&labelrow);
+        hbox.append(&hl);
         hbox.append(&hc);
         adv.append(&hbox);
         let st = state.clone();
@@ -2123,16 +2106,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     let rl = gtk::Label::new(Some("Retention (0 = keep all)"));
     rl.add_css_class("section");
     rl.set_halign(gtk::Align::Start);
-    let rrow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    rrow.append(&rl);
-    rrow.append(&help_icon(
-        "Grandfather-father-son pruning. Each tier keeps that many snapshots: \
-         Last = the N most recent, whatever their age; Daily / Weekly / Monthly = \
-         the newest snapshot per day / ISO-week / month, for that many periods. A \
-         snapshot is kept if any tier still wants it. 0 disables that tier; all \
-         zero = keep every snapshot.",
-    ));
-    adv.append(&rrow);
+    adv.append(&rl);
     let ret = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     ret.append(&retention_field(state, i, "Last", f.keep_last, |f, v| {
         f.keep_last = v
@@ -2166,12 +2140,6 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     // Buttons
     let btns = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let prune_btn = gtk::Button::with_label("Prune now");
-    prune_btn.set_tooltip_text(Some(
-        "Apply the retention policy above right now: permanently delete the \
-         snapshots on the target that no tier wants to keep. With retention all \
-         zero, nothing is deleted. Pruning only runs when you trigger it (here or \
-         `moraine prune`) — a backup never deletes on its own.",
-    ));
     {
         let st = state.clone();
         let ui2 = ui.clone();
@@ -2919,6 +2887,162 @@ fn build_history_tab(ui: &Rc<Ui>) -> gtk::Widget {
     scroll.set_child(Some(&ui.history_list));
     card.append(&scroll);
     card.upcast()
+}
+
+// ─────────────────────────── Help tab ───────────────────────────
+
+/// A read-only "Help" page explaining every part of the app in one place.
+fn build_help_tab() -> gtk::Widget {
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    outer.set_margin_top(4);
+    outer.set_margin_bottom(4);
+
+    // One card per topic: a heading plus wrapped, selectable paragraphs.
+    let section = |title: &str, paras: &[&str]| {
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        card.add_css_class("card");
+        let h = gtk::Label::new(Some(title));
+        h.add_css_class("section");
+        h.set_halign(gtk::Align::Start);
+        card.append(&h);
+        for p in paras {
+            let l = gtk::Label::new(Some(p));
+            l.add_css_class("muted");
+            l.set_halign(gtk::Align::Start);
+            l.set_xalign(0.0);
+            l.set_wrap(true);
+            l.set_selectable(true);
+            card.append(&l);
+        }
+        outer.append(&card);
+    };
+
+    section(
+        "What Moraine does",
+        &[
+            "Moraine makes snapshot backups. Every run creates a new, dated snapshot \
+             that looks like a complete copy of your files — but unchanged files are \
+             shared with the previous snapshot (hardlinks over SSH, server-side copy \
+             with rclone), so only what changed takes new space.",
+            "The desktop app and the `moraine` command line share the same engine and \
+             config file, so anything you set up here also works from scripts and cron.",
+        ],
+    );
+    section(
+        "Quick Backup",
+        &[
+            "Pick a target and press Back up now to create a snapshot, or Dry run to see \
+             exactly what would transfer without changing anything. The live log shows \
+             progress; a partial transfer still produces a valid snapshot.",
+        ],
+    );
+    section(
+        "Connections & backends",
+        &[
+            "A target is one place you back up to, with its own sources and settings. \
+             Edit it from the connection editor; Test connection checks the host, \
+             credentials, sources and that the destination is writable.",
+            "SSH / rsync — hardlinked snapshots over SSH. Needs rsync and an SSH server \
+             on the destination (and rsync on this machine; it's bundled on Windows).",
+            "rclone — cloud and object storage, plus SFTP/SMB/WebDAV and local disks. \
+             Unchanged files are server-side copied where the remote supports it.",
+            "FTP — a plain FTP server; connection details are passed to rclone safely \
+             via the environment, never the command line.",
+        ],
+    );
+    section(
+        "Sources, destination & snapshots",
+        &[
+            "Sources are the files and folders on this computer to back up. Each is \
+             copied into the snapshot under its own name, so two sources can't share a \
+             base name.",
+            "Destination is the root folder on the target; Moraine creates \
+             <dest>/<target>/<timestamp>/ for each run and keeps a `latest` pointer to \
+             the newest one.",
+        ],
+    );
+    section(
+        "Advanced target settings",
+        &[
+            "Exclude patterns — skip files/folders (globs like *.tmp, a folder name, or \
+             a leading / for the source root).",
+            "VPN — a NetworkManager connection brought up before the backup and down \
+             after, so you can reach a destination that's only on your VPN.",
+            "Healthcheck URL — a \"dead man's switch\": Moraine pings this URL after each \
+             backup (the URL on success, <url>/fail on failure). Point it at \
+             healthchecks.io or any uptime monitor and you're alerted if a scheduled \
+             backup silently stops running — the one failure a desktop notification \
+             can't catch.",
+            "Bandwidth limit — cap transfer speed (e.g. 2M or 500K), for backup and \
+             restore; empty = unlimited.",
+            "Encrypt destination (rclone/FTP) — wraps the destination in rclone crypt: \
+             file contents AND names are encrypted before they leave this machine, so an \
+             untrusted target never sees plaintext. You need the same passphrase (and \
+             salt) to restore — keep it safe.",
+            "Retention — grandfather-father-son pruning. Each tier keeps that many \
+             snapshots: Last = the N most recent whatever their age; Daily/Weekly/Monthly \
+             = the newest per day/ISO-week/month, for that many periods. A snapshot \
+             survives if any tier still wants it; 0 disables a tier; all zero = keep all.",
+            "Prune now — apply the retention policy immediately and delete the snapshots \
+             no tier wants. Pruning only runs when you trigger it (here or `moraine \
+             prune`) — a backup never deletes on its own.",
+        ],
+    );
+    section(
+        "Schedule",
+        &[
+            "Run backups automatically on a timetable — via cron on Linux and Task \
+             Scheduler on Windows. Combined with autostart (in Settings), scheduled \
+             runs happen quietly in the background.",
+        ],
+    );
+    section(
+        "Restore & Verify",
+        &[
+            "In the Restore tab, pick a snapshot and restore the whole thing or just \
+             selected files/folders to a directory you choose. Restore never deletes \
+             anything in the destination.",
+            "Verify checksums a snapshot against your current sources to confirm it's \
+             intact and restorable — zero differing paths right after a backup means \
+             it landed correctly. (Differences are expected for an older snapshot whose \
+             sources have since changed.)",
+        ],
+    );
+    section(
+        "History",
+        &["A log of past backups — when they ran, to which target, and how they finished."],
+    );
+    section(
+        "Settings",
+        &[
+            "Notifications — a desktop notification when a backup finishes (a critical \
+             one on failure).",
+            "Encrypted config backup — export the config (which holds your secrets) as a \
+             password-protected file to move between machines or keep safe; import \
+             replaces the current config.",
+            "Start at login — launch Moraine (minimised) when you log in, so scheduled \
+             backups are covered.",
+            "Check for updates — Moraine checks GitHub Releases and offers to download a \
+             newer version in the background.",
+        ],
+    );
+    section(
+        "Your data & secrets",
+        &[
+            "Secrets (SSH key passphrases, login/FTP passwords, encryption passphrases) \
+             are stored in the config file, readable only by your user. Protect it with \
+             the encrypted config export, and use destination encryption for untrusted \
+             targets.",
+            "Host keys — by default Moraine trusts a new host on first connect and \
+             rejects it if the key later changes (TOFU). Enable Strict host key to \
+             require the host to already be known, protecting even the first connection.",
+        ],
+    );
+
+    scroll.set_child(Some(&outer));
+    scroll.upcast()
 }
 
 // ─────────────────────────── Settings tab ───────────────────────────
