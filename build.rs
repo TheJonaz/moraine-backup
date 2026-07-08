@@ -14,7 +14,10 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/moraine.ico");
         res.set("ProductName", "Moraine");
-        res.set("FileDescription", "Moraine — snapshot backup over SSH/rsync and rclone");
+        res.set(
+            "FileDescription",
+            "Moraine — snapshot backup over SSH/rsync and rclone",
+        );
         if let Err(e) = res.compile() {
             println!("cargo:warning=could not embed the Windows resource: {e}");
         }
