@@ -1,6 +1,6 @@
 # Template file for 'moraine'
 pkgname=moraine
-version=0.1.25
+version=0.1.26
 revision=1
 build_style=cargo
 configure_args="--features gui"
@@ -13,7 +13,7 @@ license="MIT"
 homepage="https://github.com/TheJonaz/moraine-backup"
 changelog="https://github.com/TheJonaz/moraine-backup/raw/main/CHANGELOG.md"
 distfiles="https://github.com/TheJonaz/moraine-backup/archive/refs/tags/v${version}.tar.gz"
-checksum=60c6a052cde347a9c8ac955149473959cccb73ae55db24b137d98f8e8ef1f859
+checksum=c4a43903d69271a4d826c9e1ebb7af8fb00d5262975a6a8524e75260e8ff6e05
 
 post_install() {
 	# desktop entry + icons

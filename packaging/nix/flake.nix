@@ -13,7 +13,7 @@
         let
           moraine = pkgs.rustPlatform.buildRustPackage rec {
             pname = "moraine";
-            version = "0.1.25";
+            version = "0.1.26";
 
             src = pkgs.fetchFromGitHub {
               owner = "TheJonaz";
