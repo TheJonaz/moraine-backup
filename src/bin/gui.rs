@@ -1973,6 +1973,19 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         dest.connect_changed(move |e| st.borrow_mut().targets[i].dest = e.text().to_string());
     }
 
+    // Sources stay in the main view — they're the core of what gets backed up.
+    body.append(&list_editor(
+        state,
+        i,
+        "Sources (files/folders on the client)",
+        true,
+        &win,
+    ));
+
+    // Everything below is optional tuning — collapse it into an "Advanced"
+    // section (closed by default) so the editor stays focused on the essentials.
+    let adv = gtk::Box::new(gtk::Orientation::Vertical, 10);
+
     // VPN — pick one of the machine's NetworkManager connections to bring up
     // before the backup (and down after). Covers any VPN configured in the DE.
     {
@@ -1998,7 +2011,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         vl.set_halign(gtk::Align::Start);
         vbox.append(&vl);
         vbox.append(&vpn_dd);
-        body.append(&vbox);
+        adv.append(&vbox);
         let st = state.clone();
         vpn_dd.connect_selected_notify(move |dd| {
             let idx = dd.selected() as usize;
@@ -2025,7 +2038,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         hl.set_halign(gtk::Align::Start);
         hbox.append(&hl);
         hbox.append(&hc);
-        body.append(&hbox);
+        adv.append(&hbox);
         let st = state.clone();
         hc.connect_changed(move |e| st.borrow_mut().targets[i].healthcheck = e.text().to_string());
     }
@@ -2035,7 +2048,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         let bw = gtk::Entry::new();
         bw.set_text(&f.bwlimit);
         bw.set_placeholder_text(Some("e.g. 2M or 500K — empty = unlimited"));
-        body.append(&labeled("Bandwidth limit", &bw));
+        adv.append(&labeled("Bandwidth limit", &bw));
         let st = state.clone();
         bw.connect_changed(move |e| st.borrow_mut().targets[i].bwlimit = e.text().to_string());
     }
@@ -2050,13 +2063,13 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         ));
         cl.add_css_class("section");
         cl.set_halign(gtk::Align::Start);
-        body.append(&cl);
+        adv.append(&cl);
 
         let cp = gtk::Entry::new();
         cp.set_visibility(false);
         cp.set_text(&f.crypt_password);
         cp.set_placeholder_text(Some("passphrase — empty = no encryption"));
-        body.append(&labeled("Encryption passphrase", &cp));
+        adv.append(&labeled("Encryption passphrase", &cp));
         let st = state.clone();
         cp.connect_changed(move |e| {
             st.borrow_mut().targets[i].crypt_password = e.text().to_string()
@@ -2066,7 +2079,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         cs.set_visibility(false);
         cs.set_text(&f.crypt_salt);
         cs.set_placeholder_text(Some("optional salt (password2) — recommended"));
-        body.append(&labeled("Encryption salt (optional)", &cs));
+        adv.append(&labeled("Encryption salt (optional)", &cs));
         let st = state.clone();
         cs.connect_changed(move |e| st.borrow_mut().targets[i].crypt_salt = e.text().to_string());
 
@@ -2076,18 +2089,11 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         warn.add_css_class("muted");
         warn.set_halign(gtk::Align::Start);
         warn.set_wrap(true);
-        body.append(&warn);
+        adv.append(&warn);
     }
 
-    // Sources + exclude list editors
-    body.append(&list_editor(
-        state,
-        i,
-        "Sources (files/folders on the client)",
-        true,
-        &win,
-    ));
-    body.append(&list_editor(
+    // Exclude patterns
+    adv.append(&list_editor(
         state,
         i,
         "Exclude patterns (optional)",
@@ -2099,7 +2105,7 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     let rl = gtk::Label::new(Some("Retention (0 = keep all)"));
     rl.add_css_class("section");
     rl.set_halign(gtk::Align::Start);
-    body.append(&rl);
+    adv.append(&rl);
     let ret = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     ret.append(&retention_field(state, i, "Last", f.keep_last, |f, v| {
         f.keep_last = v
@@ -2121,7 +2127,14 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         f.keep_monthly,
         |f, v| f.keep_monthly = v,
     ));
-    body.append(&ret);
+    adv.append(&ret);
+
+    // Fold the optional tuning above into a collapsed "Advanced" disclosure.
+    let advanced = gtk::Expander::new(Some(
+        "Advanced — exclude, VPN, healthcheck, bandwidth, encryption, retention",
+    ));
+    advanced.set_child(Some(&adv));
+    body.append(&advanced);
 
     // Buttons
     let btns = gtk::Box::new(gtk::Orientation::Horizontal, 8);
