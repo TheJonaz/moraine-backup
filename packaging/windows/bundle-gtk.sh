@@ -50,32 +50,33 @@ gtk4-update-icon-cache.exe -q -t -f bundle/share/icons/hicolor || true
 cp assets/moraine.ico bundle/
 
 # ── Backend tools, so backups work without a separate install ──
-# rclone: the official native Windows build — a single static exe, no DLLs.
+# rclone: the official native Windows build — a single static exe, no DLLs. It's
+# not a cygwin program, so it lives next to the app (on PATH via the exe dir).
 curl -fsSL -o /tmp/rclone.zip https://downloads.rclone.org/rclone-current-windows-amd64.zip
 unzip -j -o /tmp/rclone.zip '*/rclone.exe' -d bundle/
-# rsync: MSYS2's build (msys/cygwin) + its DLL closure. moraine rewrites local
-# Windows paths to msys form (/c/…) so the drive-letter-as-remote quirk is avoided,
-# and finds ssh from the system OpenSSH on PATH.
-cp /usr/bin/rsync.exe bundle/
-cp /usr/bin/msys-2.0.dll bundle/ 2>/dev/null || true
-ldd /usr/bin/rsync.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
-  | while read -r d; do cp -n "$d" bundle/ || true; done
-# A matching cygwin ssh for the bundled rsync (native Windows OpenSSH as the
-# transport garbles the remote command). Renamed to `moraine-ssh` so it doesn't
-# shadow the system ssh that Moraine's own ssh calls use.
-cp /usr/bin/ssh.exe bundle/moraine-ssh.exe
-ldd /usr/bin/ssh.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
-  | while read -r d; do cp -n "$d" bundle/ || true; done
+# rsync + a matching cygwin ssh: MSYS2's msys/cygwin builds. These MUST sit in a
+# real `usr/bin` root (not flat next to the app): cygwin derives its POSIX root
+# from where msys-2.0.dll lives, and only then reads the sibling `etc/` config
+# below — which is what makes `/c/…` drive paths resolve and gives ssh a valid
+# HOME. rsync finds `moraine-ssh` via PATH (see tools::add_bundled_tools_to_path).
+mkdir -p bundle/usr/bin
+cp /usr/bin/rsync.exe bundle/usr/bin/
+cp /usr/bin/msys-2.0.dll bundle/usr/bin/ 2>/dev/null || true
+# `moraine-ssh`, renamed so it doesn't shadow the system ssh that Moraine's own
+# ssh calls use (native Windows OpenSSH as rsync's transport garbles the command).
+cp /usr/bin/ssh.exe bundle/usr/bin/moraine-ssh.exe
+{ ldd /usr/bin/rsync.exe; ldd /usr/bin/ssh.exe; } | awk '{print $3}' \
+  | grep -iE '^/usr/bin/' | sort -u \
+  | while read -r d; do cp -n "$d" bundle/usr/bin/ || true; done
 
-# Cygwin/msys runtime config for the bundled rsync + moraine-ssh. Without an
-# MSYS2 root they'd fall back to fragile defaults; ship an explicit config so
-# they behave the same on any clean Windows:
+# Cygwin/msys runtime config for the bundled rsync + moraine-ssh. Read from
+# <root>/etc where <root> is the parent of the usr/bin holding msys-2.0.dll:
 #   fstab       — map drive letters at /c, /d, … so a source like
 #                 /c/Users/you/… actually resolves (else rsync reports the
-#                 opaque `change_dir "/c/…" failed`).
+#                 opaque `change_dir "/c/…" failed`). Without a read fstab,
+#                 cygdrive falls back to the /cygdrive prefix and /c/ doesn't map.
 #   nsswitch    — derive HOME from the real Windows profile, so ssh writes
 #                 ~/.ssh/known_hosts there instead of a nonexistent /home/<user>.
-# Cygwin looks for these under <install-dir>/etc (the dir holding msys-2.0.dll).
 mkdir -p bundle/etc
 printf 'none / cygdrive binary,posix=0,noacl 0 0\n' > bundle/etc/fstab
 printf 'db_home: windows\n' > bundle/etc/nsswitch.conf
@@ -84,4 +85,4 @@ printf 'db_home: windows\n' > bundle/etc/nsswitch.conf
 mkdir -p bundle/assets
 cp assets/moraine-64.png assets/hero-bg.png bundle/assets/
 
-echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs; tools: $(ls bundle/rclone.exe bundle/rsync.exe bundle/moraine-ssh.exe 2>/dev/null | wc -l)/3 ==="
+echo "=== bundle: $(du -sh bundle | cut -f1), $(ls bundle/*.dll | wc -l) DLLs; tools: $(ls bundle/rclone.exe bundle/usr/bin/rsync.exe bundle/usr/bin/moraine-ssh.exe 2>/dev/null | wc -l)/3 ==="
