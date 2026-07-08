@@ -132,6 +132,8 @@ struct TargetForm {
     vpn: String,
     healthcheck: String,
     bwlimit: String,
+    crypt_password: String,
+    crypt_salt: String,
     keep_last: String,
     keep_daily: String,
     keep_weekly: String,
@@ -156,6 +158,8 @@ impl TargetForm {
             vpn: t.vpn.clone(),
             healthcheck: t.healthcheck.clone(),
             bwlimit: t.bwlimit.clone(),
+            crypt_password: t.crypt_password.clone(),
+            crypt_salt: t.crypt_salt.clone(),
             keep_last: r.keep_last.to_string(),
             keep_daily: r.keep_daily.to_string(),
             keep_weekly: r.keep_weekly.to_string(),
@@ -194,6 +198,8 @@ impl TargetForm {
             vpn: self.vpn.trim().to_string(),
             healthcheck: self.healthcheck.trim().to_string(),
             bwlimit: self.bwlimit.trim().to_string(),
+            crypt_password: self.crypt_password.trim().to_string(),
+            crypt_salt: self.crypt_salt.trim().to_string(),
             retention: if retention.is_empty() {
                 None
             } else {
@@ -2032,6 +2038,45 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         body.append(&labeled("Bandwidth limit", &bw));
         let st = state.clone();
         bw.connect_changed(move |e| st.borrow_mut().targets[i].bwlimit = e.text().to_string());
+    }
+
+    // Destination encryption (rclone crypt) — encrypts file *contents and names*
+    // before they leave this machine, so an untrusted destination never sees
+    // plaintext. rclone/FTP backends only; you need the same passphrase (and salt)
+    // to restore. Set a passphrase to enable; empty = off.
+    {
+        let cl = gtk::Label::new(Some(
+            "Encrypt destination at rest (rclone crypt · rclone/FTP)",
+        ));
+        cl.add_css_class("section");
+        cl.set_halign(gtk::Align::Start);
+        body.append(&cl);
+
+        let cp = gtk::Entry::new();
+        cp.set_visibility(false);
+        cp.set_text(&f.crypt_password);
+        cp.set_placeholder_text(Some("passphrase — empty = no encryption"));
+        body.append(&labeled("Encryption passphrase", &cp));
+        let st = state.clone();
+        cp.connect_changed(move |e| {
+            st.borrow_mut().targets[i].crypt_password = e.text().to_string()
+        });
+
+        let cs = gtk::Entry::new();
+        cs.set_visibility(false);
+        cs.set_text(&f.crypt_salt);
+        cs.set_placeholder_text(Some("optional salt (password2) — recommended"));
+        body.append(&labeled("Encryption salt (optional)", &cs));
+        let st = state.clone();
+        cs.connect_changed(move |e| st.borrow_mut().targets[i].crypt_salt = e.text().to_string());
+
+        let warn = gtk::Label::new(Some(
+            "⚠ Keep this passphrase safe — without it, encrypted snapshots can't be restored.",
+        ));
+        warn.add_css_class("muted");
+        warn.set_halign(gtk::Align::Start);
+        warn.set_wrap(true);
+        body.append(&warn);
     }
 
     // Sources + exclude list editors

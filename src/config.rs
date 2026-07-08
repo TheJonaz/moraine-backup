@@ -170,6 +170,19 @@ pub struct Target {
     /// metered link.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub bwlimit: String,
+    /// Encrypt the destination at rest with `rclone crypt` (rclone/ftp/local
+    /// backends only). When a passphrase is set, each file's contents *and* name
+    /// are encrypted before they reach the destination, so an untrusted target
+    /// never sees plaintext. The same passphrase (and salt) is needed to restore.
+    /// Stored in the config like other secrets — protect it with config
+    /// encryption. Empty/omitted = no encryption.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub crypt_password: String,
+    /// Optional second passphrase (rclone crypt's "password2"/salt). Recommended
+    /// by rclone; empty uses crypt's built-in default salt. Ignored when
+    /// `crypt_password` is empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub crypt_salt: String,
     /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
@@ -310,6 +323,18 @@ impl Config {
                     );
                 }
             }
+            // Destination encryption (rclone crypt) only applies to the rclone/
+            // ftp/local backends — the ssh backend uses rsync, which can't encrypt
+            // at rest. A salt without a passphrase is meaningless.
+            if !t.crypt_password.is_empty() && t.backend.is_ssh() {
+                bail!(
+                    "target '{name}': destination encryption needs the rclone or ftp \
+                     backend — the ssh/rsync backend can't encrypt at rest"
+                );
+            }
+            if t.crypt_password.is_empty() && !t.crypt_salt.is_empty() {
+                bail!("target '{name}': crypt_salt is set but crypt_password is empty");
+            }
             if t.sources.is_empty() {
                 bail!("target '{name}' is missing 'sources'");
             }
@@ -369,6 +394,11 @@ impl Target {
     /// The key's path with `~` expanded, if a key is specified.
     pub fn key_path(&self) -> Option<PathBuf> {
         self.key.as_deref().map(expand_tilde)
+    }
+
+    /// Whether the destination is encrypted at rest with rclone crypt.
+    pub fn crypt_enabled(&self) -> bool {
+        !self.crypt_password.is_empty()
     }
 }
 
@@ -573,6 +603,34 @@ mod tests {
         for ok in ["2M", "500K", "1000", "1.5G", ""] {
             assert!(mk(ok).validate().is_ok(), "bwlimit {ok:?} should pass");
         }
+    }
+
+    #[test]
+    fn validate_checks_crypt() {
+        let mk = |backend: &str, extra: &str| {
+            toml::from_str::<Config>(&format!(
+                r#"
+                [[target]]
+                name = "n"
+                backend = "{backend}"
+                host = "h"
+                user = "u"
+                dest = "/tmp/x"
+                sources = ["/tmp"]
+                {extra}
+                "#
+            ))
+            .unwrap()
+        };
+        // crypt on the rsync/ssh backend is rejected (rsync can't encrypt at rest).
+        assert!(mk("ssh", r#"crypt_password = "pw""#).validate().is_err());
+        // crypt on rclone/ftp is fine.
+        assert!(mk("rclone", r#"crypt_password = "pw""#).validate().is_ok());
+        assert!(mk("ftp", r#"crypt_password = "pw""#).validate().is_ok());
+        // a salt without a passphrase is meaningless → rejected.
+        assert!(mk("rclone", r#"crypt_salt = "s""#).validate().is_err());
+        // no crypt at all is fine on ssh.
+        assert!(mk("ssh", "").validate().is_ok());
     }
 
     #[test]

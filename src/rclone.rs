@@ -10,7 +10,12 @@ use crate::{rsync, snapshot, tools::CommandExt};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-/// The base path for a target in rclone syntax:
+/// Name of the on-the-fly `rclone crypt` remote we define via the environment
+/// when a target encrypts its destination at rest. Its `remote=` (the underlying,
+/// unencrypted location) and passphrase are supplied in [`env_for`].
+const CRYPT_REMOTE: &str = "mcrypt";
+
+/// The unencrypted base path for a target in rclone syntax:
 ///  * Rclone: `remote:dest/name` (or local `dest/name` if host is empty)
 ///  * Ftp: on-the-fly remote `:ftp:dest/name` — host/user/pass are supplied
 ///    via environment variables (see [`env_for`]), NOT inline: command-line
@@ -33,30 +38,72 @@ pub fn base(target: &Target) -> String {
     }
 }
 
+/// The location the `mcrypt:` crypt remote roots at — the same as [`base`] but
+/// *without* the trailing `/<name>`, so `mcrypt:<name>` maps onto `<dest>/<name>`
+/// with every path segment beneath it encrypted.
+fn crypt_underlying(target: &Target) -> String {
+    match target.backend {
+        Backend::Ftp => format!(":ftp:{}", target.dest.trim_matches('/')),
+        _ => {
+            let dest = target.dest.trim_end_matches('/');
+            let host = target.host.trim();
+            if host.is_empty() {
+                dest.to_string()
+            } else {
+                format!("{host}:{dest}")
+            }
+        }
+    }
+}
+
+/// The base every operation actually reads/writes: the encrypting `mcrypt:<name>`
+/// remote when the target enables crypt, otherwise the plain [`base`]. Routing all
+/// paths through here means backup, restore, list, verify and prune are all
+/// transparently encrypted with no other changes.
+pub fn effective_base(target: &Target) -> String {
+    if target.crypt_enabled() {
+        format!("{CRYPT_REMOTE}:{}", target.name)
+    } else {
+        base(target)
+    }
+}
+
 /// Environment variables carrying the FTP connection details for the `:ftp:`
 /// on-the-fly remote (rclone reads `RCLONE_FTP_*` as backend defaults). Empty
 /// for other backends. Apply with `.envs(...)` at every rclone spawn site.
 pub fn env_for(target: &Target) -> Vec<(String, String)> {
-    if !matches!(target.backend, Backend::Ftp) {
-        return Vec::new();
-    }
-    let port = if target.port == 0 { 21 } else { target.port };
-    let mut env = vec![
-        (
+    let mut env = Vec::new();
+    // FTP connection details — as backend defaults, they also apply when a crypt
+    // remote wraps an `:ftp:` underlying remote.
+    if matches!(target.backend, Backend::Ftp) {
+        let port = if target.port == 0 { 21 } else { target.port };
+        env.push((
             "RCLONE_FTP_HOST".to_string(),
             target.host.trim().to_string(),
-        ),
-        (
+        ));
+        env.push((
             "RCLONE_FTP_USER".to_string(),
             target.user.trim().to_string(),
-        ),
-        ("RCLONE_FTP_PORT".to_string(), port.to_string()),
+        ));
+        env.push(("RCLONE_FTP_PORT".to_string(), port.to_string()));
         // disable_mlsd: rclone then creates directories correctly and avoids
         // "501 No such directory" against servers with MLSD quirks (common).
-        ("RCLONE_FTP_DISABLE_MLSD".to_string(), "true".to_string()),
-    ];
-    if !target.password.is_empty() {
-        env.push(("RCLONE_FTP_PASS".to_string(), obscure(&target.password)));
+        env.push(("RCLONE_FTP_DISABLE_MLSD".to_string(), "true".to_string()));
+        if !target.password.is_empty() {
+            env.push(("RCLONE_FTP_PASS".to_string(), obscure(&target.password)));
+        }
+    }
+    // Destination encryption: define the `mcrypt:` crypt remote on the fly, rooted
+    // at the plain (unencrypted) location. Passphrases go in the environment,
+    // obscured — never on the command line (world-readable in /proc/*/cmdline).
+    if target.crypt_enabled() {
+        let p = "RCLONE_CONFIG_MCRYPT_";
+        env.push((format!("{p}TYPE"), "crypt".to_string()));
+        env.push((format!("{p}REMOTE"), crypt_underlying(target)));
+        env.push((format!("{p}PASSWORD"), obscure(&target.crypt_password)));
+        if !target.crypt_salt.trim().is_empty() {
+            env.push((format!("{p}PASSWORD2"), obscure(&target.crypt_salt)));
+        }
     }
     env
 }
@@ -92,7 +139,7 @@ fn obscure(plain: &str) -> String {
 
 /// Path to a snapshot: `<base>/<ts>`.
 pub fn snapshot_path(target: &Target, ts: &str) -> String {
-    format!("{}/{ts}", base(target))
+    format!("{}/{ts}", effective_base(target))
 }
 
 /// Checks that the FTP password can actually be obscured before any command
@@ -105,6 +152,9 @@ pub fn preflight(target: &Target) -> Result<()> {
         && obscure(&target.password).is_empty()
     {
         bail!("could not obscure the FTP password — is rclone installed and working?");
+    }
+    if target.crypt_enabled() && obscure(&target.crypt_password).is_empty() {
+        bail!("could not obscure the encryption passphrase — is rclone installed and working?");
     }
     Ok(())
 }
@@ -139,7 +189,7 @@ pub fn backup_cmds(
     prev: Option<&str>,
     dry_run: bool,
 ) -> Vec<(String, Vec<String>)> {
-    let base = base(target);
+    let base = effective_base(target);
     let snap = snapshot_path(target, ts);
     target
         .sources
@@ -182,7 +232,7 @@ pub fn backup_cmds(
 
 /// Arguments that list snapshots (directories) under the base.
 pub fn list_args(target: &Target) -> Vec<String> {
-    vec!["lsf".into(), "--dirs-only".into(), base(target)]
+    vec!["lsf".into(), "--dirs-only".into(), effective_base(target)]
 }
 
 /// Arguments that list a snapshot's contents recursively (directories get `/`).
@@ -246,6 +296,11 @@ pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
 /// The fs string for `rclone backend features`: local path, `remote:`, or the
 /// on-the-fly `:ftp:` remote (its details come from the environment).
 fn features_fs(target: &Target) -> String {
+    // Query the crypt remote itself — its reported features (incl. server-side
+    // Copy) mirror the underlying remote's.
+    if target.crypt_enabled() {
+        return format!("{CRYPT_REMOTE}:");
+    }
     if matches!(target.backend, Backend::Ftp) {
         return ":ftp:".to_string();
     }
@@ -331,4 +386,66 @@ pub fn purge(target: &Target, ts: &str) -> Result<()> {
         bail!("rclone purge failed (exit {})", status.code().unwrap_or(-1));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{Config, Target};
+
+    fn target(toml_body: &str) -> Target {
+        let cfg: Config = toml::from_str(&format!(
+            r#"
+            [[target]]
+            name = "n"
+            backend = "rclone"
+            host = "remote"
+            dest = "/backups"
+            sources = ["/s"]
+            {toml_body}
+            "#
+        ))
+        .unwrap();
+        cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn crypt_routes_paths_through_the_crypt_remote() {
+        // No crypt → plain remote path.
+        let plain = target("");
+        assert_eq!(super::effective_base(&plain), "remote:/backups/n");
+        assert_eq!(super::snapshot_path(&plain, "TS"), "remote:/backups/n/TS");
+        assert!(super::env_for(&plain).is_empty());
+
+        // Crypt on → mcrypt: remote, rooted at the plain dest (minus /name).
+        let enc = target(r#"crypt_password = "hunter2""#);
+        assert_eq!(super::effective_base(&enc), "mcrypt:n");
+        assert_eq!(super::snapshot_path(&enc, "TS"), "mcrypt:n/TS");
+        assert_eq!(super::crypt_underlying(&enc), "remote:/backups");
+    }
+
+    #[test]
+    fn crypt_env_defines_the_remote_with_obscured_secrets() {
+        let enc = target(
+            r#"
+            crypt_password = "hunter2"
+            crypt_salt = "pepper"
+            "#,
+        );
+        let env: std::collections::HashMap<_, _> = super::env_for(&enc).into_iter().collect();
+        assert_eq!(env.get("RCLONE_CONFIG_MCRYPT_TYPE").unwrap(), "crypt");
+        assert_eq!(
+            env.get("RCLONE_CONFIG_MCRYPT_REMOTE").unwrap(),
+            "remote:/backups"
+        );
+        // The obscuring itself needs the `rclone` binary; skip that assertion where
+        // it isn't installed (e.g. a minimal CI image) but still require the keys.
+        assert!(env.contains_key("RCLONE_CONFIG_MCRYPT_PASSWORD"));
+        assert!(env.contains_key("RCLONE_CONFIG_MCRYPT_PASSWORD2"));
+        if !super::obscure("probe").is_empty() {
+            // Passphrases are obscured (rclone's reversible config obfuscation),
+            // never the plaintext.
+            let pw = env.get("RCLONE_CONFIG_MCRYPT_PASSWORD").unwrap();
+            assert!(pw != "hunter2", "password stored in plaintext: {pw}");
+        }
+    }
 }

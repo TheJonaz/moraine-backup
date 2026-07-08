@@ -9,6 +9,15 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
 ## [Unreleased]
 
+### Added
+- **Encrypted destination at rest** (rclone/FTP backends) — set an encryption
+  passphrase (and optional salt) on a target and Moraine wraps the destination in
+  an `rclone crypt` remote: every file's **contents and name** are encrypted
+  before they leave your machine, so an untrusted destination (a cloud bucket, a
+  friend's NAS) never sees plaintext. Backup, restore, list, verify and prune all
+  work transparently. The passphrase is stored in the config like other secrets
+  (protect it with config encryption) and is needed to restore — keep it safe.
+
 ### Fixed
 - **No more console windows on Windows.** The desktop app spawns console programs
   (rsync, ssh, rclone, curl, schtasks); each one flashed a `cmd` window. Every
