@@ -67,6 +67,19 @@ cp /usr/bin/ssh.exe bundle/moraine-ssh.exe
 ldd /usr/bin/ssh.exe | awk '{print $3}' | grep -iE '^/usr/bin/' \
   | while read -r d; do cp -n "$d" bundle/ || true; done
 
+# Cygwin/msys runtime config for the bundled rsync + moraine-ssh. Without an
+# MSYS2 root they'd fall back to fragile defaults; ship an explicit config so
+# they behave the same on any clean Windows:
+#   fstab       — map drive letters at /c, /d, … so a source like
+#                 /c/Users/you/… actually resolves (else rsync reports the
+#                 opaque `change_dir "/c/…" failed`).
+#   nsswitch    — derive HOME from the real Windows profile, so ssh writes
+#                 ~/.ssh/known_hosts there instead of a nonexistent /home/<user>.
+# Cygwin looks for these under <install-dir>/etc (the dir holding msys-2.0.dll).
+mkdir -p bundle/etc
+printf 'none / cygdrive binary,posix=0,noacl 0 0\n' > bundle/etc/fstab
+printf 'db_home: windows\n' > bundle/etc/nsswitch.conf
+
 # GUI assets (logo + hero background) — asset() looks for these next to the exe.
 mkdir -p bundle/assets
 cp assets/moraine-64.png assets/hero-bg.png bundle/assets/
