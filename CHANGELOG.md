@@ -18,6 +18,11 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   work transparently. The passphrase is stored in the config like other secrets
   (protect it with config encryption) and is needed to restore — keep it safe.
 
+### Changed
+- **Tidier target editor.** Optional/tuning settings (exclude patterns, VPN,
+  healthcheck, bandwidth limit, destination encryption, retention) now live in a
+  collapsed **Advanced** section, so the editor leads with the essentials.
+
 ### Fixed
 - **No more console windows on Windows.** The desktop app spawns console programs
   (rsync, ssh, rclone, curl, schtasks); each one flashed a `cmd` window. Every
