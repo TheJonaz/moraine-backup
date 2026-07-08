@@ -28,7 +28,7 @@ prune old snapshots automatically with a retention policy.
 
 ### Debian / Ubuntu / Linux Mint
 ```bash
-sudo apt install ./moraine_0.1.24-1_amd64.deb
+sudo apt install ./moraine_0.1.25-1_amd64.deb
 ```
 Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependencies:
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
@@ -36,13 +36,13 @@ Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependen
 ### Arch Linux
 Install the prebuilt package straight from the release:
 ```bash
-sudo pacman -U https://github.com/TheJonaz/moraine-backup/releases/download/v0.1.24/moraine-0.1.24-1-x86_64.pkg.tar.zst
+sudo pacman -U https://github.com/TheJonaz/moraine-backup/releases/download/v0.1.25/moraine-0.1.25-1-x86_64.pkg.tar.zst
 ```
 Or build it yourself with the `PKGBUILD` (needed if your pacman requires signed
 packages):
 ```bash
 mkdir moraine && cd moraine
-curl -O https://raw.githubusercontent.com/TheJonaz/moraine-backup/v0.1.24/packaging/aur/PKGBUILD
+curl -O https://raw.githubusercontent.com/TheJonaz/moraine-backup/v0.1.25/packaging/aur/PKGBUILD
 makepkg -si
 ```
 Runtime deps: `gtk4`, `rsync`, `openssh`; optional: `rclone`, `gnupg`,

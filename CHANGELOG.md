@@ -7,7 +7,7 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
-## [Unreleased]
+## [0.1.25] — 2026-07-08
 
 ### Fixed
 - **Per-OS install advice.** When rsync/rclone is missing, the error and the
