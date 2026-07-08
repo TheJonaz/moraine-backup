@@ -1,5 +1,5 @@
 Name:           moraine
-Version:        0.1.24
+Version:        0.1.25
 Release:        1%{?dist}
 Summary:        Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)
 
@@ -73,6 +73,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 %{_mandir}/man1/moraine-gui.1*
 
 %changelog
+* Wed Jul 08 2026 Jonaz Thern <info@thern.io> - 0.1.25-1
+- Per-OS install advice.
+
 * Mon Jul 06 2026 Jonaz Thern <info@thern.io> - 0.1.24-1
 - Desktop notifications when a backup finishes — a normal one on success, a critical one on failure (so a failed scheduled run doesn't go unnoticed).
 
