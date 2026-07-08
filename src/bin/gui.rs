@@ -38,7 +38,7 @@ use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools};
 
 const CONFIG_PATH: &str = "moraine.toml";
 const APP_ID: &str = "io.thern.moraine";
-/// Endpoint that receives "Bug & Feedback" submissions (see feedback.php on the
+/// Endpoint that receives "Bugs & Feedback" submissions (see feedback.php on the
 /// server). POSTed as JSON via curl so no HTTP-client dependency is needed.
 const FEEDBACK_URL: &str = "https://www.thern.io/feedback.php";
 /// Shared key sent with each submission — weak by design (it ships in the
@@ -785,8 +785,8 @@ fn build_ui(app: &gtk::Application) {
     root.append(&status_card);
 
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    // Bottom-left: Bug & Feedback → opens the report modal.
-    let feedback_btn = gtk::Button::with_label("🐞 Bug & Feedback");
+    // Bottom-left: Bugs & Feedback → opens the report modal.
+    let feedback_btn = gtk::Button::with_label("🐞 Bugs & Feedback");
     feedback_btn.add_css_class("linkbtn");
     {
         let ui2 = ui.clone();
@@ -1044,7 +1044,7 @@ fn asset(name: &str) -> String {
     format!("assets/{name}")
 }
 
-// ─────────────────────────── Bug & Feedback ───────────────────────────
+// ─────────────────────────── Bugs & Feedback ───────────────────────────
 
 /// Modal where the user files a bug / feedback / feature request. The message
 /// plus the app version and host OS are POSTed to `FEEDBACK_URL`.
@@ -1052,7 +1052,7 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
     let win = gtk::Window::builder()
         .transient_for(&ui.window)
         .modal(true)
-        .title("Bug & Feedback")
+        .title("Bugs & Feedback")
         .default_width(470)
         .build();
 
@@ -1795,6 +1795,15 @@ fn labeled(label: &str, entry: &gtk::Entry) -> gtk::Box {
     b
 }
 
+/// A small "?" help marker that shows `tip` on hover — for explaining a field
+/// without cluttering its label.
+fn help_icon(tip: &str) -> gtk::Image {
+    let img = gtk::Image::from_icon_name("dialog-question-symbolic");
+    img.add_css_class("dim-label");
+    img.set_tooltip_text(Some(tip));
+    img
+}
+
 /// Wire an entry so editing updates the selected target's field.
 fn bind_entry(entry: &gtk::Entry, state: &Shared, set: fn(&mut TargetForm, String)) {
     let st = state.clone();
@@ -2031,12 +2040,21 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         hc.set_text(&f.healthcheck);
         hc.set_placeholder_text(Some("https://hc-ping.com/…  (optional)"));
         let hbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        let labelrow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let hl = gtk::Label::new(Some(
             "Healthcheck URL (pinged after each backup; /fail on failure)",
         ));
         hl.add_css_class("muted");
         hl.set_halign(gtk::Align::Start);
-        hbox.append(&hl);
+        labelrow.append(&hl);
+        labelrow.append(&help_icon(
+            "A \"dead man's switch\". Moraine pings this URL after each backup — the \
+             URL itself on success, <url>/fail on failure. Point it at healthchecks.io \
+             (or any uptime monitor) and it alerts you if a scheduled backup silently \
+             stops running — the one failure a desktop notification can't catch. \
+             Optional.",
+        ));
+        hbox.append(&labelrow);
         hbox.append(&hc);
         adv.append(&hbox);
         let st = state.clone();
@@ -2105,7 +2123,16 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     let rl = gtk::Label::new(Some("Retention (0 = keep all)"));
     rl.add_css_class("section");
     rl.set_halign(gtk::Align::Start);
-    adv.append(&rl);
+    let rrow = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    rrow.append(&rl);
+    rrow.append(&help_icon(
+        "Grandfather-father-son pruning. Each tier keeps that many snapshots: \
+         Last = the N most recent, whatever their age; Daily / Weekly / Monthly = \
+         the newest snapshot per day / ISO-week / month, for that many periods. A \
+         snapshot is kept if any tier still wants it. 0 disables that tier; all \
+         zero = keep every snapshot.",
+    ));
+    adv.append(&rrow);
     let ret = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     ret.append(&retention_field(state, i, "Last", f.keep_last, |f, v| {
         f.keep_last = v
@@ -2139,6 +2166,12 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     // Buttons
     let btns = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let prune_btn = gtk::Button::with_label("Prune now");
+    prune_btn.set_tooltip_text(Some(
+        "Apply the retention policy above right now: permanently delete the \
+         snapshots on the target that no tier wants to keep. With retention all \
+         zero, nothing is deleted. Pruning only runs when you trigger it (here or \
+         `moraine prune`) — a backup never deletes on its own.",
+    ));
     {
         let st = state.clone();
         let ui2 = ui.clone();
