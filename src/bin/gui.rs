@@ -2748,12 +2748,23 @@ fn refresh_restore_targets(state: &Shared, ui: &Rc<Ui>) {
         .map(|t| t.name.clone())
         .collect();
     let strs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-    let model = gtk::StringList::new(&strs);
     // set_model/set_selected fire selected_notify; the flag keeps the handler
     // from probing the server (SSH) without any user action.
     state.borrow_mut().refreshing_ui = true;
-    ui.restore_target.set_model(Some(&model));
-    if !names.is_empty() {
+    // Update the DropDown's *existing* StringList in place rather than swapping in
+    // a fresh model: GTK 4.18+ doesn't re-render a `from_strings` DropDown after a
+    // set_model(), leaving the Restore target picker blank on newer distros (Arch).
+    // Splicing the model it already owns fires items-changed and refreshes on every
+    // GTK version. Falls back to set_model if the model isn't a StringList.
+    if let Some(list) = ui.restore_target.model().and_downcast::<gtk::StringList>() {
+        list.splice(0, list.n_items(), &strs);
+    } else {
+        ui.restore_target
+            .set_model(Some(&gtk::StringList::new(&strs)));
+    }
+    if names.is_empty() {
+        state.borrow_mut().restore_target = None;
+    } else {
         ui.restore_target.set_selected(0);
         state.borrow_mut().restore_target = Some(names[0].clone());
     }

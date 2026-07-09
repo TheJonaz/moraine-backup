@@ -20,6 +20,10 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   a value passed as `--password` is visible to other local users in `ps`/proc.
 
 ### Fixed
+- **Restore tab: target picker was blank on GTK 4.18+** (e.g. Arch Linux). The
+  dropdown is now updated in place (splicing its StringList) instead of via
+  `set_model`, which newer GTK doesn't re-render — so the Restore target list and
+  its snapshot auto-load work again on newer distros.
 - Help tab: corrected the pruning note — the `moraine run` CLI auto-prunes to the
   retention policy after a successful backup (the desktop app prunes only on demand).
 
