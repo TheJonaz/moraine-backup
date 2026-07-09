@@ -2986,8 +2986,9 @@ fn build_help_tab() -> gtk::Widget {
              = the newest per day/ISO-week/month, for that many periods. A snapshot \
              survives if any tier still wants it; 0 disables a tier; all zero = keep all.",
             "Prune now — apply the retention policy immediately and delete the snapshots \
-             no tier wants. Pruning only runs when you trigger it (here or `moraine \
-             prune`) — a backup never deletes on its own.",
+             no tier wants. In the desktop app pruning only runs when you press this; \
+             the `moraine run` CLI also prunes to the policy automatically after a \
+             successful backup.",
         ],
     );
     section(

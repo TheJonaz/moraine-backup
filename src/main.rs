@@ -1,7 +1,7 @@
 //! moraine — CLI for snapshot-based backup over SSH/rsync and rclone.
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
 use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools, vpn};
@@ -20,6 +20,9 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// The Run variant carries the ad-hoc flag bundle, making it larger than the
+// others — irrelevant for a command enum parsed once at startup.
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Write an example config to start from.
     Init {
@@ -32,13 +35,15 @@ enum Command {
         #[arg(short, long)]
         target: Option<String>,
     },
-    /// Run backup for all targets, or a selected one.
+    /// Run backup for all targets, a selected one, or an ad-hoc target from flags.
     Run {
         #[arg(short, long)]
         target: Option<String>,
         /// Show what would be done without transferring anything.
         #[arg(long)]
         dry_run: bool,
+        #[command(flatten)]
+        adhoc: AdHoc,
     },
     /// List snapshots on the target.
     List {
@@ -63,6 +68,86 @@ enum Command {
     },
 }
 
+/// An ad-hoc target defined entirely on the command line — no config file. Set
+/// `--dest` and at least one `--source` (plus `--host` for ssh/ftp) to trigger it,
+/// e.g. `moraine run --host nas --user me --key ~/.ssh/id --dest /backups
+/// --source ~/docs`.
+#[derive(Args)]
+struct AdHoc {
+    /// Ad-hoc: destination host — an SSH/FTP hostname, or the rclone remote name
+    /// (empty with --backend rclone = a local path).
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    host: Option<String>,
+    /// Ad-hoc: backend — ssh (default), rclone or ftp.
+    #[arg(
+        long,
+        default_value = "ssh",
+        help_heading = "Ad-hoc target (no config file)"
+    )]
+    backend: String,
+    /// Ad-hoc: SSH/FTP port.
+    #[arg(
+        long,
+        default_value_t = 22,
+        help_heading = "Ad-hoc target (no config file)"
+    )]
+    port: u16,
+    /// Ad-hoc: username (SSH/FTP).
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    user: Option<String>,
+    /// Ad-hoc: path to the SSH private key.
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    key: Option<String>,
+    /// Ad-hoc: login password / key passphrase / FTP password. WARNING: a value
+    /// here is visible to other local users in `ps` and /proc/<pid>/cmdline —
+    /// prefer the MORAINE_PASSWORD environment variable.
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    password: Option<String>,
+    /// Ad-hoc: destination root on the target (a <name>/<timestamp>/ tree is made under it).
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    dest: Option<String>,
+    /// Ad-hoc: a file/folder on this machine to back up. Repeat for several.
+    #[arg(long = "source", help_heading = "Ad-hoc target (no config file)")]
+    sources: Vec<String>,
+    /// Ad-hoc: snapshot folder name under --dest (default: the host, else "adhoc").
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    name: Option<String>,
+    /// Ad-hoc: an exclude pattern. Repeat for several.
+    #[arg(long = "exclude", help_heading = "Ad-hoc target (no config file)")]
+    excludes: Vec<String>,
+    /// Ad-hoc: bandwidth limit, e.g. 2M or 500K.
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    bwlimit: Option<String>,
+    /// Ad-hoc: require the host key to already be known (StrictHostKeyChecking=yes).
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    strict_host_key: bool,
+    /// Ad-hoc: encrypt the destination at rest (rclone/ftp) with this passphrase.
+    /// Same leak warning as --password — prefer MORAINE_CRYPT_PASSWORD.
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    crypt_password: Option<String>,
+    /// Ad-hoc: optional crypt salt (rclone crypt's password2).
+    #[arg(long, help_heading = "Ad-hoc target (no config file)")]
+    crypt_salt: Option<String>,
+}
+
+impl AdHoc {
+    /// True once the user has supplied enough to mean "run this ad-hoc target"
+    /// rather than a target from the config file.
+    fn is_set(&self) -> bool {
+        self.host.is_some() || self.dest.is_some() || !self.sources.is_empty()
+    }
+}
+
+/// Parse the `--backend` string into a `Backend`.
+fn parse_backend(s: &str) -> Result<config::Backend> {
+    match s.trim().to_lowercase().as_str() {
+        "ssh" => Ok(config::Backend::Ssh),
+        "rclone" => Ok(config::Backend::Rclone),
+        "ftp" => Ok(config::Backend::Ftp),
+        other => bail!("unknown --backend '{other}' — use ssh, rclone or ftp"),
+    }
+}
+
 const EXAMPLE_CONFIG: &str = include_str!("../moraine.example.toml");
 
 fn main() {
@@ -81,7 +166,11 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Init { force } => cmd_init(&cli.config, force),
-        Command::Run { target, dry_run } => cmd_run(&cli.config, target.as_deref(), dry_run),
+        Command::Run {
+            target,
+            dry_run,
+            adhoc,
+        } => cmd_run(&cli.config, target.as_deref(), dry_run, adhoc),
         Command::Verify { target } => cmd_verify(&cli.config, target.as_deref()),
         Command::List { target } => cmd_list(&cli.config, &target),
         Command::Check { target, snapshot } => {
@@ -106,7 +195,17 @@ fn cmd_init(path: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
+fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool, adhoc: AdHoc) -> Result<()> {
+    // Ad-hoc mode: build one target from the flags and run it, no config file.
+    if adhoc.is_set() {
+        if target.is_some() {
+            bail!(
+                "--target names a target from the config; it can't be combined with the \
+                 ad-hoc --host/--dest/--source flags"
+            );
+        }
+        return cmd_run_adhoc(adhoc, dry_run);
+    }
     let config = Config::load(path)?;
     let targets = select_targets(&config, target)?;
     let notify_on = config.notify_enabled();
@@ -181,6 +280,92 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
     }
     if failures > 0 {
         bail!("{failures} target(s) failed");
+    }
+    Ok(())
+}
+
+/// Build a single target from `--host/--dest/--source/…` flags and run it, with
+/// no config file. Secrets come from the flag or, preferably, an env var.
+fn cmd_run_adhoc(a: AdHoc, dry_run: bool) -> Result<()> {
+    let backend = parse_backend(&a.backend)?;
+    // Flag wins, else the env var (which never appears in ps/proc); else none.
+    let password = a
+        .password
+        .or_else(|| std::env::var("MORAINE_PASSWORD").ok())
+        .unwrap_or_default();
+    let crypt_password = a
+        .crypt_password
+        .or_else(|| std::env::var("MORAINE_CRYPT_PASSWORD").ok())
+        .unwrap_or_default();
+    let host = a.host.unwrap_or_default().trim().to_string();
+    // Snapshot folder: the given name, else the host's first label, else "adhoc".
+    let name = a
+        .name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| match host.split(['.', ':']).next().unwrap_or("") {
+            "" => "adhoc".to_string(),
+            h => h.to_string(),
+        });
+    let sources: Vec<String> = a
+        .sources
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Required-flag checks with actionable messages (validate() covers the rest).
+    if a.dest.as_deref().unwrap_or("").trim().is_empty() {
+        bail!("ad-hoc run needs --dest");
+    }
+    if sources.is_empty() {
+        bail!("ad-hoc run needs at least one --source");
+    }
+    if matches!(backend, config::Backend::Ssh | config::Backend::Ftp) && host.is_empty() {
+        bail!("--host is required for the ssh/ftp backend");
+    }
+    if backend.is_ssh() && a.user.as_deref().unwrap_or("").trim().is_empty() {
+        bail!("--user is required for the ssh backend");
+    }
+
+    let target = config::Target {
+        name,
+        backend,
+        host,
+        user: a.user.unwrap_or_default().trim().to_string(),
+        port: a.port,
+        key: a
+            .key
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty()),
+        password, // not trimmed — a secret may legitimately have edge whitespace
+        strict_host_key: a.strict_host_key,
+        dest: a.dest.unwrap_or_default().trim().to_string(),
+        sources,
+        exclude: a.excludes,
+        vpn: String::new(),
+        healthcheck: String::new(),
+        bwlimit: a.bwlimit.unwrap_or_default().trim().to_string(),
+        crypt_password,
+        crypt_salt: a.crypt_salt.unwrap_or_default(),
+        retention: None,
+    };
+
+    // Reuse the same validation as a config file (name safety, argv-injection,
+    // bwlimit shape, crypt/backend rules, duplicate source basenames, …).
+    let cfg = Config {
+        notify: None,
+        targets: vec![target],
+        schedules: Vec::new(),
+    };
+    cfg.validate()?;
+    let t = &cfg.targets[0];
+
+    println!("== {} ({}) ==", t.name, backend_dest(t));
+    if t.backend.is_ssh() {
+        rsync::run_target(t, dry_run)?;
+    } else {
+        rclone::run_target(t, dry_run)?;
     }
     Ok(())
 }

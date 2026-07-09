@@ -7,6 +7,22 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Added
+- **Ad-hoc CLI backups** — `moraine run` can now define a whole target from flags,
+  with no config file:
+  `moraine run --host nas --user me --key ~/.ssh/id --dest /backups --source ~/docs`.
+  Works for every backend (`--backend ssh|rclone|ftp`), takes multiple `--source`
+  and `--exclude`, plus `--port`, `--name`, `--bwlimit`, `--strict-host-key` and
+  destination encryption (`--crypt-password`/`--crypt-salt`). Secrets prefer the
+  `MORAINE_PASSWORD` / `MORAINE_CRYPT_PASSWORD` environment variables over flags —
+  a value passed as `--password` is visible to other local users in `ps`/proc.
+
+### Fixed
+- Help tab: corrected the pruning note — the `moraine run` CLI auto-prunes to the
+  retention policy after a successful backup (the desktop app prunes only on demand).
+
 ## [0.1.26] — 2026-07-08
 
 ### Added
