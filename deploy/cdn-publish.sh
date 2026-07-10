@@ -98,4 +98,21 @@ if [ -n "$gui_exe" ]; then
     log "files/windows/moraine-gui-setup.exe <- $(basename "$gui_exe")"
 fi
 
+# ── Regenerate the human-facing storefront pages (manifest + /app/<slug>.html) ──
+# The repos above are what apt/dnf/pacman read; the shareable download pages at
+# https://cdn.thern.io/app/<slug> are generated separately by cdn-reindex, which
+# scans /srv/cdn. Run it here so every publish refreshes them — otherwise the
+# storefront freezes on an old version AND its direct-download links 404 once
+# reprepro purges the previous .deb from the pool. Non-fatal: the repos are
+# already updated; a stale storefront is cosmetic, not a failed publish.
+# Absolute path (not just PATH) so a minimal systemd service environment still
+# finds it; override with MORAINE_CDN_REINDEX.
+REINDEX="${MORAINE_CDN_REINDEX:-/usr/local/bin/cdn-reindex}"
+if [ -x "$REINDEX" ]; then
+    log "$(basename "$REINDEX") (refresh storefront pages)"
+    "$REINDEX" || log "WARN: storefront reindex failed — /app pages may be stale"
+else
+    log "SKIP storefront reindex ($REINDEX not found)"
+fi
+
 log "done — published moraine $VERSION to the CDN repos"
