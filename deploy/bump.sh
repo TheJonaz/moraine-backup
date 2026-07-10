@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # bump.sh — cut a new Moraine release in one command.
 #
-#   deploy/bump.sh <version> [--no-push] [--dry-run] [-y|--yes]
+#   deploy/bump.sh <version> [--no-push] [--no-site] [--no-cdn] [--dry-run] [-y]
 #   e.g.  deploy/bump.sh 0.1.23
 #
 # Bumps the version everywhere the CDN and the website read it, commits, tags and
-# pushes. Pushing the tag triggers .github/workflows/release.yml, whose `cdn` job
-# republishes the apt/dnf/pacman repos on cdn.thern.io — so the CDN tracks the new
-# version automatically, no manual publish step.
+# pushes. Pushing the tag triggers .github/workflows/release.yml, which builds and
+# uploads the OS packages to the GitHub release. The CDN (cdn.thern.io) is
+# PULL-based — its firewall blocks inbound from GitHub Actions — so a systemd
+# timer on the host polls GitHub every ~10 min and republishes. To avoid that
+# wait, this script also triggers the pull directly once the build finishes (see
+# the CDN step below / deploy/cdn-refresh.sh; skip with --no-cdn).
 #
 # What it rewrites:
 #   * Cargo.toml + Cargo.lock  — the source-of-truth version
@@ -15,8 +18,8 @@
 #   * README.md                — the install-command version strings
 #   * site/index.html          — every version label and the cdn.thern.io download
 #                                URLs. site/ is gitignored; after pushing, the
-#                                script also deploys the updated index.html to
-#                                moraine.thern.io over SSH (skip with --no-site).
+#                                script deploys index.html + the GUI screenshots
+#                                to moraine.thern.io over SSH (skip with --no-site).
 #
 # NOT touched: the downstream packaging/ recipes (AUR, Homebrew, nixpkgs, …). Their
 # source/binary checksums can only be computed once the tag's tarball exists on
@@ -30,18 +33,20 @@ PUSH=1
 DRYRUN=0
 ASSUME_YES=0
 DEPLOY_SITE=1
+REFRESH_CDN=1
 for a in "$@"; do
     case "$a" in
         --no-push) PUSH=0 ;;
         --dry-run) DRYRUN=1 ;;
         --no-site) DEPLOY_SITE=0 ;;
+        --no-cdn)  REFRESH_CDN=0 ;;
         -y|--yes)  ASSUME_YES=1 ;;
         -*) die "unknown option: $a" ;;
         *) [ -z "$NEW" ] || die "unexpected argument: $a"; NEW="$a" ;;
     esac
 done
 
-[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--no-site] [--dry-run] [-y]"
+[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--no-site] [--no-cdn] [--dry-run] [-y]"
 [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must look like X.Y.Z (got '$NEW')"
 
 # Always operate from the repo root, wherever we were invoked from.
@@ -188,11 +193,26 @@ elif [ "$DEPLOY_SITE" != 1 ]; then
     printf 'bump: --no-site — website not deployed (site/ was updated locally)\n'
 fi
 
+# ── Refresh the CDN (cdn.thern.io) ──
+# The CDN is pull-based, so nothing can push to it; its systemd timer would
+# publish this release within ~10 min. Trigger it NOW instead: cdn-refresh.sh
+# waits for release.yml to attach the Linux packages, then reaches the host over
+# the VPN (ssh alias `cdn`) and runs the pull once. Foreground, so its key
+# passphrase prompt works and you see the result. Skip with --no-cdn (the timer
+# still catches it). A failure is non-fatal — the timer remains the backstop.
+if [ "$REFRESH_CDN" = 1 ] && [ "$PUSH" = 1 ] && [ -x "$ROOT/deploy/cdn-refresh.sh" ]; then
+    printf 'bump: refreshing cdn.thern.io (waits for the release build, then publishes)…\n'
+    "$ROOT/deploy/cdn-refresh.sh" "$N" \
+        || printf 'bump: note — CDN not refreshed now; its timer publishes v%s within ~10 min\n' "$N" >&2
+elif [ "$REFRESH_CDN" != 1 ]; then
+    printf 'bump: --no-cdn — CDN not triggered (its timer publishes v%s within ~10 min)\n' "$N"
+fi
+
 cat <<EOF
 
 bump: done. The rest is automatic —
   * release.yml builds the packages, then its 'recipes' job bumps the downstream
     packaging recipes (AUR / Homebrew / nixpkgs / …) and commits them to main.
-  * cdn-pull publishes the packages to cdn.thern.io within ~10 min.
-  (Manual fallback if ever needed:  deploy/bump-recipes.sh $N)
+  * the CDN was triggered above (or its timer publishes within ~10 min).
+  (Manual fallbacks:  deploy/cdn-refresh.sh $N   ·   deploy/bump-recipes.sh $N)
 EOF
