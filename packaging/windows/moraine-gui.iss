@@ -1,7 +1,7 @@
 ; Inno Setup script for the Moraine Windows desktop app (GTK GUI).
 ;
 ; Build (in .github/workflows/windows-gui.yml):
-;   iscc /DMyAppVersion=0.1.26 /DSrcDir=<bundle dir> packaging\windows\moraine-gui.iss
+;   iscc /DMyAppVersion=0.2.0 /DSrcDir=<bundle dir> packaging\windows\moraine-gui.iss
 ;
 ; Installs the bundled GTK runtime + moraine-gui.exe per-user (no admin) and
 ; creates a Start menu (and optional Desktop) shortcut that launches the app.

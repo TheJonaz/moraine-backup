@@ -1,5 +1,5 @@
 Name:           moraine
-Version:        0.1.26
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)
 
@@ -73,6 +73,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 %{_mandir}/man1/moraine-gui.1*
 
 %changelog
+* Fri Jul 10 2026 Jonaz Thern <info@thern.io> - 0.2.0-1
+- Interrupted backups can no longer be mistaken for complete snapshots.
+
 * Wed Jul 08 2026 Jonaz Thern <info@thern.io> - 0.1.26-1
 - In-app Help tab — a dedicated Help page in the desktop app explaining every feature in one place: backups & snapshots, the backends, sources/destination, every Advanced target setting (exclude, VPN, healthcheck, bandwidth, encryption, retention, prune), scheduling, restore & verify, settings, and how secrets are handled..
 

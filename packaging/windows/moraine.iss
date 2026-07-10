@@ -1,7 +1,7 @@
 ; Inno Setup script for the Moraine Windows CLI.
 ;
 ; Build (done automatically by .github/workflows/release.yml):
-;   iscc /DMyAppVersion=0.1.26 /DSrcDir=<staged files> packaging\windows\moraine.iss
+;   iscc /DMyAppVersion=0.2.0 /DSrcDir=<staged files> packaging\windows\moraine.iss
 ;
 ; Produces Output\moraine-<ver>-setup.exe — a per-user installer (no admin / no
 ; UAC) that installs moraine.exe and adds it to the user's PATH, so `moraine`

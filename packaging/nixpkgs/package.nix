@@ -13,7 +13,7 @@
 
 rustPlatform.buildRustPackage rec {
   pname = "moraine";
-  version = "0.1.26";
+  version = "0.2.0";
 
   src = fetchFromGitHub {
     owner = "TheJonaz";

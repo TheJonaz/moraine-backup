@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.2.0" date="2026-07-10">
+      <description>
+        <p>Interrupted backups can no longer be mistaken for complete snapshots.</p>
+      </description>
+    </release>
     <release version="0.1.26" date="2026-07-08">
       <description>
         <p>In-app Help tab — a dedicated Help page in the desktop app explaining every feature in one place: backups &amp; snapshots, the backends, sources/destination, every Advanced target setting (exclude, VPN, healthcheck, bandwidth, encryption, retention, prune), scheduling, restore &amp; verify, settings, and how secrets are handled..</p>
