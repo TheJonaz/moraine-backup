@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{healthcheck, notify, prune, rclone, rsync, snapshot, ssh, tools, vpn};
+use moraine::{healthcheck, lock, notify, prune, rclone, rsync, snapshot, ssh, tools, vpn};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -233,6 +233,30 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool, adhoc: AdHoc) -> Re
             }
             continue;
         }
+        // One Moraine process per target: cron + a manual run (or the desktop
+        // app) writing the same snapshot tree concurrently would corrupt it.
+        let _lock = match lock::acquire(t) {
+            Ok(l) => l,
+            Err(e) => {
+                // A busy target is an overlap, not a failed backup — another
+                // run is actively backing this target up. Record it and fail
+                // the exit code, but do NOT ping the healthcheck /fail
+                // endpoint or raise a failure notification: a cron job
+                // overlapping a long-running seed backup would otherwise page
+                // the user "backup failing" while the backup succeeds. (If
+                // runs keep getting skipped, the healthcheck alerts anyway —
+                // by the *absence* of success pings.)
+                failures += 1;
+                eprintln!("  {e:#}");
+                if !dry_run {
+                    log(
+                        path,
+                        LogEntry::new("backup", &t.name, false, format!("{e:#}")),
+                    );
+                }
+                continue;
+            }
+        };
         // Bring the target's VPN up first (if any); skip the target if it
         // fails. A VPN the user already brought up is left untouched.
         let has_vpn = !t.vpn.trim().is_empty();
@@ -255,6 +279,12 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool, adhoc: AdHoc) -> Re
         } else {
             rclone::run_target(t, dry_run)
         };
+        // Auto-prune after a successful backup — while the VPN is still up
+        // (pruning needs the same connectivity the backup did).
+        let prune_result = match &result {
+            Ok(_) => prune_target(path, t, dry_run),
+            Err(_) => Ok(()),
+        };
         // Tear the VPN down afterwards — only if we brought it up.
         if vpn_ours {
             vpn::down(&t.vpn);
@@ -264,9 +294,18 @@ fn cmd_run(path: &Path, target: Option<&str>, dry_run: bool, adhoc: AdHoc) -> Re
                 if !dry_run {
                     finish(t, true, format!("snapshot {ts}"));
                 }
-                // Auto-prune after a successful backup if the target has retention.
-                if let Err(e) = prune_target(path, t, dry_run) {
+                // A prune failure must be visible: it fails the exit code and
+                // is logged, otherwise a broken retention setup can silently
+                // fill the target disk while every backup reports success.
+                if let Err(e) = prune_result {
+                    failures += 1;
                     eprintln!("  prune failed: {e:#}");
+                    if !dry_run {
+                        log(
+                            path,
+                            LogEntry::new("prune", &t.name, false, format!("{e:#}")),
+                        );
+                    }
                 }
             }
             Err(e) => {
@@ -362,6 +401,7 @@ fn cmd_run_adhoc(a: AdHoc, dry_run: bool) -> Result<()> {
     let t = &cfg.targets[0];
 
     println!("== {} ({}) ==", t.name, backend_dest(t));
+    let _lock = lock::acquire(t)?;
     if t.backend.is_ssh() {
         rsync::run_target(t, dry_run)?;
     } else {
@@ -470,6 +510,8 @@ fn backend_dest(t: &config::Target) -> String {
 }
 
 /// Fetches the snapshot list (newest first) for a target, regardless of backend.
+/// Only real snapshot timestamps: `latest`, stray directories and anything else
+/// under the base must never become "the newest snapshot" for check/restore.
 fn list_snapshots(t: &config::Target) -> Result<Vec<String>> {
     let mut snaps = if t.backend.is_ssh() {
         let out = ssh_probe(t, &snapshot::list_cmd(t))
@@ -485,11 +527,11 @@ fn list_snapshots(t: &config::Target) -> Result<Vec<String>> {
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty() && l != "latest")
             .collect::<Vec<_>>()
     } else {
         rclone::list_snapshots(t)?
     };
+    snaps.retain(|s| snapshot::is_timestamp(s));
     snaps.sort();
     snaps.reverse();
     Ok(snaps)
@@ -677,7 +719,9 @@ fn cmd_prune(path: &Path, target: Option<&str>, dry_run: bool) -> Result<()> {
         match &t.retention {
             // One failing target shouldn't abort pruning of the rest.
             Some(p) if !p.is_empty() => {
-                if let Err(e) = prune_target(path, t, dry_run) {
+                // Same per-target lock as `run`: pruning during a backup could
+                // delete the snapshot the backup hardlinks against.
+                if let Err(e) = lock::acquire(t).and_then(|_lock| prune_target(path, t, dry_run)) {
                     failures += 1;
                     eprintln!("  {e:#}");
                     if !dry_run {
@@ -714,6 +758,29 @@ fn prune_target(config_path: &Path, t: &config::Target, dry_run: bool) -> Result
         return Ok(());
     }
 
+    // Also collect snapshots left behind by interrupted runs — they are
+    // invisible to the listing, so retention can never reclaim their space.
+    // A successful backup cleans up after itself (finalize's rm / the marker
+    // delete), but a target whose runs keep FAILING only ever accumulates;
+    // prune is the escape hatch. Best-effort: a cleanup error must not stop
+    // the prune. The caller holds the target lock, so nothing in flight can
+    // be swept up.
+    if !dry_run {
+        if t.backend.is_ssh() {
+            let ok = ssh_probe(t, &snapshot::cleanup_incomplete_cmd(t))
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !ok {
+                eprintln!("  warning: could not clean interrupted snapshot work dirs");
+            }
+        } else {
+            let cleaned = rclone::cleanup_stale(t, "");
+            if !cleaned.is_empty() {
+                println!("  prune: removed {} interrupted snapshot(s)", cleaned.len());
+            }
+        }
+    }
     let snaps = list_snapshots(t)?;
     let plan = prune::plan(&snaps, policy);
     if plan.delete.is_empty() {
@@ -777,8 +844,12 @@ fn check(ok: bool, msg: &str) {
     println!("  {} {msg}", if ok { "✓" } else { "✗" });
 }
 
-/// Pick out the targets to work with: a named one, or all.
+/// Pick out the targets to work with: a named one, or all. Zero configured
+/// targets is an error with a pointer to the fix — not a silent no-op run.
 fn select_targets<'a>(config: &'a Config, name: Option<&str>) -> Result<Vec<&'a config::Target>> {
+    if config.targets.is_empty() {
+        bail!("the config has no targets — add a [[target]] block, or use the ad-hoc flags (moraine run --help)");
+    }
     match name {
         Some(n) => {
             let t = config

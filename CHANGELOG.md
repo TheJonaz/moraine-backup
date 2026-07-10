@@ -9,6 +9,66 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
 ## [Unreleased]
 
+### Changed
+- **Interrupted backups can no longer be mistaken for complete snapshots.**
+  A snapshot is now written to a hidden work area and only made visible once
+  every file transferred: the SSH backend writes to `.incomplete-<timestamp>/`
+  and atomically renames it on success; the rclone/FTP backends create a
+  `<timestamp>.incomplete` marker file first and delete it last. `list`,
+  `check`, restore and prune all ignore unfinished snapshots — so a crashed or
+  aborted run can never become "the latest snapshot", be restored by mistake,
+  or cause prune to delete your last complete backup. Leftovers from
+  interrupted runs are cleaned up automatically (SSH: on the next successful
+  backup; rclone/FTP: on the next successful backup or prune). Existing
+  snapshots are unaffected.
+- **rsync "partial transfer" (exit 23) is now a failure.** Previously a run
+  where some source files could not be read (permissions, I/O errors) was
+  recorded as a success — healthchecks stayed green while retention slowly
+  deleted the snapshots that still held the unreadable files. Such runs now
+  fail loudly, the snapshot is not finalized, and `latest` keeps pointing at
+  the previous complete one. Exit 24 (files *vanished* mid-run — normal on a
+  live system) is still a success, with a clearer warning.
+- **One run per target.** A per-target lock (cross-process, self-releasing on
+  crash) now prevents a scheduled run and a manual one — or the CLI and the
+  desktop app — from backing up or pruning the same target simultaneously.
+  The second run fails immediately with a clear "target is busy" message.
+- **Auto-prune now runs before the VPN is taken down**, so retention actually
+  executes on VPN-only targets. A failed auto-prune is also no longer silent:
+  it fails the run's exit code and is recorded in History (previously it only
+  printed a warning while the healthcheck reported success). The desktop app's
+  "Prune now" also raises the target's VPN when needed, and logs failed prunes
+  to History.
+- Requires Rust 1.89+ to build (`rust-version` is now declared in Cargo.toml).
+
+### Added
+- **Release downloads are checksum-verified.** Every release now publishes a
+  `SHA256SUMS` covering all assets, and the desktop app's updater verifies the
+  downloaded installer against it before offering *Open* — a corrupted or
+  tampered file is discarded with a clear error. (Releases predating the file
+  are accepted and labelled as unverified.)
+- CI now runs `cargo audit`: a newly-disclosed RustSec advisory in any
+  dependency fails the build instead of shipping silently.
+
+### Packaging
+- Cargo.toml carries full crates.io metadata (`repository`, `homepage`,
+  `readme`, `keywords`, `categories`, `authors`) and an `include` list that
+  trims the publish tarball from 111 files to 26 (no more `packaging/`,
+  `deploy/`, CI configs or website PNGs).
+- The `moraine` *library* is documented as internal/unstable: the semver
+  contract covers the CLI, the config format and the on-target snapshot
+  layout — not the Rust API.
+
+### Fixed (desktop app)
+- **Edits are saved on quit.** Changes made in the Quick tab were only written
+  as a side effect of running a backup or installing schedules — editing a
+  host/port and quitting (window X or tray Quit) silently lost them. The
+  config is now saved on every exit path (invalid forms are skipped, as a
+  validation prompt can't be shown during shutdown).
+- **The target Settings dialog no longer closes when saving fails.** A
+  validation error used to land in the status bar *behind* the modal while the
+  modal closed — looking exactly like a successful save. The error now shows
+  inside the dialog, which stays open until the field is fixed.
+
 ### Added
 - **Ad-hoc CLI backups** — `moraine run` can now define a whole target from flags,
   with no config file:
@@ -19,7 +79,52 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   `MORAINE_PASSWORD` / `MORAINE_CRYPT_PASSWORD` environment variables over flags —
   a value passed as `--password` is visible to other local users in `ps`/proc.
 
+### Security
+- **Restores now skip symlinks that point outside the restored tree**
+  (rsync `--safe-links`). The restore file list comes from the destination —
+  the side Moraine explicitly treats as untrustable — and without this a
+  compromised destination could plant a symlink (e.g. `x → ~/.ssh`) and have
+  a restore write through it. Trade-off: legitimate absolute symlinks are
+  skipped on restore (rsync reports each one).
+- Documented (README, in-app Help, example config) that `strict_host_key = true`
+  is recommended for targets that log in with a **password**: the default
+  trust-on-first-use leaves the very first connection open to an impostor
+  server capturing the password. Pin the key once with *Test connection* /
+  `moraine verify`, then enable strict mode.
+
 ### Fixed
+- **Desktop app: the Restore tab's target picker is now rebuilt whenever
+  targets change.** Previously it kept the old list after a target was added,
+  deleted or renamed, so the row you clicked could map onto a *different*
+  target — loading (and potentially restoring) the wrong target's snapshots.
+  The picker keeps your selection when possible, follows renames (schedules
+  follow renames too, instead of silently detaching and never running), and
+  clears the loaded snapshot list if the selected target disappears.
+- **Desktop app: deleting the last target now sticks.** The config no longer
+  requires at least one target, so the delete is saved instead of the target
+  resurrecting on the next launch — and settings (e.g. notifications) can be
+  saved on a fresh install before any target exists. The CLI reports a clear
+  error when a run is attempted with no targets configured.
+- Stray directories on the destination no longer show up as snapshots:
+  `list`/`check` and the desktop app's Restore tab only accept real snapshot
+  timestamps, so a leftover folder under `<dest>/<name>/` can't become "the
+  latest snapshot" for verification or restore.
+- Desktop app: naming a new target no longer collides with an existing
+  `target-N` after deletes (every save would then fail on the duplicate name).
+- Desktop app: the healthcheck ping and desktop notification after a backup
+  run off the UI thread — the window no longer freezes for up to ~30 s when
+  the network is down (exactly when reading the failure log matters).
+- **Windows: healthcheck pings are actually sent.** curl was given
+  `-o /dev/null` — not a valid path on Windows — so every dead-man's-switch
+  ping could fail silently (the monitor would alert despite successful
+  backups). The body is now discarded via the nulled stdout instead.
+- **Windows: `~` in paths now expands under Task Scheduler and plain
+  cmd/PowerShell.** Tilde expansion only looked at `HOME`, which Windows
+  doesn't set — a key path like `~/.ssh/id_ed25519` was passed literally to
+  ssh. It now falls back to `USERPROFILE`, and `~\` works too.
+- Windows desktop app: the window background image loads again — the
+  hand-built `file://C:/…` URI parsed the drive letter as a hostname; the URI
+  is now built by glib (`file:///C:/…`).
 - **Restore tab: target picker was blank on GTK 4.18+** (e.g. Arch Linux). The
   dropdown is now updated in place (splicing its StringList) instead of via
   `set_model`, which newer GTK doesn't re-render — so the Restore target list and

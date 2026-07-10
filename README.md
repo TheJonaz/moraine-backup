@@ -102,8 +102,25 @@ moraine init                       # create an example config (moraine.toml)
 moraine verify                     # test SSH/key/sources/dest
 moraine run [--target NAME] [--dry-run]
 moraine list --target NAME         # list snapshots
+moraine check [--target NAME] [--snapshot TS]  # checksum-verify a snapshot
 moraine prune [--target NAME] [--dry-run]
 ```
+
+**Ad-hoc backups — no config file.** `moraine run` can define a whole target
+from flags, handy for one-off jobs and scripts:
+
+```bash
+moraine run --host nas --user me --key ~/.ssh/id --dest /backups --source ~/docs
+```
+
+Works for every backend (`--backend ssh|rclone|ftp`), takes repeated
+`--source`/`--exclude`, plus `--port`, `--name`, `--bwlimit`,
+`--strict-host-key` and destination encryption
+(`--crypt-password`/`--crypt-salt`). Secrets are better passed via the
+`MORAINE_PASSWORD` / `MORAINE_CRYPT_PASSWORD` environment variables than as
+flags — flag values are visible to other local users in `ps`. Ad-hoc runs
+transfer and snapshot exactly like configured targets, but skip history,
+healthcheck pings and notifications.
 
 ## Config (`moraine.toml`)
 
@@ -161,7 +178,12 @@ Moraine handles credentials for your backup destinations. How they are protected
   unknown host key is trusted on first connect and pinned in `known_hosts`; a
   later change is rejected. Set `strict_host_key = true` on a target (or tick
   *Require known SSH host key* in its Settings) to require the key to already
-  be in `known_hosts`, protecting the first connection too.
+  be in `known_hosts`, protecting the first connection too. **Recommended for
+  targets that log in with a password**: with trust-on-first-use, an attacker
+  who intercepts the *very first* connection could pose as the server and
+  capture the password (a key-based login never reveals a reusable secret, so
+  the default is a smaller risk there). Run *Test connection* once — or
+  `ssh user@host` manually — to pin the key before enabling strict mode.
 - **Scheduling is injection-safe.** Schedule names/targets are rejected if they
   contain control characters and are shell-quoted before being written to
   crontab (or the Windows `.cmd` wrapper), so a crafted or imported config can't

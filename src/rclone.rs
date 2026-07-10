@@ -4,6 +4,13 @@
 //! but unchanged files are server-side copied via `--copy-dest` (rclone's
 //! equivalent to rsync `--link-dest`). `<base>` is either an rclone
 //! remote (`remote:path`) or a local path if `host` is empty.
+//!
+//! Completeness marker: renaming a directory is expensive or impossible on
+//! object stores (S3 has no rename), so instead a `<ts>.incomplete` marker
+//! file is created next to the snapshot directory before the first byte is
+//! copied and deleted only after every source finished. A snapshot whose
+//! marker still exists is invisible to list/check/restore/prune; leftovers
+//! from interrupted runs are removed by [`cleanup_stale`].
 
 use crate::config::{expand_tilde, Backend, Target};
 use crate::{rsync, snapshot, tools::CommandExt};
@@ -230,9 +237,87 @@ pub fn backup_cmds(
         .collect()
 }
 
-/// Arguments that list snapshots (directories) under the base.
+/// Path to the marker file that flags a snapshot as still being written:
+/// `<base>/<ts>.incomplete`, a sibling of the snapshot directory.
+fn incomplete_marker(target: &Target, ts: &str) -> String {
+    format!("{}/{ts}.incomplete", effective_base(target))
+}
+
+/// Arguments that create the in-progress marker (an empty file).
+pub fn marker_create_args(target: &Target, ts: &str) -> Vec<String> {
+    vec!["touch".into(), incomplete_marker(target, ts)]
+}
+
+/// Arguments that remove the in-progress marker — the commit point that makes
+/// the snapshot visible.
+pub fn marker_delete_args(target: &Target, ts: &str) -> Vec<String> {
+    vec!["deletefile".into(), incomplete_marker(target, ts)]
+}
+
+/// Arguments that list everything (files and directories) under the base —
+/// directories get a trailing `/`, so snapshot dirs and `.incomplete` markers
+/// come back in one call. Parsed by [`parse_listing`].
 pub fn list_args(target: &Target) -> Vec<String> {
-    vec!["lsf".into(), "--dirs-only".into(), effective_base(target)]
+    vec!["lsf".into(), effective_base(target)]
+}
+
+/// What an `lsf` listing of the base contains.
+#[derive(Default)]
+struct Listing {
+    /// Snapshot directories with no `.incomplete` marker — safe to use.
+    complete: Vec<String>,
+    /// Timestamps whose marker exists (dir may or may not): interrupted runs.
+    stale: Vec<Stale>,
+}
+
+struct Stale {
+    ts: String,
+    has_dir: bool,
+}
+
+/// Splits an `lsf` listing into complete snapshots and stale (marker still
+/// present) ones. Pure, for testability.
+fn parse_listing(text: &str) -> Listing {
+    let mut dirs: Vec<String> = Vec::new();
+    let mut markers: Vec<String> = Vec::new();
+    for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if let Some(d) = l.strip_suffix('/') {
+            dirs.push(d.to_string());
+        } else if let Some(ts) = l.strip_suffix(".incomplete") {
+            markers.push(ts.to_string());
+        }
+    }
+    // Only timestamp-shaped markers are ours. A stray `X.incomplete` file next
+    // to the snapshots (a common downloader suffix) must not flag — and later
+    // get the unrelated directory `X` recursively purged by — cleanup_stale.
+    markers.retain(|ts| snapshot::is_timestamp(ts));
+    let stale: Vec<Stale> = markers
+        .into_iter()
+        .map(|ts| {
+            let has_dir = dirs.contains(&ts);
+            Stale { ts, has_dir }
+        })
+        .collect();
+    dirs.retain(|d| !stale.iter().any(|s| s.ts == *d));
+    Listing {
+        complete: dirs,
+        stale,
+    }
+}
+
+/// Fetches and parses the base listing. Empty on any rclone failure (the base
+/// probably does not exist yet — first run).
+fn listing(target: &Target) -> Result<Listing> {
+    let out = Command::new("rclone")
+        .no_console()
+        .args(list_args(target))
+        .envs(env_for(target))
+        .output()
+        .context("could not start rclone")?;
+    if !out.status.success() {
+        return Ok(Listing::default());
+    }
+    Ok(parse_listing(&String::from_utf8_lossy(&out.stdout)))
 }
 
 /// Arguments that list a snapshot's contents recursively (directories get `/`).
@@ -274,23 +359,49 @@ pub fn restore_args(
     args
 }
 
-/// Lists existing snapshots. Empty list if the base does not exist yet.
+/// Lists existing **complete** snapshots (a directory whose `.incomplete`
+/// marker is gone). Empty list if the base does not exist yet.
 pub fn list_snapshots(target: &Target) -> Result<Vec<String>> {
-    let out = Command::new("rclone")
-        .no_console()
-        .args(list_args(target))
-        .envs(env_for(target))
-        .output()
-        .context("could not start rclone")?;
-    if !out.status.success() {
-        // The base probably does not exist yet (first run) → empty list.
-        return Ok(Vec::new());
+    Ok(listing(target)?.complete)
+}
+
+/// Best-effort removal of snapshots left behind by interrupted runs (their
+/// `.incomplete` marker still present). Skips `current_ts` (pass `""` when
+/// there is no run in flight). Errors are printed, never propagated — cleanup
+/// must not fail an otherwise-successful backup or prune. Returns the cleaned
+/// timestamps.
+pub fn cleanup_stale(target: &Target, current_ts: &str) -> Vec<String> {
+    let stale = match listing(target) {
+        Ok(l) => l.stale,
+        Err(_) => return Vec::new(),
+    };
+    let mut cleaned = Vec::new();
+    // Belt-and-braces on top of parse_listing's marker filter: only ever
+    // delete timestamp-shaped names.
+    for s in stale
+        .iter()
+        .filter(|s| s.ts != current_ts && snapshot::is_timestamp(&s.ts))
+    {
+        if s.has_dir {
+            if let Err(e) = purge(target, &s.ts) {
+                eprintln!(
+                    "  warning: could not remove interrupted snapshot {}: {e:#}",
+                    s.ts
+                );
+                continue; // keep the marker so it stays hidden and is retried later
+            }
+        }
+        let status = Command::new("rclone")
+            .no_console()
+            .args(marker_delete_args(target, &s.ts))
+            .envs(env_for(target))
+            .status();
+        match status {
+            Ok(st) if st.success() => cleaned.push(s.ts.clone()),
+            _ => eprintln!("  warning: could not remove marker {}.incomplete", s.ts),
+        }
     }
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.trim().trim_end_matches('/').to_string())
-        .filter(|l| !l.is_empty())
-        .collect())
+    cleaned
 }
 
 /// The fs string for `rclone backend features`: local path, `remote:`, or the
@@ -335,25 +446,41 @@ pub fn supports_server_side_copy(target: &Target) -> bool {
     }
 }
 
-/// Runs the backup (CLI): finds the previous snapshot, runs one copy per source.
-/// Uses `--copy-dest` only if the backend supports server-side copy.
-/// Inherits stdio. Returns the timestamp.
+/// The full command sequence for one backup run: create the in-progress marker,
+/// one copy per source, then delete the marker (the commit point — only then is
+/// the snapshot visible). Dry runs skip the marker commands. Does the
+/// previous-snapshot lookup (a network call) — callers that raise a VPN must
+/// call this only after it is up. Shared by the CLI and the desktop client.
+pub fn run_cmds(target: &Target, ts: &str, dry_run: bool) -> Vec<(String, Vec<String>)> {
+    // Only real snapshot timestamps qualify as --copy-dest base; a stray
+    // directory (or a migrated `latest`) would win a lexicographic max and
+    // silently degrade every run to a full copy. Incomplete snapshots are
+    // already filtered out by list_snapshots.
+    let prev = list_snapshots(target)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| snapshot::is_timestamp(s))
+        .max()
+        // Skip --copy-dest for backends without server-side copy (e.g. FTP).
+        .filter(|_| supports_server_side_copy(target));
+    let mut cmds = Vec::new();
+    if !dry_run {
+        cmds.push(("rclone".to_string(), marker_create_args(target, ts)));
+    }
+    cmds.extend(backup_cmds(target, ts, prev.as_deref(), dry_run));
+    if !dry_run {
+        cmds.push(("rclone".to_string(), marker_delete_args(target, ts)));
+    }
+    cmds
+}
+
+/// Runs the backup (CLI): marker, one copy per source, marker removal — then a
+/// best-effort cleanup of older interrupted runs. Inherits stdio. Returns the
+/// timestamp.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     preflight(target)?;
     let ts = snapshot::timestamp();
-    // Only real snapshot timestamps qualify as --copy-dest base; a stray
-    // directory (or a migrated `latest`) would win a lexicographic max and
-    // silently degrade every run to a full copy.
-    let prev = list_snapshots(target)?
-        .into_iter()
-        .filter(|s| snapshot::is_timestamp(s))
-        .max();
-    // Skip --copy-dest for backends without server-side copy (e.g. FTP).
-    let prev_eff = match prev.as_deref() {
-        Some(p) if supports_server_side_copy(target) => Some(p),
-        _ => None,
-    };
-    let cmds = backup_cmds(target, &ts, prev_eff, dry_run);
+    let cmds = run_cmds(target, &ts, dry_run);
     for (prog, args) in &cmds {
         println!("$ {prog} {}", rsync::render(args));
         let status = Command::new(prog)
@@ -369,6 +496,10 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     if dry_run {
         println!("(dry run: no snapshot created)");
     } else {
+        let cleaned = cleanup_stale(target, &ts);
+        if !cleaned.is_empty() {
+            println!("  removed {} interrupted snapshot(s)", cleaned.len());
+        }
         println!("snapshot {ts} complete");
     }
     Ok(ts)
@@ -406,6 +537,74 @@ mod tests {
         ))
         .unwrap();
         cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn listing_hides_snapshots_whose_incomplete_marker_remains() {
+        let l = super::parse_listing(
+            "2026-01-01T00-00-00/\n\
+             2026-01-02T00-00-00/\n\
+             2026-01-02T00-00-00.incomplete\n\
+             2026-01-03T00-00-00.incomplete\n\
+             latest/\n",
+        );
+        // The marked snapshot is hidden; the orphan marker (crash before any
+        // copy) is stale without a dir; stray dirs still list (filtered by
+        // is_timestamp at the use sites).
+        assert_eq!(l.complete, vec!["2026-01-01T00-00-00", "latest"]);
+        let stale: Vec<(&str, bool)> = l.stale.iter().map(|s| (s.ts.as_str(), s.has_dir)).collect();
+        assert_eq!(
+            stale,
+            vec![
+                ("2026-01-02T00-00-00", true),
+                ("2026-01-03T00-00-00", false)
+            ]
+        );
+    }
+
+    #[test]
+    fn stray_incomplete_files_never_mark_unrelated_dirs_stale() {
+        // ".incomplete" is a common downloader suffix. A user's own
+        // "archive.incomplete" next to the snapshots must NOT flag the
+        // unrelated "archive/" directory for deletion by cleanup_stale.
+        let l = super::parse_listing(
+            "2026-01-01T00-00-00/\n\
+             archive/\n\
+             archive.incomplete\n",
+        );
+        assert!(
+            l.stale.is_empty(),
+            "stray marker must not create stale work"
+        );
+        assert_eq!(l.complete, vec!["2026-01-01T00-00-00", "archive"]);
+    }
+
+    #[test]
+    fn marker_paths_route_through_the_effective_base() {
+        let plain = target("");
+        assert_eq!(
+            super::marker_create_args(&plain, "TS"),
+            vec!["touch", "remote:/backups/n/TS.incomplete"]
+        );
+        // Under crypt the marker lives in the encrypted remote too.
+        let enc = target(r#"crypt_password = "hunter2""#);
+        assert_eq!(
+            super::marker_delete_args(&enc, "TS"),
+            vec!["deletefile", "mcrypt:n/TS.incomplete"]
+        );
+    }
+
+    #[test]
+    fn dry_run_cmds_have_no_marker_commands() {
+        // A dry run copies nothing, so it must not create (or delete) markers.
+        let t = target("");
+        let cmds = super::run_cmds(&t, "TS", true);
+        assert!(cmds
+            .iter()
+            .all(|(_, args)| args.iter().all(|a| !a.contains(".incomplete"))));
+        assert!(cmds
+            .iter()
+            .all(|(_, args)| args.contains(&"--dry-run".to_string())));
     }
 
     #[test]

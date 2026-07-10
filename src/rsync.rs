@@ -1,8 +1,10 @@
 //! The rsync engine: builds the rsync arguments and runs the snapshot backup over SSH.
 //!
-//! Each run writes to `<dest>/<name>/<timestamp>/` with
-//! `--link-dest=../latest`, so unchanged files become hardlinks against the
-//! previous snapshot. After a successful run, `latest` is repointed.
+//! Each run writes to the hidden work directory `<dest>/<name>/.incomplete-<ts>/`
+//! with `--link-dest=../latest`, so unchanged files become hardlinks against the
+//! previous snapshot. Only after rsync succeeds is the directory renamed to its
+//! final `<timestamp>` name and `latest` repointed (see `snapshot::finalize_cmd`)
+//! — an interrupted run can never be mistaken for a complete snapshot.
 //!
 //! The argument building (`build_args`) is shared by the CLI and the desktop client.
 
@@ -128,6 +130,13 @@ pub fn restore_args(
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "-aAX".into(),
+        // The file list comes from the *server* — on restore that side is the
+        // less-trusted one (Moraine explicitly supports untrusted destinations).
+        // --safe-links skips symlinks whose target points outside the restored
+        // tree, so a compromised destination can't plant e.g. `x -> ~/.ssh`
+        // and write through it. Trade-off: legitimate absolute symlinks are
+        // skipped too (rsync prints each one).
+        "--safe-links".into(),
         "--mkpath".into(),
         "--protect-args".into(),
         "--human-readable".into(),
@@ -168,6 +177,8 @@ pub fn restore_selected_args(
     let mut args: Vec<String> = vec![
         "-aAX".into(),
         "-R".into(),
+        // Same server-supplied-symlink protection as the full restore above.
+        "--safe-links".into(),
         "--mkpath".into(),
         "--protect-args".into(),
         "--human-readable".into(),
@@ -225,6 +236,17 @@ pub fn verify_args(target: &Target, timestamp: &str) -> Vec<String> {
     args
 }
 
+/// True when an rsync exit code still counts as a complete snapshot. Only 24
+/// ("source files vanished during transfer") qualifies — unavoidable on a live
+/// system, and the vanished files wouldn't be in the next snapshot either.
+/// 23 (partial transfer: unreadable files, I/O errors) is a real failure: data
+/// the user expects in the snapshot is missing, and treating it as success
+/// would keep healthchecks green while auto-prune eventually deletes the last
+/// snapshot that still held the unreadable files.
+pub fn vanished_files_only(code: Option<i32>) -> bool {
+    code == Some(24)
+}
+
 /// Runs a snapshot backup for a target (CLI). Inherits stdio so rsync writes
 /// directly to the terminal. Returns the timestamp on a successful run.
 pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
@@ -233,7 +255,13 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         bail!("{}", missing_sources_hint(&missing));
     }
     let ts = snapshot::timestamp();
-    let dest = snapshot::snapshot_dir(target, &ts);
+    // Real runs write to the hidden work directory and rename on success; a dry
+    // run transfers nothing, so it shows the final path.
+    let dest = if dry_run {
+        snapshot::snapshot_dir(target, &ts)
+    } else {
+        snapshot::incomplete_dir(target, &ts)
+    };
     let args = build_args(target, &dest, Some(LINK_DEST), dry_run);
 
     println!("$ rsync {}", render(&args));
@@ -252,43 +280,50 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
             };
             format!("could not start rsync — is it installed? ({how})")
         })?;
-    // rsync 23 (partial transfer) / 24 (source files vanished) mean *some*
-    // files were skipped, but the snapshot is still valid — treat as success
-    // (with a warning) so `latest` is still updated, like rsnapshot does.
     let code = status.code();
-    if !status.success() && !matches!(code, Some(23) | Some(24)) {
+    if !status.success() && !vanished_files_only(code) {
+        if code == Some(23) {
+            bail!(
+                "rsync partial transfer (exit 23) — some source files could not be \
+                 read or transferred (permissions? I/O errors?); the snapshot was NOT \
+                 finalized and `latest` still points at the previous complete one. \
+                 See the rsync errors above for which files."
+            );
+        }
         bail!("rsync failed (exit {})", code.unwrap_or(-1));
     }
-    if matches!(code, Some(23) | Some(24)) {
+    if vanished_files_only(code) {
         eprintln!(
-            "  warning: rsync partial transfer (exit {}) — some files were skipped; \
-             snapshot still created",
-            code.unwrap_or(-1)
+            "  warning: some source files vanished during the run (rsync exit 24) — \
+             normal on a live system; snapshot still created"
         );
     }
 
     if dry_run {
         println!("(dry run: no snapshot created)");
     } else {
-        update_latest(target, &ts)?;
+        finalize(target, &ts)?;
         println!("snapshot {ts} complete, latest updated");
     }
     Ok(ts)
 }
 
-/// Repoints `<base>/latest` to the new snapshot via ssh.
-pub fn update_latest(target: &Target, timestamp: &str) -> Result<()> {
-    let cmd = snapshot::update_latest_cmd(target, timestamp);
+/// Finalizes a successful snapshot via ssh: renames the work directory to the
+/// final timestamp name, repoints `<base>/latest`, and clears stale work
+/// directories from earlier interrupted runs.
+pub fn finalize(target: &Target, timestamp: &str) -> Result<()> {
+    let cmd = snapshot::finalize_cmd(target, timestamp);
     let args = ssh::remote_command_args(target, &cmd);
     let status = Command::new("ssh")
         .no_console()
         .args(&args)
         .envs(ssh::askpass_env(target))
         .status()
-        .context("could not start ssh for latest symlink")?;
+        .context("could not start ssh to finalize the snapshot")?;
     if !status.success() {
         bail!(
-            "could not update latest symlink (ssh exit {})",
+            "could not finalize the snapshot (ssh exit {}) — it remains as \
+             .incomplete-{timestamp} on the target and will not be listed",
             status.code().unwrap_or(-1)
         );
     }
@@ -327,6 +362,29 @@ mod tests {
         ))
         .unwrap();
         cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn restores_skip_out_of_tree_symlinks() {
+        // The restore file list is server-supplied; --safe-links keeps a
+        // compromised destination from planting symlinks out of the tree.
+        let full = super::restore_args(&target(""), "ts", "/local", false);
+        assert!(full.contains(&"--safe-links".to_string()), "{full:?}");
+        let sel = super::restore_selected_args(&target(""), "ts", &["a".into()], "/local", false);
+        assert!(sel.contains(&"--safe-links".to_string()), "{sel:?}");
+        // Backups go the other way (local → server) and must NOT skip symlinks.
+        let up = super::build_args(&target(""), "/d/n/ts", None, false);
+        assert!(!up.contains(&"--safe-links".to_string()), "{up:?}");
+    }
+
+    #[test]
+    fn only_exit_24_is_a_tolerated_partial() {
+        // 24 = files vanished mid-run (live system) → still a complete snapshot.
+        assert!(super::vanished_files_only(Some(24)));
+        // 23 = unreadable/failed files → data is MISSING; must fail the run.
+        assert!(!super::vanished_files_only(Some(23)));
+        assert!(!super::vanished_files_only(Some(0)));
+        assert!(!super::vanished_files_only(None));
     }
 
     #[test]

@@ -487,10 +487,13 @@ fn load_css() {
     // Inject the hero background image (navy + grid + glow), resolving its path
     // at runtime (installed vs source tree).
     // GTK's CSS url() needs a real URI — a bare absolute path silently fails to
-    // load (with no warning), which left the grid background invisible.
-    // Windows paths use '\', which is invalid in a URI — normalize to '/'.
-    let hero = asset("hero-bg.png").replace('\\', "/");
-    let hero_uri = format!("file://{hero}");
+    // load (with no warning), which left the grid background invisible. Let glib
+    // build it: a hand-rolled "file://C:/…" on Windows parses "C:" as a *host*
+    // (a correct drive URI is "file:///C:/…"), silently failing the same way.
+    let hero = asset("hero-bg.png");
+    let hero_uri = glib::filename_to_uri(&hero, None)
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| format!("file://{}", hero.replace('\\', "/")));
     let css = format!(
         "{CSS}\nwindow {{ background-image: url(\"{hero_uri}\"); background-size: cover; background-position: top center; }}\n"
     );
@@ -579,6 +582,18 @@ progressbar progress { background-color: #0fd4a0; border-radius: 6px; }
 
 fn build_ui(app: &gtk::Application) {
     let state: Shared = Rc::new(RefCell::new(State::load()));
+
+    // Persist unsaved edits on quit (any path: window X, tray Quit, SIGTERM
+    // via GTK). Without this, Quick-tab edits were only saved as a side effect
+    // of running/installing — quitting right after editing silently lost them.
+    // Best-effort: an invalid form (save() validates) can't be prompted about
+    // during shutdown, so it is simply not written.
+    {
+        let st = state.clone();
+        app.connect_shutdown(move |_| {
+            let _ = st.borrow().save();
+        });
+    }
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -948,7 +963,7 @@ fn show_close_dialog(window: &gtk::ApplicationWindow, app: &gtk::Application) {
     let dlg = gtk::Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Stäng Moraine")
+        .title("Close Moraine")
         .default_width(390)
         .build();
 
@@ -1507,6 +1522,92 @@ fn download_file(url: &str, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// SHA-256 of a file via the platform's own tool (no hash crate needed):
+/// `sha256sum` (Linux), `shasum -a 256` (macOS), `certutil` (Windows).
+/// None when the tool is missing or errors.
+fn sha256_of(path: &Path) -> Option<String> {
+    let (prog, args): (&str, Vec<String>) = if cfg!(windows) {
+        (
+            "certutil",
+            vec![
+                "-hashfile".into(),
+                path.display().to_string(),
+                "SHA256".into(),
+            ],
+        )
+    } else if cfg!(target_os = "macos") {
+        (
+            "shasum",
+            vec!["-a".into(), "256".into(), path.display().to_string()],
+        )
+    } else {
+        ("sha256sum", vec![path.display().to_string()])
+    };
+    let out = Command::new(prog).no_console().args(&args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_sha256(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Pulls the SHA-256 hex digest out of a hashing tool's output.
+/// sha256sum/shasum print `<hex>  <file>` — the hex is its own token, so scan
+/// tokens (joining the whole line would glue hash+path into one >64-char
+/// string and never match). certutil prints the hex on its own line, on some
+/// Windows versions as spaced pairs — for those, also try each line with the
+/// whitespace removed.
+fn parse_sha256(text: &str) -> Option<String> {
+    let is_hex64 = |t: &str| t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit());
+    for line in text.lines() {
+        if let Some(t) = line.split_whitespace().find(|t| is_hex64(t)) {
+            return Some(t.to_ascii_lowercase());
+        }
+        let joined: String = line.split_whitespace().collect();
+        if is_hex64(&joined) {
+            return Some(joined.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+/// Integrity-check a downloaded release asset against the release's published
+/// SHA256SUMS. `Ok(true)` = verified. `Ok(false)` = the release publishes no
+/// SHA256SUMS (pre-0.1.27) — accepted, reported to the user. `Err` = mismatch
+/// or the check itself failed; the caller must discard the file.
+fn verify_download(file: &Path, name: &str, sums_url: Option<&str>) -> Result<bool, String> {
+    let Some(url) = sums_url else {
+        return Ok(false);
+    };
+    let out = Command::new("curl")
+        .no_console()
+        .args(["-fsSL", "--max-time", "30", "--", url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("checksum fetch failed to start ({e})"))?;
+    if !out.status.success() {
+        return Err("could not download SHA256SUMS to verify the file".into());
+    }
+    let sums = String::from_utf8_lossy(&out.stdout).to_string();
+    let expected = sums
+        .lines()
+        .find_map(|l| {
+            let (hash, f) = l.split_once(char::is_whitespace)?;
+            // sha256sum writes "<hash>  <name>" ("*<name>" in binary mode).
+            (f.trim().trim_start_matches('*') == name).then(|| hash.trim().to_ascii_lowercase())
+        })
+        .ok_or_else(|| format!("{name} is not listed in the release's SHA256SUMS"))?;
+    let actual = sha256_of(file).ok_or("could not hash the downloaded file")?;
+    if actual != expected {
+        return Err(
+            "checksum mismatch — the download does not match the published SHA256SUMS; \
+             it has been discarded"
+                .into(),
+        );
+    }
+    Ok(true)
+}
+
 /// Revert the banner to a browser fallback after a failed download.
 fn download_failed(
     lbl: &gtk::Label,
@@ -1541,17 +1642,25 @@ fn start_background_download(
     progress.set_text(Some("Preparing…"));
 
     // Stage 1: resolve the asset for this platform (network + package-manager
-    // probe, so off the main thread).
-    let (tx, rx) = async_channel::bounded::<Result<ReleaseAsset, String>>(1);
+    // probe, so off the main thread) — plus the release's SHA256SUMS asset,
+    // used to verify the download.
+    type Picked = (ReleaseAsset, Option<String>);
+    let (tx, rx) = async_channel::bounded::<Result<Picked, String>>(1);
     std::thread::spawn(move || {
         let res = fetch_latest_assets().and_then(|(_v, assets)| {
-            pick_asset(&assets).ok_or_else(|| "no downloadable build for this platform".to_string())
+            let sums = assets
+                .iter()
+                .find(|a| a.name == "SHA256SUMS")
+                .map(|a| a.url.clone());
+            pick_asset(&assets)
+                .map(|a| (a, sums))
+                .ok_or_else(|| "no downloadable build for this platform".to_string())
         });
         let _ = tx.send_blocking(res);
     });
 
     glib::spawn_future_local(async move {
-        let asset = match rx.recv().await {
+        let (asset, sums_url) = match rx.recv().await {
             Ok(Ok(a)) => a,
             Ok(Err(e)) => return download_failed(&lbl, &progress, &dl_btn, &state, &e),
             Err(_) => return,
@@ -1604,13 +1713,42 @@ fn start_background_download(
             .unwrap_or_else(|_| Err("download interrupted".into()));
         done.set(true);
 
-        match result {
+        // Stage 3: verify against the release's SHA256SUMS *before* the .part
+        // file gets its real name — a file that fails verification never looks
+        // like a finished download. Hashing a large installer takes a moment,
+        // so it runs off the main thread like the download itself.
+        let result = match result {
             Ok(()) => {
+                progress.set_text(Some(&format!("Verifying… — {}", asset.name)));
+                let (vtx, vrx) = async_channel::bounded::<Result<bool, String>>(1);
+                {
+                    let part = part.clone();
+                    let name = asset.name.clone();
+                    std::thread::spawn(move || {
+                        let _ =
+                            vtx.send_blocking(verify_download(&part, &name, sums_url.as_deref()));
+                    });
+                }
+                vrx.recv()
+                    .await
+                    .unwrap_or_else(|_| Err("verification interrupted".into()))
+            }
+            Err(e) => Err(e),
+        };
+
+        match result {
+            Ok(verified) => {
                 let _ = std::fs::rename(&part, &dest);
                 progress.set_fraction(1.0);
                 progress.set_visible(false);
+                let note = if verified {
+                    "Downloaded &amp; checksum-verified"
+                } else {
+                    // Releases before SHA256SUMS was published (≤ 0.1.26).
+                    "Downloaded (release has no checksum file)"
+                };
                 lbl.set_markup(&format!(
-                    "✅ <b>Downloaded</b> {} to your Downloads folder — click Open to install.",
+                    "✅ <b>{note}</b> {} in your Downloads folder — click Open to install.",
                     glib::markup_escape_text(&asset.name)
                 ));
                 dl_btn.set_label("Open");
@@ -1655,11 +1793,17 @@ fn build_quick_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
                 port: "22".to_string(),
                 ..Default::default()
             };
-            f.name = format!("target-{}", s.targets.len() + 1);
+            // Pick the first free number — targets.len()+1 can collide with an
+            // existing name after a delete (e.g. [t-1, t-2] − t-1 → "t-2").
+            let n = (1..)
+                .map(|n| format!("target-{n}"))
+                .find(|c| s.targets.iter().all(|t| t.name != *c))
+                .unwrap();
+            f.name = n;
             s.targets.push(f);
             s.selected = Some(s.targets.len() - 1);
             drop(s);
-            refresh_targets(&st, &ui2);
+            targets_changed(&st, &ui2);
             refresh_connection(&st, &ui2);
         });
     }
@@ -1682,9 +1826,40 @@ fn build_quick_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         ui.name.connect_changed(move |e| {
             let sel = st.borrow().selected;
             if let Some(i) = sel {
-                st.borrow_mut().targets[i].name = e.text().to_string();
+                let new = e.text().to_string();
+                let old = st.borrow().targets[i].name.clone();
+                if old == new {
+                    return;
+                }
+                {
+                    let mut s = st.borrow_mut();
+                    s.targets[i].name = new.clone();
+                    // Follow the rename everywhere the old name is referenced,
+                    // so schedules and the Restore tab don't silently detach
+                    // (a stranded schedule would just stop running). BUT only
+                    // when no OTHER target still bears the old name: while
+                    // typing, the field transiently equals other names
+                    // (renaming "web2" → "webnew" passes through "web"), and
+                    // following then would steal that target's references.
+                    let old_still_taken = s
+                        .targets
+                        .iter()
+                        .enumerate()
+                        .any(|(j, t)| j != i && t.name == old);
+                    if !old_still_taken {
+                        for sch in s.schedules.iter_mut().filter(|s| s.target == old) {
+                            sch.target = new.clone();
+                        }
+                        if s.restore_target.as_deref() == Some(old.as_str()) {
+                            s.restore_target = Some(new.clone());
+                        }
+                        if let Some(c) = s.counts.remove(&old) {
+                            s.counts.insert(new.clone(), c);
+                        }
+                    }
+                }
+                targets_changed(&st, &ui2);
             }
-            refresh_target_rows(&st, &ui2);
         });
     }
 
@@ -1839,11 +2014,6 @@ fn refresh_targets(state: &Shared, ui: &Rc<Ui>) {
         row.add_controller(gesture);
         ui.target_list.append(&row);
     }
-}
-
-/// Cheaper refresh: just re-render the labels (used while typing the name).
-fn refresh_target_rows(state: &Shared, ui: &Rc<Ui>) {
-    refresh_targets(state, ui);
 }
 
 fn refresh_connection(state: &Shared, ui: &Rc<Ui>) {
@@ -2137,6 +2307,16 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     advanced.set_child(Some(&adv));
     body.append(&advanced);
 
+    // Error line above the buttons: a failed save must be visible *in the
+    // modal* (the main window's status bar is behind it) — and the modal must
+    // stay open so the user can fix the field instead of believing it saved.
+    let save_err = gtk::Label::new(None);
+    save_err.add_css_class("danger");
+    save_err.set_halign(gtk::Align::Start);
+    save_err.set_wrap(true);
+    save_err.set_visible(false);
+    body.append(&save_err);
+
     // Buttons
     let btns = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let prune_btn = gtk::Button::with_label("Prune now");
@@ -2155,14 +2335,17 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
         let st = state.clone();
         let ui2 = ui.clone();
         let win2 = win.clone();
-        save_btn.connect_clicked(move |_| {
-            match st.borrow().save() {
-                Ok(()) => set_status(&ui2, &format!("Saved {CONFIG_PATH}")),
-                Err(e) => set_status(&ui2, &format!("Save error: {e}")),
+        save_btn.connect_clicked(move |_| match st.borrow().save() {
+            Ok(()) => {
+                set_status(&ui2, &format!("Saved {CONFIG_PATH}"));
+                refresh_targets(&st, &ui2);
+                refresh_connection(&st, &ui2);
+                win2.close();
             }
-            refresh_targets(&st, &ui2);
-            refresh_connection(&st, &ui2);
-            win2.close();
+            Err(e) => {
+                save_err.set_text(&format!("Couldn't save: {e}"));
+                save_err.set_visible(true);
+            }
         });
     }
     btns.append(&save_btn);
@@ -2740,6 +2923,17 @@ fn build_restore_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     outer.upcast()
 }
 
+/// Rebuilds every view keyed by target name or index — the target list, the
+/// Restore dropdown and the schedule rows. MUST be called after any target
+/// add/delete/rename: a stale Restore dropdown would map the user's pick onto
+/// the wrong target by position, loading (and restoring!) another target's
+/// snapshots than the one displayed.
+fn targets_changed(state: &Shared, ui: &Rc<Ui>) {
+    refresh_targets(state, ui);
+    refresh_restore_targets(state, ui);
+    refresh_schedules(state, ui);
+}
+
 fn refresh_restore_targets(state: &Shared, ui: &Rc<Ui>) {
     let names: Vec<String> = state
         .borrow()
@@ -2748,6 +2942,9 @@ fn refresh_restore_targets(state: &Shared, ui: &Rc<Ui>) {
         .map(|t| t.name.clone())
         .collect();
     let strs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+    // Keep the user's selection when its target still exists (rebuilds happen
+    // on every add/delete/rename); otherwise fall back to the first target.
+    let prev = state.borrow().restore_target.clone();
     // set_model/set_selected fire selected_notify; the flag keeps the handler
     // from probing the server (SSH) without any user action.
     state.borrow_mut().refreshing_ui = true;
@@ -2765,8 +2962,26 @@ fn refresh_restore_targets(state: &Shared, ui: &Rc<Ui>) {
     if names.is_empty() {
         state.borrow_mut().restore_target = None;
     } else {
-        ui.restore_target.set_selected(0);
-        state.borrow_mut().restore_target = Some(names[0].clone());
+        let sel = prev
+            .as_ref()
+            .and_then(|p| names.iter().position(|n| n == p))
+            .unwrap_or(0);
+        ui.restore_target.set_selected(sel as u32);
+        state.borrow_mut().restore_target = Some(names[sel].clone());
+    }
+    // If the effective selection changed (its target was deleted or renamed
+    // away), the loaded snapshots/tree belong to the old target — clear them
+    // rather than let a restore run against the wrong data.
+    if state.borrow().restore_target != prev {
+        {
+            let mut s = state.borrow_mut();
+            s.snapshots.clear();
+            s.selected_snapshot = None;
+            s.tree.clear();
+            s.checked.clear();
+        }
+        refresh_snapshots(state, ui);
+        refresh_tree(state, ui);
     }
     state.borrow_mut().refreshing_ui = false;
 }
@@ -3049,7 +3264,10 @@ fn build_help_tab() -> gtk::Widget {
              targets.",
             "Host keys — by default Moraine trusts a new host on first connect and \
              rejects it if the key later changes (TOFU). Enable Strict host key to \
-             require the host to already be known, protecting even the first connection.",
+             require the host to already be known, protecting even the first connection. \
+             Recommended when the target logs in with a password: an attacker who \
+             intercepts the very first connection could otherwise pose as the server \
+             and capture it. Run Test connection once to pin the key, then enable it.",
         ],
     );
 
@@ -3589,7 +3807,7 @@ fn confirm_delete_target(state: &Shared, ui: &Rc<Ui>) {
             };
             drop(s);
             let saved = st.borrow().save();
-            refresh_targets(&st, &ui2);
+            targets_changed(&st, &ui2);
             refresh_connection(&st, &ui2);
             match saved {
                 Ok(()) => set_status(&ui2, "Target deleted"),
@@ -3751,6 +3969,9 @@ fn run_stream(
     start_msg: &str,
     vpn: String,
     prepare: Option<Prepare>,
+    // Held by the worker thread for the whole run and released just before
+    // Done — so a cron/CLI run can't touch the same target concurrently.
+    lock: Option<moraine::lock::TargetLock>,
 ) {
     state.borrow_mut().running = true;
     set_running(ui, true);
@@ -3832,19 +4053,29 @@ fn run_stream(
             let status = child.wait();
             let code = status.as_ref().ok().and_then(|s| s.code());
             let ok = status.map(|s| s.success()).unwrap_or(false);
-            // rsync 23/24 = partial transfer (some files skipped/vanished) but a
-            // valid snapshot — keep going so `latest` is still repointed.
-            let partial = prog == "rsync" && matches!(code, Some(23) | Some(24));
+            // rsync 24 = source files vanished mid-run (a live system) — still a
+            // complete snapshot, keep going so it is finalized. 23 (unreadable
+            // files / I/O errors) is a REAL failure: the snapshot is missing
+            // data and must not become `latest`.
+            let partial = prog == "rsync" && rsync::vanished_files_only(code);
             if !ok && !partial {
-                failed = Some(err_buf.lock().map(|s| s.clone()).unwrap_or_default());
+                let mut detail = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
+                if prog == "rsync" && code == Some(23) {
+                    detail.push_str(
+                        "\nrsync exit 23 — partial transfer: some source files could \
+                         not be read or transferred. The snapshot was NOT finalized; \
+                         `latest` still points at the previous complete one.",
+                    );
+                }
+                failed = Some(detail);
                 break;
             }
             if partial {
-                let _ = tx.send_blocking(Worker::Line(format!(
-                    "⚠ rsync partial transfer (exit {}) — some files were skipped; \
-                     snapshot still created.",
-                    code.unwrap_or(-1)
-                )));
+                let _ = tx.send_blocking(Worker::Line(
+                    "⚠ some source files vanished during the run (rsync exit 24) — \
+                     normal on a live system; snapshot still created."
+                        .to_string(),
+                ));
             }
         }
 
@@ -3854,6 +4085,10 @@ fn run_stream(
             let _ = tx.send_blocking(Worker::Line(format!("$ nmcli connection down {vpn}")));
             moraine::vpn::down(&vpn);
         }
+
+        // Release the target lock before Done, so the next run can start the
+        // moment the UI unblocks.
+        drop(lock);
 
         match failed {
             Some(detail) => {
@@ -3905,7 +4140,11 @@ fn run_stream(
                         };
                         log_entry(&state, &op, &target, ok, line.clone());
                         // A backup also pings the target's healthcheck and (unless
-                        // disabled) raises a desktop notification.
+                        // disabled) raises a desktop notification. Both spawn
+                        // blocking child processes (curl retries up to ~30 s when
+                        // the network is down — exactly when a backup fails), so
+                        // run them OFF the GTK main thread; the UI must not
+                        // freeze right as the user reads the failure.
                         if op == "backup" {
                             let (hc, notify_on) = {
                                 let s = state.borrow();
@@ -3917,10 +4156,13 @@ fn run_stream(
                                     .unwrap_or_default();
                                 (hc, s.notify)
                             };
-                            healthcheck::ping(&hc, ok);
-                            if notify_on {
-                                notify::backup_done(&target, ok, &line);
-                            }
+                            let line = line.clone();
+                            std::thread::spawn(move || {
+                                healthcheck::ping(&hc, ok);
+                                if notify_on {
+                                    notify::backup_done(&target, ok, &line);
+                                }
+                            });
                         }
                     }
                     refresh_history(&state, &ui);
@@ -3972,6 +4214,19 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         return;
     }
     let ts = snapshot::timestamp();
+    // Cross-process lock: a cron/CLI run on the same target must wait its turn.
+    // Dry runs transfer nothing and skip it.
+    let lock = if dry_run {
+        None
+    } else {
+        match moraine::lock::acquire(&target) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                set_status(ui, &format!("{e:#}"));
+                return;
+            }
+        }
+    };
     let pending = if dry_run {
         None
     } else {
@@ -3988,16 +4243,20 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     };
 
     if target.backend.is_ssh() {
-        let dest = snapshot::snapshot_dir(&target, &ts);
+        // Real runs write into the hidden work directory and only the finalize
+        // step (rename + repoint `latest` + stale-work-dir cleanup) makes the
+        // snapshot visible; an interrupted run is never listed as a snapshot.
+        let dest = if dry_run {
+            snapshot::snapshot_dir(&target, &ts)
+        } else {
+            snapshot::incomplete_dir(&target, &ts)
+        };
         let mut args = rsync::build_args(&target, &dest, Some(rsync::LINK_DEST), dry_run);
         add_rsync_progress(&mut args);
         let mut cmds = vec![("rsync".to_string(), args)];
         if !dry_run {
-            let latest = snapshot::update_latest_cmd(&target, &ts);
-            cmds.push((
-                "ssh".to_string(),
-                ssh::remote_command_args(&target, &latest),
-            ));
+            let fin = snapshot::finalize_cmd(&target, &ts);
+            cmds.push(("ssh".to_string(), ssh::remote_command_args(&target, &fin)));
         }
         set_log(ui, &format!("snapshot {ts}\n"));
         run_stream(
@@ -4009,6 +4268,7 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             &msg,
             target.vpn.clone(),
             None,
+            lock,
         );
     } else {
         if let Err(e) = rclone::preflight(&target) {
@@ -4019,16 +4279,12 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         // The --copy-dest lookup is a network call that must run *after* the
         // VPN is up (some rclone remotes are only reachable over it), so build
         // the commands inside the worker via `prepare` rather than up front.
+        // run_cmds wraps the copies in the `.incomplete` marker create/delete,
+        // so an interrupted run stays invisible to list/restore/prune.
         let env = rclone::env_for(&target);
         let t = target.clone();
         let prepare: Prepare = Box::new(move || {
-            let prev = rclone::list_snapshots(&t)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|s| snapshot::is_timestamp(s))
-                .max()
-                .filter(|_| rclone::supports_server_side_copy(&t));
-            let mut cmds = rclone::backup_cmds(&t, &ts, prev.as_deref(), dry_run);
+            let mut cmds = rclone::run_cmds(&t, &ts, dry_run);
             for (prog, args) in &mut cmds {
                 add_rclone_progress(prog, args);
             }
@@ -4043,6 +4299,7 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             &msg,
             target.vpn.clone(),
             Some(prepare),
+            lock,
         );
     }
 }
@@ -4131,6 +4388,7 @@ fn run_verify(state: &Shared, ui: &Rc<Ui>) {
         &format!("Verifying {name}…"),
         f.to_target().vpn,
         None,
+        None, // read-only — no target lock needed
     );
 }
 
@@ -4215,6 +4473,7 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         "Restoring…",
         target.vpn.clone(),
         None,
+        None, // reads the target, writes locally — no target lock needed
     );
 }
 
@@ -4291,14 +4550,36 @@ fn prune_now(state: &Shared, ui: &Rc<Ui>) {
     run_oneshot(
         ui,
         state,
-        move || prune_target(&target),
+        move || {
+            // Same cross-process lock as a backup: pruning during a run could
+            // delete the snapshot the run hardlinks against.
+            let _lock = moraine::lock::acquire(&target).map_err(|e| format!("{e:#}"))?;
+            // Raise the target's VPN if needed — pruning needs the same
+            // connectivity the backup does. A user-raised VPN is left alone.
+            let vpn = target.vpn.trim().to_string();
+            let vpn_ours = !vpn.is_empty() && !moraine::vpn::is_active(&vpn);
+            if vpn_ours {
+                moraine::vpn::up(&vpn).map_err(|e| format!("{e:#}"))?;
+            }
+            let res = prune_target(&target);
+            if vpn_ours {
+                moraine::vpn::down(&vpn);
+            }
+            res
+        },
         move |st, ui, res| match res {
             Ok(msg) => {
                 set_status(ui, &msg);
                 log_entry(st, "prune", &name, true, msg);
                 refresh_history(st, ui);
             }
-            Err(e) => set_status(ui, &format!("Prune failed: {e}")),
+            Err(e) => {
+                set_status(ui, &format!("Prune failed: {e}"));
+                // Visible in History too — a silently broken retention setup
+                // would otherwise fill the target disk.
+                log_entry(st, "prune", &name, false, e);
+                refresh_history(st, ui);
+            }
         },
     );
 }
@@ -4457,6 +4738,8 @@ fn ssh_probe(target: &Target, remote_cmd: &str) -> Command {
     cmd
 }
 
+/// Only real snapshot timestamps: `latest`, stray directories and anything
+/// else under the base must never show up as a restorable snapshot.
 fn list_snapshots(target: &Target) -> Result<String, String> {
     let mut snaps = if target.backend.is_ssh() {
         let out = ssh_probe(target, &snapshot::list_cmd(target))
@@ -4468,11 +4751,11 @@ fn list_snapshots(target: &Target) -> Result<String, String> {
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty() && l != "latest")
             .collect::<Vec<_>>()
     } else {
         rclone::list_snapshots(target).map_err(|e| format!("{e:#}"))?
     };
+    snaps.retain(|s| snapshot::is_timestamp(s));
     snaps.sort();
     snaps.reverse();
     Ok(snaps.join("\n"))
@@ -4632,13 +4915,29 @@ fn prune_target(target: &Target) -> Result<String, String> {
     if policy.is_empty() {
         return Ok("No retention policy — keeping all".to_string());
     }
+    // Also collect snapshots left behind by interrupted runs (invisible to
+    // the listing, so retention can never reclaim them). A chronically
+    // *failing* target never reaches the successful-run cleanup paths —
+    // prune is the escape hatch. Best-effort; the caller holds the target
+    // lock, so nothing in flight can be swept up.
+    let cleaned = if target.backend.is_ssh() {
+        let _ = ssh_probe(target, &snapshot::cleanup_incomplete_cmd(target)).output();
+        0 // rm -rf reports no per-directory count
+    } else {
+        rclone::cleanup_stale(target, "").len()
+    };
+    let note = if cleaned > 0 {
+        format!(", removed {cleaned} interrupted")
+    } else {
+        String::new()
+    };
     let snaps: Vec<String> = list_snapshots(target)?
         .lines()
         .map(|s| s.to_string())
         .collect();
     let plan = prune::plan(&snaps, policy);
     if plan.delete.is_empty() {
-        return Ok(format!("Nothing to prune ({} kept)", plan.keep.len()));
+        return Ok(format!("Nothing to prune ({} kept{note})", plan.keep.len()));
     }
     if target.backend.is_ssh() {
         let del = ssh_probe(target, &snapshot::prune_cmd(target, &plan.delete))
@@ -4653,7 +4952,7 @@ fn prune_target(target: &Target) -> Result<String, String> {
         }
     }
     Ok(format!(
-        "Pruned {}, kept {}",
+        "Pruned {}, kept {}{note}",
         plan.delete.len(),
         plan.keep.len()
     ))
@@ -5123,5 +5422,34 @@ fn sanitize_task_name(name: &str) -> String {
         "task".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    const HASH: &str = "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2";
+
+    #[test]
+    fn parse_sha256_reads_every_tool_format() {
+        // sha256sum / shasum: "<hex>  <path>" — the path must not be glued
+        // onto the hash (that made verification fail on every Linux/macOS).
+        let linux = format!("{HASH}  /home/user/Downloads/moraine_0.1.27_amd64.deb\n");
+        assert_eq!(super::parse_sha256(&linux).as_deref(), Some(HASH));
+        // certutil (Windows): banner line, hex on its own line, footer.
+        let win = format!("SHA256 hash of file x.exe:\n{HASH}\nCertUtil: -hashfile command completed successfully.\n");
+        assert_eq!(super::parse_sha256(&win).as_deref(), Some(HASH));
+        // Older certutil prints the hex as spaced pairs.
+        let spaced: String = HASH
+            .as_bytes()
+            .chunks(2)
+            .map(|p| std::str::from_utf8(p).unwrap())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            super::parse_sha256(&format!("header:\n{spaced}\n")).as_deref(),
+            Some(HASH)
+        );
+        // No hash anywhere → None (never a false positive from prose).
+        assert_eq!(super::parse_sha256("CertUtil: file not found\n"), None);
     }
 }

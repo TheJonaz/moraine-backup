@@ -28,19 +28,12 @@ pub fn ping(url: &str, ok: bool) {
     };
     // -fsS: fail on HTTP errors, quiet, but still show a real error if asked.
     // A short timeout and a couple of retries keep a flaky link from stalling the
-    // run, without blocking indefinitely.
+    // run, without blocking indefinitely. The response body is discarded via the
+    // nulled stdout — NOT `-o /dev/null`, which is not a valid path on Windows
+    // (curl would error there and the ping would silently never arrive).
     let _ = Command::new("curl")
         .no_console()
-        .args([
-            "-fsS",
-            "-m",
-            "10",
-            "--retry",
-            "2",
-            "-o",
-            "/dev/null",
-            &endpoint,
-        ])
+        .args(["-fsS", "-m", "10", "--retry", "2", &endpoint])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();

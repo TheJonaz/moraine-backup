@@ -2,9 +2,33 @@
 name = "moraine"
 version = "0.1.26"
 edition = "2021"
+# std::fs::File::try_lock (the per-target run lock) stabilized in 1.89.
+rust-version = "1.89"
 description = "Moraine — snapshot-based backup over SSH/rsync and rclone"
 license = "MIT"
+authors = ["Jonaz Thern <info@thern.io>"]
+repository = "https://github.com/TheJonaz/moraine-backup"
+homepage = "https://moraine.thern.io"
+readme = "README.md"
+keywords = ["backup", "rsync", "rclone", "snapshot", "ssh"]
+categories = ["command-line-utilities", "filesystem"]
 build = "build.rs"
+# Keep the crates.io tarball to what's needed to build and use the crate —
+# without this, `cargo package` drags in packaging/, deploy/, .github/ and
+# every PNG in assets/ (111 files).
+include = [
+    # gitignore-style patterns: anchor with '/' so e.g. "README.md" doesn't
+    # also match packaging/*/README.md.
+    "/src",
+    "/build.rs",
+    "/moraine.example.toml",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/assets/moraine.svg",
+    # build.rs embeds the icon into the Windows .exe.
+    "/assets/moraine.ico",
+]
 
 [lib]
 name = "moraine"

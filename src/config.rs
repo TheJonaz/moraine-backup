@@ -1,4 +1,4 @@
-//! Config: reads and validates `backup.toml`.
+//! Config: reads and validates `moraine.toml`.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -241,9 +241,8 @@ impl Config {
     /// Sanity- and safety-checks the config. Public so the GUI can validate an
     /// imported config before replacing the current one.
     pub fn validate(&self) -> Result<()> {
-        if self.targets.is_empty() {
-            bail!("config has no [[target]] block");
-        }
+        // An empty target list is valid: the GUI must be able to save after the
+        // last target is deleted (and save settings before the first is added).
         for t in &self.targets {
             // The name becomes a folder under `dest` and is interpolated into
             // remote commands (always shell-quoted, but quoting doesn't stop
@@ -427,13 +426,24 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Expands `~` / a leading `~/` against $HOME. Leaves everything else untouched.
+/// Expands `~` / a leading `~/` (and `~\` on Windows) against the user's home
+/// directory. Leaves everything else untouched.
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
+    // Windows sets USERPROFILE, not HOME — under Task Scheduler or plain
+    // cmd/PowerShell, a HOME-only lookup passed `~/.ssh/id` literally to ssh.
+    let home = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty());
+    if let Some(home) = home {
         if path == "~" {
             return PathBuf::from(home);
         }
         if let Some(rest) = path.strip_prefix("~/") {
+            return Path::new(&home).join(rest);
+        }
+        #[cfg(windows)]
+        if let Some(rest) = path.strip_prefix("~\\") {
             return Path::new(&home).join(rest);
         }
     }
@@ -457,6 +467,37 @@ mod tests {
             "#
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn expand_tilde_expands_only_a_leading_tilde() {
+        // Uses the test environment's real HOME — no env mutation (tests run
+        // in parallel in one process).
+        let home = std::path::PathBuf::from(std::env::var("HOME").unwrap());
+        assert_eq!(super::expand_tilde("~"), home);
+        assert_eq!(super::expand_tilde("~/x/y"), home.join("x/y"));
+        // Not a tilde prefix → untouched.
+        assert_eq!(
+            super::expand_tilde("/abs/~/x"),
+            std::path::PathBuf::from("/abs/~/x")
+        );
+        assert_eq!(
+            super::expand_tilde("~user/x"),
+            std::path::PathBuf::from("~user/x")
+        );
+    }
+
+    #[test]
+    fn empty_target_list_is_valid_and_round_trips() {
+        // The GUI must be able to save after deleting the last target (and
+        // save settings before the first one exists) — and load it back.
+        let cfg: Config = toml::from_str("notify = false").unwrap();
+        assert!(cfg.targets.is_empty());
+        cfg.validate().expect("zero targets is a valid config");
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert!(back.targets.is_empty());
+        assert_eq!(back.notify, Some(false));
     }
 
     #[test]

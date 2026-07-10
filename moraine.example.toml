@@ -23,6 +23,9 @@ key = "~/.ssh/backup_ed25519"
 
 # Require the host key to already be in known_hosts (StrictHostKeyChecking=yes).
 # Default false = accept-new: trust on first connect, reject if it changes.
+# Recommended for password logins — accept-new leaves the *first* connection
+# open to an impostor server capturing the password. Pin the key first with
+# `moraine verify` (or one manual `ssh user@host`), then enable this.
 # strict_host_key = true
 
 # Root directory on the target. Snapshots go to <dest>/<name>/<timestamp>/.
