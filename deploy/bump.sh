@@ -146,24 +146,46 @@ SITE_PATH="${MORAINE_SITE_PATH:-/home/moraine/public_html/index.html}"
 SITE_OWNER="${MORAINE_SITE_OWNER:-moraine:moraine}"
 SITE_KEY="${MORAINE_SITE_KEY:-$HOME/sshkeys/node1.key}"
 
+# Staged deploy of one local site file to the moraine-owned web root: scp to
+# /tmp, then `sudo install` into place (notroot can't write the web root directly
+# but has passwordless sudo). Returns non-zero on failure. `ssh_opts` must be set.
+deploy_site_file() {  # deploy_site_file <local-path> <remote-dest-path>
+    local src="$1" dst="$2" tmp="/tmp/moraine-deploy-${2##*/}"
+    scp "${ssh_opts[@]}" "$src" "$SITE_HOST:$tmp" \
+        && ssh "${ssh_opts[@]}" "$SITE_HOST" \
+            "sudo install -o '${SITE_OWNER%:*}' -g '${SITE_OWNER#*:}' -m 664 '$tmp' '$dst' && rm -f '$tmp'"
+}
+
 if [ "$DEPLOY_SITE" = 1 ] && [ "$PUSH" = 1 ]; then
     if [ ! -f "$ROOT/site/index.html" ]; then
         printf 'bump: no site/index.html — skipping website deploy\n' >&2
     else
-        printf 'bump: deploying site/index.html to %s ...\n' "$SITE_HOST"
         ssh_opts=(-4 -o StrictHostKeyChecking=accept-new)
         [ -f "$SITE_KEY" ] && ssh_opts+=(-i "$SITE_KEY" -o IdentitiesOnly=yes)
-        if scp "${ssh_opts[@]}" "$ROOT/site/index.html" "$SITE_HOST:/tmp/moraine-index.html" \
-            && ssh "${ssh_opts[@]}" "$SITE_HOST" \
-                "sudo install -o '${SITE_OWNER%:*}' -g '${SITE_OWNER#*:}' -m 664 /tmp/moraine-index.html '$SITE_PATH' && rm -f /tmp/moraine-index.html"; then
+        SITE_DIR="${SITE_PATH%/*}"
+        printf 'bump: deploying site/index.html to %s ...\n' "$SITE_HOST"
+        if deploy_site_file "$ROOT/site/index.html" "$SITE_PATH"; then
             printf 'bump: site deployed — https://moraine.thern.io now shows v%s\n' "$N"
             printf 'bump: (its versioned CDN download links resolve once cdn-pull publishes v%s, ~10 min)\n' "$N"
         else
             printf 'bump: WARNING — site deploy failed; deploy site/index.html to %s manually\n' "$SITE_HOST" >&2
         fi
+        # Ship the static site assets index.html references (the GUI screenshots),
+        # so a screenshot refresh actually reaches the live site — bump.sh used to
+        # deploy only index.html, leaving updated images stranded locally. Only
+        # files present in site/ are pushed; unchanged ones simply overwrite with
+        # the same bytes.
+        for asset in app-hero.png app-hero.webp; do
+            [ -f "$ROOT/site/$asset" ] || continue
+            if deploy_site_file "$ROOT/site/$asset" "$SITE_DIR/$asset"; then
+                printf 'bump: deployed site asset %s\n' "$asset"
+            else
+                printf 'bump: WARNING — failed to deploy %s; upload it to %s manually\n' "$asset" "$SITE_DIR" >&2
+            fi
+        done
     fi
 elif [ "$DEPLOY_SITE" != 1 ]; then
-    printf 'bump: --no-site — website not deployed (site/index.html was updated locally)\n'
+    printf 'bump: --no-site — website not deployed (site/ was updated locally)\n'
 fi
 
 cat <<EOF

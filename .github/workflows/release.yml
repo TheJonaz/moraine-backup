@@ -215,6 +215,30 @@ jobs:
           files: moraine-gui-*-setup.exe
           fail_on_unmatched_files: false
 
+  # ── Publish SHA256SUMS covering every uploaded asset ──
+  # Runs after all package builds so the desktop app's updater (and users/
+  # packagers) can verify a download against it. `gh release download` grabs
+  # whatever is attached at that point; --clobber keeps re-dispatched builds
+  # idempotent. The GitHub release-notes auto-checksums don't cover files, so
+  # this is the only integrity signal beyond TLS.
+  checksums:
+    name: publish SHA256SUMS
+    needs: [release, rpm, arch, windows-gui]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute and upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          mkdir assets
+          cd assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*'
+          rm -f SHA256SUMS
+          sha256sum * > ../SHA256SUMS
+          cd ..
+          gh release upload "$RELEASE_TAG" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+
   # ── Bump the downstream packaging recipes (AUR, Homebrew, nixpkgs, winget, …) ──
   # Runs after the packages are built and uploaded, so the source tarball and the
   # Windows zip exist for the checksums. deploy/bump-recipes.sh refreshes every
