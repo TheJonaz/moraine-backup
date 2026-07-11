@@ -34,19 +34,21 @@ DRYRUN=0
 ASSUME_YES=0
 DEPLOY_SITE=1
 REFRESH_CDN=1
+ARCHIVE_BACKUP=1
 for a in "$@"; do
     case "$a" in
-        --no-push) PUSH=0 ;;
-        --dry-run) DRYRUN=1 ;;
-        --no-site) DEPLOY_SITE=0 ;;
-        --no-cdn)  REFRESH_CDN=0 ;;
-        -y|--yes)  ASSUME_YES=1 ;;
+        --no-push)    PUSH=0 ;;
+        --dry-run)    DRYRUN=1 ;;
+        --no-site)    DEPLOY_SITE=0 ;;
+        --no-cdn)     REFRESH_CDN=0 ;;
+        --no-archive) ARCHIVE_BACKUP=0 ;;
+        -y|--yes)     ASSUME_YES=1 ;;
         -*) die "unknown option: $a" ;;
         *) [ -z "$NEW" ] || die "unexpected argument: $a"; NEW="$a" ;;
     esac
 done
 
-[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--no-site] [--no-cdn] [--dry-run] [-y]"
+[ -n "$NEW" ] || die "usage: deploy/bump.sh <version> [--no-push] [--no-site] [--no-cdn] [--no-archive] [--dry-run] [-y]"
 [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must look like X.Y.Z (got '$NEW')"
 
 # Always operate from the repo root, wherever we were invoked from.
@@ -208,11 +210,26 @@ elif [ "$REFRESH_CDN" != 1 ]; then
     printf 'bump: --no-cdn — CDN not triggered (its timer publishes v%s within ~10 min)\n' "$N"
 fi
 
+# ── Archive this release to backup.thern.io ──
+# The CDN keeps only the last 5 versions; backup.thern.io keeps them ALL. Runs
+# after the CDN step (so the build has finished and the assets exist). Needs the
+# WireGuard VPN up; best-effort — the packages are on GitHub regardless. Skip
+# with --no-archive.
+if [ "$ARCHIVE_BACKUP" = 1 ] && [ "$PUSH" = 1 ] && [ -x "$ROOT/deploy/archive-releases.sh" ]; then
+    printf 'bump: archiving v%s to backup.thern.io…\n' "$N"
+    "$ROOT/deploy/archive-releases.sh" "$N" \
+        || printf 'bump: note — backup archive skipped (VPN down?); run deploy/archive-releases.sh %s later\n' "$N" >&2
+elif [ "$ARCHIVE_BACKUP" != 1 ]; then
+    printf 'bump: --no-archive — release not mirrored to backup.thern.io\n'
+fi
+
 cat <<EOF
 
 bump: done. The rest is automatic —
   * release.yml builds the packages, then its 'recipes' job bumps the downstream
     packaging recipes (AUR / Homebrew / nixpkgs / …) and commits them to main.
-  * the CDN was triggered above (or its timer publishes within ~10 min).
-  (Manual fallbacks:  deploy/cdn-refresh.sh $N   ·   deploy/bump-recipes.sh $N)
+  * the CDN was triggered above (keeps the last 5 versions; timer is the backup).
+  * this release was archived to backup.thern.io (keeps ALL versions).
+  (Manual fallbacks:  deploy/cdn-refresh.sh $N   ·   deploy/archive-releases.sh $N
+                      deploy/bump-recipes.sh $N)
 EOF

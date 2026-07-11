@@ -33,6 +33,24 @@ STAGE="${2:?usage: cdn-publish.sh <version> <staging-dir>}"
 
 log() { printf '==> %s\n' "$*"; }
 
+# Keep the newest $KEEP_VERSIONS moraine versions in a repo dir; delete files for
+# older versions. The version is the token right after "moraine-" in the file
+# name (moraine-<ver>-<rel>… for both rpm and arch). rpm: createrepo then indexes
+# the kept versions so dnf can roll back; arch: the db points at the latest but
+# the kept files stay downloadable for `pacman -U`. deb is left to reprepro
+# (latest only). Every released version is also archived to backup.thern.io.
+KEEP_VERSIONS="${KEEP_VERSIONS:-5}"
+prune_versions() {  # prune_versions <dir>
+    local dir="$1" old v
+    old=$(ls "$dir"/moraine-*[0-9]* 2>/dev/null \
+            | sed -n 's#.*/moraine-\([0-9][0-9.]*\)-.*#\1#p' \
+            | sort -Vru | tail -n +"$((KEEP_VERSIONS + 1))")
+    for v in $old; do
+        log "prune $(basename "$dir"): drop moraine $v (keeping newest $KEEP_VERSIONS)"
+        find "$dir" -maxdepth 1 -type f -name "moraine-$v-*" -delete
+    done
+}
+
 # ── Debian: reprepro owns pool/ + dists/ (signed) under $DEB_BASE ──
 deb=$(ls "$STAGE"/moraine_*"${VERSION}"*_amd64.deb 2>/dev/null | head -1 || true)
 if [ -n "$deb" ] && command -v reprepro >/dev/null; then
@@ -50,11 +68,7 @@ if [ -n "$rpm" ] && command -v createrepo_c >/dev/null; then
     log "createrepo_c $RPM_DIR"
     mkdir -p "$RPM_DIR"
     cp -f "$rpm" "$RPM_DIR/"
-    # Keep only the current version. createrepo indexes every rpm in the dir, so
-    # old ones would otherwise pile up and stay installable/listed forever. The
-    # deb repo already keeps just the latest (reprepro) — match that everywhere.
-    find "$RPM_DIR" -maxdepth 1 -type f -name 'moraine-*.rpm' \
-        ! -name "moraine-${VERSION}-*.rpm" -delete
+    prune_versions "$RPM_DIR"          # keep the newest $KEEP_VERSIONS for rollback
     createrepo_c --update "$RPM_DIR"
 else
     log "SKIP rpm (no .rpm in staging or createrepo_c missing)"
@@ -67,11 +81,7 @@ if [ -n "$pkg" ] && command -v repo-add >/dev/null; then
     mkdir -p "$ARCH_DIR"
     cp -f "$pkg" "$ARCH_DIR/"
     repo-add "$ARCH_DIR/$ARCH_DB" "$ARCH_DIR/$(basename "$pkg")"
-    # repo-add already replaced the db entry with this version; remove the old
-    # package files (orphaned on disk, and cdn-reindex would still list them).
-    find "$ARCH_DIR" -maxdepth 1 -type f \
-        \( -name 'moraine-*-x86_64.pkg.tar.zst' -o -name 'moraine-*-x86_64.pkg.tar.zst.sig' \) \
-        ! -name "moraine-${VERSION}-*" -delete
+    prune_versions "$ARCH_DIR"         # keep the newest $KEEP_VERSIONS package files
 else
     log "SKIP arch (no .pkg.tar.zst in staging or repo-add missing)"
 fi
