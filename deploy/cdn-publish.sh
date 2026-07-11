@@ -50,6 +50,11 @@ if [ -n "$rpm" ] && command -v createrepo_c >/dev/null; then
     log "createrepo_c $RPM_DIR"
     mkdir -p "$RPM_DIR"
     cp -f "$rpm" "$RPM_DIR/"
+    # Keep only the current version. createrepo indexes every rpm in the dir, so
+    # old ones would otherwise pile up and stay installable/listed forever. The
+    # deb repo already keeps just the latest (reprepro) — match that everywhere.
+    find "$RPM_DIR" -maxdepth 1 -type f -name 'moraine-*.rpm' \
+        ! -name "moraine-${VERSION}-*.rpm" -delete
     createrepo_c --update "$RPM_DIR"
 else
     log "SKIP rpm (no .rpm in staging or createrepo_c missing)"
@@ -62,6 +67,11 @@ if [ -n "$pkg" ] && command -v repo-add >/dev/null; then
     mkdir -p "$ARCH_DIR"
     cp -f "$pkg" "$ARCH_DIR/"
     repo-add "$ARCH_DIR/$ARCH_DB" "$ARCH_DIR/$(basename "$pkg")"
+    # repo-add already replaced the db entry with this version; remove the old
+    # package files (orphaned on disk, and cdn-reindex would still list them).
+    find "$ARCH_DIR" -maxdepth 1 -type f \
+        \( -name 'moraine-*-x86_64.pkg.tar.zst' -o -name 'moraine-*-x86_64.pkg.tar.zst.sig' \) \
+        ! -name "moraine-${VERSION}-*" -delete
 else
     log "SKIP arch (no .pkg.tar.zst in staging or repo-add missing)"
 fi
