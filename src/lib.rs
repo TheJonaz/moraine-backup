@@ -12,6 +12,7 @@ pub mod lock;
 pub mod notify;
 pub mod prune;
 pub mod rclone;
+pub mod recommend;
 pub mod rsync;
 pub mod snapshot;
 pub mod ssh;
