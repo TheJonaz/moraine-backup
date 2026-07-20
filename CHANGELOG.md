@@ -7,6 +7,21 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Changed
+- The release/deploy tooling (`deploy/`) is no longer part of the source tree.
+  It described the maintainer's own hosting — CDN, web and backup hosts, the
+  deploy user and local key paths — and was of no use when building Moraine,
+  yet it shipped in every source tarball. It now lives in a separate private
+  repository; `bump-recipes.sh`, which CI runs, moved to `packaging/`.
+  `.gitattributes` marks `deploy/` `export-ignore` so it cannot reappear in a
+  generated archive. No credentials were ever included.
+- README: the centred HTML header block is plain Markdown again, so the file
+  reads cleanly in a terminal.
+- README: the Arch install section leads with the AUR package instead of the
+  release artifact.
+
 ## [0.2.0] — 2026-07-10
 
 ### Changed
