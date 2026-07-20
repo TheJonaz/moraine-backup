@@ -241,7 +241,7 @@ jobs:
 
   # ── Bump the downstream packaging recipes (AUR, Homebrew, nixpkgs, winget, …) ──
   # Runs after the packages are built and uploaded, so the source tarball and the
-  # Windows zip exist for the checksums. deploy/bump-recipes.sh refreshes every
+  # Windows zip exist for the checksums. packaging/bump-recipes.sh refreshes every
   # recipe's version + checksums and commits the result back to main. Pushed with
   # GITHUB_TOKEN, which by design does NOT re-trigger workflows — no release loop.
   # Idempotent: a re-dispatched build whose recipes are already current is a no-op.
@@ -262,7 +262,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # --no-push: commit only; we push HEAD:main explicitly (robust regardless
           # of branch/detached state). Skips committing if already at VER.
-          deploy/bump-recipes.sh "$VER" --no-push
+          packaging/bump-recipes.sh "$VER" --no-push
           if git log --oneline -1 | grep -q "bump downstream recipes to v${VER}\$"; then
             git push origin HEAD:main
           else
@@ -271,9 +271,9 @@ jobs:
 
   # ── CDN publish (cdn.thern.io) is pull-based, not pushed from here ──
   # The CDN host firewalls inbound SSH, so GitHub Actions cannot push to it.
-  # Instead the host pulls: deploy/cdn-pull.sh — run by a systemd timer on the
-  # server (deploy/systemd/) — polls this repo's latest release, downloads the
-  # .deb/.rpm/.pkg.tar.zst and runs deploy/cdn-publish.sh locally. So there is
-  # nothing to do in this workflow: publishing the GitHub Release above is
-  # enough, and the CDN refreshes within the timer interval. See
-  # docs/releasing.md for the one-time server setup.
+  # Instead the host pulls: a systemd timer on the server polls this repo's
+  # latest release, downloads the .deb/.rpm/.pkg.tar.zst and publishes them
+  # locally. So there is nothing to do in this workflow: publishing the GitHub
+  # Release above is enough, and the CDN refreshes within the timer interval.
+  # The pull/publish scripts and the one-time server setup live in the private
+  # TheJonaz/moraine-deploy repo.

@@ -1,0 +1,6 @@
+# Release/deploy tooling is infrastructure-specific (hosts, users, key paths) and
+# is of no use to anyone building Moraine from source. Keep it out of every
+# `git archive` product: the Debian orig tarball (docs/debian-upload.md), GitHub's
+# generated tag archives, and anything the AUR PKGBUILD fetches from them.
+deploy/ export-ignore
+.gitattributes export-ignore

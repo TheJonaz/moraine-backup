@@ -1,10 +1,10 @@
-<div align="center">
-  <img src="assets/moraine.svg" width="96" alt="Moraine">
-  <h1>Moraine</h1>
-  <p><strong>Snapshot-based backup over SSH/rsync and rclone — CLI + desktop client.</strong></p>
-</div>
+![Moraine](assets/moraine.svg)
 
-<p align="center"><img src="assets/screenshot.png" width="760" alt="Moraine desktop client"></p>
+# Moraine
+
+**Snapshot-based backup over SSH/rsync and rclone — CLI + desktop client.**
+
+![Moraine desktop client](assets/screenshot.png)
 
 Moraine takes **hardlinked snapshots** of your files to any destination: a NAS/server
 over SSH, or cloud/FTP/SMB/WebDAV/S3/Drive via rclone. Every run becomes its own
@@ -34,20 +34,23 @@ Installs `moraine` (CLI) and `moraine-gui` (desktop) plus a menu entry. Dependen
 `rsync`, `openssh-client`; recommended: `rclone`, `xdg-desktop-portal`.
 
 ### Arch Linux
-Install the prebuilt package straight from the release:
+Install from the [AUR](https://aur.archlinux.org/packages/moraine) with your
+helper of choice:
+```bash
+paru -S moraine   # or: yay -S moraine
+```
+Without a helper, build straight from the AUR repo:
+```bash
+git clone https://aur.archlinux.org/moraine.git
+cd moraine
+makepkg -si
+```
+Or install the prebuilt package from the release, skipping the build:
 ```bash
 sudo pacman -U https://github.com/TheJonaz/moraine-backup/releases/download/v0.2.0/moraine-0.2.0-1-x86_64.pkg.tar.zst
 ```
-Or build it yourself with the `PKGBUILD` (needed if your pacman requires signed
-packages):
-```bash
-mkdir moraine && cd moraine
-curl -O https://raw.githubusercontent.com/TheJonaz/moraine-backup/v0.2.0/packaging/aur/PKGBUILD
-makepkg -si
-```
 Runtime deps: `gtk4`, `rsync`, `openssh`; optional: `rclone`, `gnupg`,
-`networkmanager`. (An AUR package `moraine` is planned once AUR registration
-reopens.)
+`networkmanager`.
 
 ### macOS (CLI)
 The command-line client via Homebrew (the desktop app is Linux-only):
