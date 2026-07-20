@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.2.1" date="2026-07-20">
+      <description>
+        <p>The release/deploy tooling (deploy/) is no longer part of the source tree.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-07-10">
       <description>
         <p>Interrupted backups can no longer be mistaken for complete snapshots.</p>
