@@ -1,5 +1,5 @@
-moraine (0.2.1-1) unstable; urgency=medium
+moraine (0.2.2-1) unstable; urgency=medium
 
   * Initial release. (Closes: #1141131)
 
- -- Jonaz Thern <info@thern.io>  Wed, 22 Jul 2026 20:00:00 +0200
+ -- Jonaz Thern <info@thern.io>  Wed, 22 Jul 2026 15:30:00 +0200
