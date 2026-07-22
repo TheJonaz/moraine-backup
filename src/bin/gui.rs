@@ -1668,7 +1668,7 @@ fn start_background_download(
 
         let dir = downloads_dir();
         let dest = dir.join(&asset.name);
-        let part = dir.join(format!("{}.part", &asset.name));
+        let part = dir.join(format!("{}.part", asset.name));
         let total = asset.size;
         progress.set_text(Some(&format!("0 % — {}", asset.name)));
 
