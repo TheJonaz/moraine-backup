@@ -27,8 +27,8 @@ post_install() {
 	vinstall assets/moraine-64.png 644 usr/share/moraine/assets
 	vinstall assets/moraine-256.png 644 usr/share/moraine/assets
 
-	vman debian/moraine.1
-	vman debian/moraine-gui.1
+	vman man/moraine.1
+	vman man/moraine-gui.1
 	vlicense LICENSE
 }
 

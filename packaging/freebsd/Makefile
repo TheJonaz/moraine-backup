@@ -157,7 +157,7 @@ post-install:
 	@${MKDIR} ${STAGEDIR}${PREFIX}/share/moraine/assets
 	${INSTALL_DATA} ${WRKSRC}/assets/hero-bg.png ${WRKSRC}/assets/moraine-64.png \
 		${WRKSRC}/assets/moraine-256.png ${STAGEDIR}${PREFIX}/share/moraine/assets/
-	${INSTALL_MAN} ${WRKSRC}/debian/moraine.1 ${WRKSRC}/debian/moraine-gui.1 \
+	${INSTALL_MAN} ${WRKSRC}/man/moraine.1 ${WRKSRC}/man/moraine-gui.1 \
 		${STAGEDIR}${PREFIX}/share/man/man1/
 
 .include <bsd.port.mk>

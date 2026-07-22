@@ -53,8 +53,8 @@ install -Dm0644 assets/hero-bg.png     %{buildroot}%{_datadir}/moraine/assets/he
 install -Dm0644 assets/moraine-64.png  %{buildroot}%{_datadir}/moraine/assets/moraine-64.png
 install -Dm0644 assets/moraine-256.png %{buildroot}%{_datadir}/moraine/assets/moraine-256.png
 
-install -Dm0644 debian/moraine.1     %{buildroot}%{_mandir}/man1/moraine.1
-install -Dm0644 debian/moraine-gui.1 %{buildroot}%{_mandir}/man1/moraine-gui.1
+install -Dm0644 man/moraine.1     %{buildroot}%{_mandir}/man1/moraine.1
+install -Dm0644 man/moraine-gui.1 %{buildroot}%{_mandir}/man1/moraine-gui.1
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop

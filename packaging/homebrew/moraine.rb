@@ -14,7 +14,7 @@ class Moraine < Formula
   # (which needs GTK 4) is not built. The GTK desktop app is Linux-only.
   def install
     system "cargo", "install", "--no-default-features", *std_cargo_args
-    man1.install "debian/moraine.1"
+    man1.install "man/moraine.1"
   end
 
   def caveats

@@ -1,5 +1,12 @@
 ---
-Bug-Database: https://github.com/TheJonaz/moraine-backup/issues
-Bug-Submit: https://github.com/TheJonaz/moraine-backup/issues/new
+Name: Moraine
+Contact: Jonaz Thern <info@thern.io>
+Documentation: https://moraine.thern.io
 Repository: https://github.com/TheJonaz/moraine-backup.git
 Repository-Browse: https://github.com/TheJonaz/moraine-backup
+Bug-Database: https://github.com/TheJonaz/moraine-backup/issues
+Bug-Submit: https://github.com/TheJonaz/moraine-backup/issues/new
+Changelog: https://raw.githubusercontent.com/TheJonaz/moraine-backup/main/CHANGELOG.md
+Security-Contact: mailto:info@thern.io
+Screenshots:
+ - https://moraine.thern.io/app-hero.png

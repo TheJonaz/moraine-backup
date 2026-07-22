@@ -7,6 +7,25 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Changed
+- The manual pages moved from `debian/` to `man/`. They document Moraine
+  itself, not the Debian package, and every other recipe — AUR, Alpine, MPR,
+  Void, FreeBSD, Gentoo, Homebrew, RPM — was reaching into the Debian
+  packaging directory to install them. All nine now read from `man/`.
+- The AppStream metainfo file declares `metadata_license` as MIT, matching the
+  rest of the project. It previously said CC0-1.0 and was corrected only in a
+  Debian patch, which made a license change visible solely to that
+  distribution.
+
+### Packaging
+- Debian: `debian/copyright` collapses to a single `Files: *` stanza, the
+  upstream metadata file gains the DEP-12 fields (name, contact,
+  documentation, changelog, security contact, screenshot), and the AppStream
+  patch is gone now that the fix lives upstream. Raised in the review on
+  Debian bug #1141175.
+
 ## [0.2.1] — 2026-07-20
 
 ### Changed

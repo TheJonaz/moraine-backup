@@ -165,5 +165,5 @@ src_install() {
 	insinto /usr/share/moraine/assets
 	doins assets/hero-bg.png assets/moraine-64.png assets/moraine-256.png
 
-	doman debian/moraine.1 debian/moraine-gui.1
+	doman man/moraine.1 man/moraine-gui.1
 }

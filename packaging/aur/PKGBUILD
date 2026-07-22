@@ -52,8 +52,8 @@ package() {
   install -Dm644 assets/moraine-64.png  "$pkgdir/usr/share/moraine/assets/moraine-64.png"
   install -Dm644 assets/moraine-256.png "$pkgdir/usr/share/moraine/assets/moraine-256.png"
 
-  install -Dm644 debian/moraine.1     "$pkgdir/usr/share/man/man1/moraine.1"
-  install -Dm644 debian/moraine-gui.1 "$pkgdir/usr/share/man/man1/moraine-gui.1"
+  install -Dm644 man/moraine.1     "$pkgdir/usr/share/man/man1/moraine.1"
+  install -Dm644 man/moraine-gui.1 "$pkgdir/usr/share/man/man1/moraine-gui.1"
 
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
