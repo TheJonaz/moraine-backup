@@ -2,9 +2,25 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# Build the whole crate with default features (the `gui` feature on), so both
-# the `moraine` CLI and the GTK 4 `moraine-gui` binaries are built and
-# installed. dh-cargo installs both to /usr/bin; the .desktop file, icon and
-# in-app logo are added via debian/moraine.install.
+# Build the `gui` feature only, so both the `moraine` CLI and the GTK 4
+# `moraine-gui` binaries are built and installed. dh-cargo installs both to
+# /usr/bin; the .desktop file, icon and in-app logo are added via
+# debian/moraine.install.
+#
+# The upstream default feature set also enables `tray`, which pulls in the
+# ksni crate (StatusNotifierItem over D-Bus). ksni is not in Debian, so the
+# Debian build drops the tray icon; the GUI has a #[cfg(not(feature = "tray"))]
+# path and runs without it.
+CARGO_FEATURES = --no-default-features --features gui
+
 %:
 	dh $@ --buildsystem cargo
+
+override_dh_auto_build:
+	dh_auto_build -- $(CARGO_FEATURES)
+
+override_dh_auto_test:
+	dh_auto_test -- $(CARGO_FEATURES)
+
+override_dh_auto_install:
+	dh_auto_install -- $(CARGO_FEATURES)

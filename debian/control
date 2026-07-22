@@ -1,10 +1,10 @@
 Source: moraine
 Section: utils
-Priority: optional
 Maintainer: Jonaz Thern <info@thern.io>
 Build-Depends:
- debhelper-compat (= 13),
+ debhelper-compat (= 14),
  dh-cargo (>= 25),
+ dh-sequence-single-binary,
  cargo:native,
  rustc:native,
  librust-anyhow-1+default-dev,
@@ -15,11 +15,10 @@ Build-Depends:
  librust-serde-1+derive-dev,
  librust-serde-json-1+default-dev,
  librust-toml-1+default-dev,
-Standards-Version: 4.7.0
+Standards-Version: 4.7.4
 Vcs-Git: https://github.com/TheJonaz/moraine-backup.git
 Vcs-Browser: https://github.com/TheJonaz/moraine-backup
 Homepage: https://github.com/TheJonaz/moraine-backup
-Rules-Requires-Root: no
 
 Package: moraine
 Architecture: any

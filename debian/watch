@@ -1,7 +1,8 @@
-version=4
+Version: 5
 # Track upstream release tags (vX.Y.Z) straight from the GitHub git repo.
 # Git mode: uscan builds the upstream tarball from the matching tag, taking the
 # version from the capture group provided by @ANY_VERSION@.
-opts="mode=git, pgpmode=none" \
-  https://github.com/TheJonaz/moraine-backup.git \
-  refs/tags/v@ANY_VERSION@
+Source: https://github.com/TheJonaz/moraine-backup.git
+Matching-Pattern: refs/tags/v@ANY_VERSION@
+Mode: git
+Pgp-Mode: none

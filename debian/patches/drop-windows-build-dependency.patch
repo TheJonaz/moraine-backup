@@ -1,0 +1,24 @@
+Description: Drop the Windows-only winresource build-dependency
+ winresource is only used by build.rs under #[cfg(windows)] to embed the app
+ icon into the .exe, and it is not packaged in Debian. Cargo resolves
+ target-specific dependencies for every target, not just the host one, so the
+ Debian build fails with "no matching package named `winresource` found" even
+ though the crate is never built here. Drop the section; the build.rs block
+ that uses it is already compiled out on non-Windows hosts.
+Author: Jonaz Thern <info@thern.io>
+Forwarded: not-needed
+Last-Update: 2026-07-22
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -73,11 +73,6 @@
+ # Debian, so the official Debian recipe must vendor it or drop the tray.
+ ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"], optional = true }
+ 
+-# Windows-only: embed the app icon + version info into the .exe (build.rs). Gated
+-# on a Windows host, which is where the Windows release is built.
+-[target.'cfg(windows)'.build-dependencies]
+-winresource = "0.1"
+-
+ # ─────────────────────────── paketering (.deb) ───────────────────────────
+ [package.metadata.deb]
+ maintainer = "Jonaz Thern <info@thern.io>"

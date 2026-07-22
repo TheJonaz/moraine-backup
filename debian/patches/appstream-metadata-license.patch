@@ -1,0 +1,18 @@
+Description: Set AppStream metadata_license to MIT for consistency
+ The metainfo file declared metadata_license as CC0-1.0 while the rest of the
+ project (and debian/copyright) is MIT, tripping lintian's
+ inconsistent-appstream-metadata-license warning. Align it with the project.
+Author: Jonaz Thern <info@thern.io>
+Forwarded: not-needed
+Last-Update: 2026-07-11
+--- a/packaging/flatpak/io.thern.moraine.metainfo.xml	2026-07-11 13:31:28.720317136 +0200
++++ b/packaging/flatpak/io.thern.moraine.metainfo.xml	2026-07-11 13:31:28.726317102 +0200
+@@ -1,7 +1,7 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <component type="desktop-application">
+   <id>io.thern.moraine</id>
+-  <metadata_license>CC0-1.0</metadata_license>
++  <metadata_license>MIT</metadata_license>
+   <project_license>MIT</project_license>
+ 
+   <name>Moraine</name>
