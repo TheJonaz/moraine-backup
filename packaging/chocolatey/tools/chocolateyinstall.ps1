@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $packageName = 'moraine'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
-$url64       = 'https://github.com/TheJonaz/moraine-backup/releases/download/v0.2.1/moraine-windows-x86_64.zip'
-$checksum64  = '06c3d7102216f96d4b35b0feecb3ee01a8e6daf25fd585a82fbbb67cbcb6b65b'
+$url64       = 'https://github.com/TheJonaz/moraine-backup/releases/download/v0.2.2/moraine-windows-x86_64.zip'
+$checksum64  = 'd5cbb9a588b446720acb7b7851aab6fe7270ae450f4c4f53c86dab29069ebe91'
 
 Install-ChocolateyZipPackage `
   -PackageName    $packageName `

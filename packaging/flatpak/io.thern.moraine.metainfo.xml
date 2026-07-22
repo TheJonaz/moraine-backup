@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.2.2" date="2026-07-22">
+      <description>
+        <p>The manual pages moved from debian/ to man/.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-07-20">
       <description>
         <p>The release/deploy tooling (deploy/) is no longer part of the source tree.</p>

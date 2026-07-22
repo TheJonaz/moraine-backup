@@ -1,5 +1,5 @@
 Name:           moraine
-Version:        0.2.1
+Version:        0.2.2
 Release:        1%{?dist}
 Summary:        Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)
 
@@ -73,6 +73,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 %{_mandir}/man1/moraine-gui.1*
 
 %changelog
+* Wed Jul 22 2026 Jonaz Thern <info@thern.io> - 0.2.2-1
+- The manual pages moved from debian/ to man/.
+
 * Mon Jul 20 2026 Jonaz Thern <info@thern.io> - 0.2.1-1
 - The release/deploy tooling (deploy/) is no longer part of the source tree.
 
