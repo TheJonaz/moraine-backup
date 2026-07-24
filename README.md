@@ -1,4 +1,4 @@
-![Moraine](assets/moraine.svg)
+<img src="assets/moraine.svg" alt="Moraine" width="80">
 
 # Moraine
 
