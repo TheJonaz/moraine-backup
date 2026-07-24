@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{healthcheck, lock, notify, prune, rclone, rsync, snapshot, ssh, tools, vpn};
+use moraine::{healthcheck, lock, notify, prune, rclone, recommend, rsync, snapshot, ssh, tools, vpn};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -29,6 +29,15 @@ enum Command {
         /// Overwrite if the file already exists.
         #[arg(long)]
         force: bool,
+    },
+    /// Suggest what to back up on this machine (OS-aware), as a ready target.
+    Recommend {
+        /// Name for the suggested target.
+        #[arg(long, default_value = "essentials")]
+        name: String,
+        /// Append the suggested [[target]] to the config instead of only printing it.
+        #[arg(long)]
+        write: bool,
     },
     /// Test the SSH connection, key, sources, and that the target is writable.
     Verify {
@@ -166,6 +175,7 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Init { force } => cmd_init(&cli.config, force),
+        Command::Recommend { name, write } => cmd_recommend(&cli.config, &name, write),
         Command::Run {
             target,
             dry_run,
@@ -192,6 +202,92 @@ fn cmd_init(path: &Path, force: bool) -> Result<()> {
         .with_context(|| format!("could not write {}", path.display()))?;
     println!("Wrote example config to {}", path.display());
     println!("Edit it, then run: moraine run --dry-run");
+    Ok(())
+}
+
+fn cmd_recommend(path: &Path, name: &str, write: bool) -> Result<()> {
+    let found = recommend::scan();
+    if found.is_empty() {
+        println!("No suggested locations were found on this machine.");
+        println!("Add sources by hand instead — start with `moraine init`.");
+        return Ok(());
+    }
+
+    println!("Suggested for backup on this machine:\n");
+    use recommend::Category;
+    for cat in [
+        Category::Documents,
+        Category::Settings,
+        Category::Dev,
+        Category::Mail,
+    ] {
+        let items: Vec<_> = found.iter().filter(|f| f.candidate.category == cat).collect();
+        if items.is_empty() {
+            continue;
+        }
+        println!("  {}", cat.label());
+        for f in items {
+            let flag = if f.candidate.sensitive {
+                "  [sensitive]"
+            } else {
+                ""
+            };
+            println!("    {:<22} {}{}", f.candidate.path, f.resolved.display(), flag);
+        }
+        println!();
+    }
+
+    if recommend::has_sensitive(&found) {
+        println!(
+            "Some locations hold keys/credentials ([sensitive]). If the target is\n\
+             off-box or untrusted, set a `crypt_password` on it so they're encrypted\n\
+             at rest — and keep a copy of that passphrase somewhere safe.\n"
+        );
+    }
+
+    let target = recommend::suggested_target(name, &found);
+    let cfg = Config {
+        targets: vec![target],
+        ..Default::default()
+    };
+    let snippet = toml::to_string_pretty(&cfg).context("could not render the suggested target")?;
+
+    if write {
+        return write_target(path, name, &snippet);
+    }
+    println!(
+        "Fill in host/user/dest, then paste this into {}:\n",
+        path.display()
+    );
+    println!("{snippet}");
+    println!("Or re-run with --write to append it to the config automatically.");
+    Ok(())
+}
+
+/// Append a rendered `[[target]]` block to the config, preserving the existing
+/// file (and its comments) verbatim. Refuses to add a duplicate name.
+fn write_target(path: &Path, name: &str, snippet: &str) -> Result<()> {
+    let mut base = String::new();
+    if path.exists() {
+        let existing = Config::load(path)?;
+        if existing.targets.iter().any(|t| t.name == name) {
+            bail!(
+                "a target named '{name}' already exists in {} — pick another --name",
+                path.display()
+            );
+        }
+        base = std::fs::read_to_string(path)
+            .with_context(|| format!("could not read {}", path.display()))?;
+        if !base.ends_with('\n') {
+            base.push('\n');
+        }
+        base.push('\n');
+    }
+    base.push_str(snippet);
+    config::write_private(path, base.as_bytes())
+        .with_context(|| format!("could not write {}", path.display()))?;
+    println!("Added target '{name}' to {}.", path.display());
+    println!("Set its host/user/dest, then run: moraine verify --target {name}");
     Ok(())
 }
 
