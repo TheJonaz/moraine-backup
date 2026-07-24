@@ -1765,6 +1765,230 @@ fn start_background_download(
 
 // ─────────────────────────── Quick Backup tab ───────────────────────────
 
+/// "What should I back up?" — scans this machine for common important locations
+/// (recommend::scan) and turns the user's picks into a ready-made target with
+/// sensible excludes. Only suggests: nothing is written or transferred until the
+/// user creates the target and points it at a destination.
+fn open_recommend_dialog(state: &Shared, ui: &Rc<Ui>) {
+    use moraine::recommend::{self, Category, Found};
+
+    let win = gtk::Window::builder()
+        .transient_for(&ui.window)
+        .modal(true)
+        .title("What should I back up?")
+        .default_width(500)
+        .build();
+
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    b.set_margin_top(16);
+    b.set_margin_bottom(16);
+    b.set_margin_start(16);
+    b.set_margin_end(16);
+
+    let found = recommend::scan();
+
+    // Nothing to suggest — send the user to the manual flow and bail.
+    if found.is_empty() {
+        let empty = gtk::Label::new(Some(
+            "No common locations were found on this machine.\n\
+             Add sources by hand with “+ New target” instead.",
+        ));
+        empty.set_halign(gtk::Align::Start);
+        empty.set_wrap(true);
+        b.append(&empty);
+        let close = gtk::Button::with_label("Close");
+        close.set_halign(gtk::Align::End);
+        {
+            let w = win.clone();
+            close.connect_clicked(move |_| w.close());
+        }
+        b.append(&close);
+        win.set_child(Some(&b));
+        win.present();
+        return;
+    }
+
+    let intro = gtk::Label::new(Some(
+        "Moraine scanned this machine for common important locations. Tick what \
+         to include — it becomes a new backup target you then point at a \
+         destination.",
+    ));
+    intro.add_css_class("muted");
+    intro.set_halign(gtk::Align::Start);
+    intro.set_wrap(true);
+    b.append(&intro);
+
+    // Category-grouped checklist. `checks` maps each checkbox to its index in
+    // `found`; both are moved into the Create handler below.
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_min_content_height(260);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_vexpand(true);
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    list.set_margin_end(6);
+
+    let mut checks: Vec<(gtk::CheckButton, usize)> = Vec::new();
+    let mut any_sensitive = false;
+
+    for cat in [
+        Category::Documents,
+        Category::Settings,
+        Category::Dev,
+        Category::Mail,
+    ] {
+        let items: Vec<usize> = found
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.candidate.category == cat)
+            .map(|(i, _)| i)
+            .collect();
+        if items.is_empty() {
+            continue;
+        }
+        let head = gtk::Label::new(Some(cat.label()));
+        head.add_css_class("section");
+        head.set_halign(gtk::Align::Start);
+        head.set_margin_top(6);
+        list.append(&head);
+
+        for i in items {
+            let f = &found[i];
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let check = gtk::CheckButton::new();
+            check.set_active(true);
+            row.append(&check);
+            let text = gtk::Label::new(Some(&format!(
+                "{}  ·  {}",
+                f.candidate.label,
+                f.resolved.display()
+            )));
+            text.set_halign(gtk::Align::Start);
+            text.set_wrap(true);
+            text.set_hexpand(true);
+            row.append(&text);
+            if f.candidate.sensitive {
+                any_sensitive = true;
+                let badge = gtk::Label::new(Some("sensitive"));
+                badge.add_css_class("danger");
+                badge.set_valign(gtk::Align::Center);
+                row.append(&badge);
+            }
+            list.append(&row);
+            checks.push((check, i));
+        }
+    }
+    scroll.set_child(Some(&list));
+    b.append(&scroll);
+
+    if any_sensitive {
+        let note = gtk::Label::new(Some(
+            "Some picks hold keys or credentials (“sensitive”). If the \
+             destination is off-box or untrusted, set an encryption password on \
+             the target afterwards (Settings) — and keep that password safe.",
+        ));
+        note.add_css_class("muted");
+        note.set_halign(gtk::Align::Start);
+        note.set_wrap(true);
+        b.append(&note);
+    }
+
+    // Default to a free "essentials" name so Create never collides on first use.
+    let default_name = {
+        let s = state.borrow();
+        (0..)
+            .map(|n| {
+                if n == 0 {
+                    "essentials".to_string()
+                } else {
+                    format!("essentials-{n}")
+                }
+            })
+            .find(|c| s.targets.iter().all(|t| t.name != *c))
+            .unwrap()
+    };
+    let name = gtk::Entry::new();
+    name.set_text(&default_name);
+    b.append(&labeled("Target name", &name));
+
+    let status = gtk::Label::new(None);
+    status.add_css_class("muted");
+    status.set_halign(gtk::Align::Start);
+    status.set_wrap(true);
+    b.append(&status);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let cancel = gtk::Button::with_label("Cancel");
+    {
+        let w = win.clone();
+        cancel.connect_clicked(move |_| w.close());
+    }
+    row.append(&cancel);
+    let create = gtk::Button::with_label("Create target");
+    create.add_css_class("accent");
+    row.append(&create);
+    b.append(&row);
+
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        let win = win.clone();
+        let name = name.clone();
+        let status = status.clone();
+        create.connect_clicked(move |_| {
+            let picked: Vec<Found> = checks
+                .iter()
+                .filter(|(c, _)| c.is_active())
+                .map(|(_, i)| found[*i].clone())
+                .collect();
+            if picked.is_empty() {
+                status.remove_css_class("muted");
+                status.add_css_class("danger");
+                status.set_text("Pick at least one location to back up.");
+                return;
+            }
+            let nm = name.text().to_string();
+            let nm = nm.trim();
+            if nm.is_empty() {
+                status.remove_css_class("muted");
+                status.add_css_class("danger");
+                status.set_text("Give the target a name.");
+                return;
+            }
+            // A duplicate name would make the config fail to save.
+            if st.borrow().targets.iter().any(|t| t.name == nm) {
+                status.remove_css_class("muted");
+                status.add_css_class("danger");
+                status.set_text(&format!("A target named “{nm}” already exists."));
+                return;
+            }
+            let target = recommend::suggested_target(nm, &picked);
+            let n_sources = target.sources.len();
+            let form = TargetForm::from_target(&target);
+            {
+                let mut s = st.borrow_mut();
+                s.targets.push(form);
+                s.selected = Some(s.targets.len() - 1);
+            }
+            targets_changed(&st, &ui2);
+            refresh_connection(&st, &ui2);
+            set_status(
+                &ui2,
+                &format!(
+                    "Created “{nm}” with {n_sources} sources — set its host and \
+                     destination, then Run backup."
+                ),
+            );
+            win.close();
+        });
+    }
+
+    win.set_child(Some(&b));
+    win.present();
+}
+
 fn build_quick_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
     let outer = gtk::Box::new(gtk::Orientation::Vertical, 12);
 
@@ -1808,6 +2032,14 @@ fn build_quick_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
         });
     }
     targets_card.append(&add_btn);
+    let suggest_btn = gtk::Button::with_label("✨ Suggest sources");
+    suggest_btn.set_tooltip_text(Some("Scan this machine and suggest what to back up"));
+    {
+        let st = state.clone();
+        let ui2 = ui.clone();
+        suggest_btn.connect_clicked(move |_| open_recommend_dialog(&st, &ui2));
+    }
+    targets_card.append(&suggest_btn);
     top.append(&targets_card);
 
     // Connection panel
