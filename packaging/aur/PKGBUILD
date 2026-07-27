@@ -3,7 +3,9 @@ pkgname=moraine
 pkgver=0.2.2
 pkgrel=1
 pkgdesc='Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)'
-arch=('x86_64')
+# Built from source by makepkg, so aarch64 (Arch Linux ARM, Raspberry Pi) works
+# too — nothing here is architecture-specific.
+arch=('x86_64' 'aarch64')
 options=('!debug')  # no separate -debug package
 url='https://github.com/TheJonaz/moraine-backup'
 license=('MIT')
