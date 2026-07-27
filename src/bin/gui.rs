@@ -1422,17 +1422,41 @@ fn fetch_latest_assets() -> Result<(String, Vec<ReleaseAsset>), String> {
     Ok((version, assets))
 }
 
+/// How this build's CPU architecture is spelled in release-asset names, as
+/// `(dpkg, rpm, pacman, tarball)` — the four differ (`arm64` vs `aarch64`).
+/// `None` for an architecture the releases don't carry, so the updater offers
+/// nothing instead of a binary this machine cannot execute.
+fn arch_tokens() -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    match std::env::consts::ARCH {
+        "x86_64" => Some(("amd64", "x86_64", "x86_64", "x86_64")),
+        "aarch64" => Some(("arm64", "aarch64", "aarch64", "aarch64")),
+        _ => None,
+    }
+}
+
+/// The portable-tarball suffix for this Linux build, e.g. `-linux-aarch64.tar.gz`.
+fn linux_tarball_suffix() -> Option<String> {
+    arch_tokens().map(|(_, _, _, tar)| format!("-linux-{tar}.tar.gz"))
+}
+
 /// Filename suffix of the release asset that matches how this build was installed.
 /// On Linux we ask the owning package manager about our own binary, so a .deb
 /// user gets a .deb, an Arch user a .pkg.tar.zst, and so on; anything unrecognised
 /// (or a plain tarball install) falls back to the portable tar.gz.
-fn preferred_asset_suffix() -> &'static str {
+///
+/// Every suffix carries the running machine's architecture: offering an x86_64
+/// build to an arm64 user (a Raspberry Pi, an ARM server) downloads a binary
+/// that cannot run. `None` means "no build published for this platform".
+fn preferred_asset_suffix() -> Option<String> {
     if cfg!(target_os = "windows") {
-        return "-windows-x86_64.zip";
+        // Only an x86_64 build is published; ARM Windows runs it under emulation.
+        return Some("-windows-x86_64.zip".to_string());
     }
     if cfg!(target_os = "macos") {
-        return "-macos-arm64.tar.gz";
+        // Apple-silicon build only — an Intel Mac has nothing to download.
+        return (std::env::consts::ARCH == "aarch64").then(|| "-macos-arm64.tar.gz".to_string());
     }
+    let (deb, rpm, pacman, _) = arch_tokens()?;
     if let Ok(exe) = std::env::current_exe() {
         let exe = exe.to_string_lossy();
         let owned = |cmd: &str, flag: &str| {
@@ -1447,28 +1471,38 @@ fn preferred_asset_suffix() -> &'static str {
                 .unwrap_or(false)
         };
         if owned("dpkg", "-S") {
-            return "_amd64.deb";
+            return Some(format!("_{deb}.deb"));
         }
         if owned("rpm", "-qf") {
-            return ".x86_64.rpm";
+            return Some(format!(".{rpm}.rpm"));
         }
         if owned("pacman", "-Qo") {
-            return "-x86_64.pkg.tar.zst";
+            return Some(format!("-{pacman}.pkg.tar.zst"));
         }
     }
-    "-linux-x86_64.tar.gz"
+    linux_tarball_suffix()
 }
 
-/// Pick the asset for this platform, falling back to the Linux tarball.
+/// Pick the asset for this platform, falling back to this architecture's Linux
+/// tarball. Returns `None` when the release carries nothing runnable here —
+/// the caller then reports "no downloadable build for this platform" rather
+/// than handing the user a binary for the wrong CPU.
 fn pick_asset(assets: &[ReleaseAsset]) -> Option<ReleaseAsset> {
-    let suffix = preferred_asset_suffix();
+    match_asset(assets, &preferred_asset_suffix()?)
+}
+
+/// The matching half of [`pick_asset`], kept free of environment probing so it
+/// can be tested without shelling out to dpkg/rpm/pacman (which takes seconds).
+fn match_asset(assets: &[ReleaseAsset], suffix: &str) -> Option<ReleaseAsset> {
+    let fallback = cfg!(target_os = "linux")
+        .then(linux_tarball_suffix)
+        .flatten();
     assets
         .iter()
         .find(|a| a.name.ends_with(suffix))
         .or_else(|| {
-            assets
-                .iter()
-                .find(|a| a.name.ends_with("-linux-x86_64.tar.gz"))
+            let fb = fallback.as_deref()?;
+            assets.iter().find(|a| a.name.ends_with(fb))
         })
         .cloned()
 }
@@ -5683,5 +5717,62 @@ mod tests {
         );
         // No hash anywhere → None (never a false positive from prose).
         assert_eq!(super::parse_sha256("CertUtil: file not found\n"), None);
+    }
+
+    fn asset(name: &str) -> super::ReleaseAsset {
+        super::ReleaseAsset {
+            name: name.to_string(),
+            url: String::new(),
+            size: 0,
+        }
+    }
+
+    #[test]
+    fn match_asset_never_offers_a_foreign_architecture() {
+        // The updater used to fall back to `-linux-x86_64.tar.gz` no matter what
+        // the machine was, so an arm64 user (Raspberry Pi, ARM server) was handed
+        // a binary their CPU cannot execute. A release carrying only the *other*
+        // architecture must now resolve to nothing at all.
+        let (native, foreign, foreign_deb) = match std::env::consts::ARCH {
+            "x86_64" => ("x86_64", "aarch64", "arm64"),
+            _ => ("aarch64", "x86_64", "amd64"),
+        };
+        let native_suffix = format!("-linux-{native}.tar.gz");
+        let foreign_only = vec![
+            asset(&format!("moraine-linux-{foreign}.tar.gz")),
+            asset(&format!("moraine_v0.2.2_{foreign_deb}.deb")),
+        ];
+        assert!(
+            super::match_asset(&foreign_only, &native_suffix).is_none(),
+            "picked a {foreign} asset while running on {native}"
+        );
+
+        // With both present it takes this architecture's build.
+        let both = vec![
+            asset(&format!("moraine-linux-{foreign}.tar.gz")),
+            asset(&format!("moraine-linux-{native}.tar.gz")),
+        ];
+        let picked = super::match_asset(&both, &native_suffix).expect("native asset present");
+        assert!(picked.name.contains(native), "picked {}", picked.name);
+
+        // A .deb install still falls back to this architecture's tarball when the
+        // release has no .deb — never to the other architecture's.
+        let deb_suffix = format!("_{}.deb", if native == "x86_64" { "amd64" } else { "arm64" });
+        let tarball_only = vec![asset(&format!("moraine-linux-{native}.tar.gz"))];
+        assert!(super::match_asset(&tarball_only, &deb_suffix).is_some());
+    }
+
+    #[test]
+    fn arch_tokens_spell_each_packaging_format_correctly() {
+        // dpkg says arm64 where rpm/pacman/tarballs say aarch64 — mixing them up
+        // silently yields a filename that matches no asset.
+        if std::env::consts::ARCH == "x86_64" {
+            assert_eq!(super::arch_tokens(), Some(("amd64", "x86_64", "x86_64", "x86_64")));
+        } else if std::env::consts::ARCH == "aarch64" {
+            assert_eq!(
+                super::arch_tokens(),
+                Some(("arm64", "aarch64", "aarch64", "aarch64"))
+            );
+        }
     }
 }

@@ -29,6 +29,13 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: moraine-linux-x86_64
+            deb_arch: amd64
+          # Native arm64 build (GitHub's ARM runners are free for public repos),
+          # so Raspberry Pi / ARM-server users get a binary instead of having to
+          # compile. The GUI needs GTK >= 4.10, which ubuntu-24.04 provides.
+          - os: ubuntu-24.04-arm
+            artifact: moraine-linux-aarch64
+            deb_arch: arm64
           - os: macos-latest
             artifact: moraine-macos-arm64
           - os: windows-latest
@@ -64,7 +71,7 @@ jobs:
           cp README.md CHANGELOG.md LICENSE moraine.example.toml dist/${{ matrix.artifact }}/
           tar -C dist -czf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
           cargo install cargo-deb --locked
-          cargo deb --no-build -o moraine_${{ env.RELEASE_TAG }}_amd64.deb
+          cargo deb --no-build -o moraine_${{ env.RELEASE_TAG }}_${{ matrix.deb_arch }}.deb
 
       # ── macOS: CLI binary + docs ──
       - name: Package (macOS)
@@ -100,7 +107,7 @@ jobs:
             ${{ matrix.artifact }}.tar.gz
             ${{ matrix.artifact }}.zip
             moraine-*-setup.exe
-            moraine_*_amd64.deb
+            moraine_*.deb
           fail_on_unmatched_files: false
           generate_release_notes: true
 
