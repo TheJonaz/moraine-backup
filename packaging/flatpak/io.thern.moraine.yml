@@ -22,6 +22,13 @@ finish-args:
   - --share=ipc
   - --device=dri
   - --filesystem=host               # a backup tool reads/writes arbitrary paths
+  # The `tray` feature is on by default, so the GUI is built with the ksni
+  # StatusNotifierItem tray. Without this the tray silently never appears
+  # inside the sandbox. ksni's well-known name (org.kde.StatusNotifierItem-PID-N)
+  # cannot be granted here — flatpak only accepts a `.*` wildcard after a dot —
+  # so ksni falls back to registering under its unique bus name, which the
+  # StatusNotifierItem spec explicitly allows.
+  - --talk-name=org.kde.StatusNotifierWatcher
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
@@ -91,10 +98,16 @@ modules:
       - install -Dm644 assets/moraine.svg /app/share/icons/hicolor/scalable/apps/io.thern.moraine.svg
       - install -Dm644 assets/moraine-256.png /app/share/icons/hicolor/256x256/apps/io.thern.moraine.png
       - install -Dm644 assets/moraine-128.png /app/share/icons/hicolor/128x128/apps/io.thern.moraine.png
-      - install -Dm644 packaging/flatpak/io.thern.moraine.metainfo.xml /app/share/metainfo/io.thern.moraine.metainfo.xml
+      - install -Dm644 io.thern.moraine.metainfo.xml /app/share/metainfo/io.thern.moraine.metainfo.xml
     sources:
       - type: git
         url: https://github.com/TheJonaz/moraine-backup.git
         tag: v0.2.2
-        commit: 47e5b6f1d68fa48e34b32f952d629cd79cf47ef0
+        commit: 833e2fc84c364106f70bee6711729c4ab7dc9b47
+      # Taken from next to this manifest, NOT from the git checkout: the release
+      # entry for a version is usually written after that version is tagged, so
+      # the copy inside the tag is one release behind and software centres would
+      # advertise the previous version.
+      - type: file
+        path: io.thern.moraine.metainfo.xml
       - cargo-sources.json
