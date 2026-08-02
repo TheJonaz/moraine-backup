@@ -1110,7 +1110,8 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
     b.append(&email);
 
     let info = gtk::Label::new(Some(&format!(
-        "Attaches Moraine {} · {} {} so I can reproduce.",
+        "Attaches Moraine {} · {} {} so I can reproduce. Your IP address is \
+         stored with the report to prevent abuse of this form; it is not shared.",
         moraine::VERSION,
         std::env::consts::OS,
         std::env::consts::ARCH
