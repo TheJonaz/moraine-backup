@@ -69,14 +69,24 @@ modules:
         sha256: dd8bd002a379b5d499dfb050dd1fa9af8029e80461f4bb6c523c49973f5a39f3
 
   # ── rclone (cloud / object-storage / FTP backends) — official static binary ──
+  # One source per arch, gated with only-arches. Without the gate an aarch64
+  # build silently installs the x86-64 binary and every rclone backend dies at
+  # runtime with "Exec format error" — the build itself succeeds, so nothing
+  # catches it before a user does.
   - name: rclone
     buildsystem: simple
     build-commands:
       - install -Dm755 rclone /app/bin/rclone
     sources:
       - type: archive
+        only-arches: [x86_64]
         url: https://downloads.rclone.org/v1.67.0/rclone-v1.67.0-linux-amd64.zip
         sha256: 07c23d21a94d70113d949253478e13261c54d14d72023bb14d96a8da5f3e7722
+        strip-components: 1
+      - type: archive
+        only-arches: [aarch64]
+        url: https://downloads.rclone.org/v1.67.0/rclone-v1.67.0-linux-arm64.zip
+        sha256: 2b44981a1a7d1f432c53c0f2f0b6bcdd410f6491c47dc55428fdac0b85c763f1
         strip-components: 1
 
   # ── Moraine itself ──

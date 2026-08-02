@@ -1,0 +1,94 @@
+# Build the aarch64 Flatpak on a native ARM runner and publish it as a release
+# asset. It is NOT pushed to the CDN from here: the CDN's firewall drops GitHub
+# runner IPs (that is why every other channel is pull-based), and the Flatpak
+# repo's signing key lives on the CDN host. flatpak-release.sh downloads this
+# bundle, imports it next to the x86_64 build and publishes both together.
+#
+# The x86_64 build is done on the workstation, not here — there is no reason to
+# spend CI on the arch that can be built locally in minutes.
+name: flatpak (aarch64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (default: the tag pinned in the manifest)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    name: flatpak aarch64
+    # GitHub's ARM runners are free for public repos; release.yml already builds
+    # the arm64 binaries on this label.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flatpak-builder
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+
+      # The runtimes are ~3 GB. Nothing here is cached deliberately: a stale SDK
+      # is a worse failure than a slow job, and this runs a handful of times a year.
+      - name: Install the GNOME runtime and the Rust SDK extension
+        run: |
+          set -eux
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub \
+            org.gnome.Platform//49 \
+            org.gnome.Sdk//49 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      # The manifest pins its own tag and commit, so an explicit input only has
+      # to be checked against it — never substituted in, which would build a
+      # tree the manifest does not describe.
+      - name: Check the requested tag against the manifest
+        if: inputs.tag != ''
+        run: |
+          set -eux
+          PINNED=$(sed -n 's/^ *tag: *//p' packaging/flatpak/io.thern.moraine.yml | head -1)
+          test "$PINNED" = "${{ inputs.tag }}"
+
+      - name: Build
+        run: |
+          set -eux
+          flatpak-builder --user --repo=repo --default-branch=stable \
+            --force-clean build-dir packaging/flatpak/io.thern.moraine.yml
+
+      # A single-file bundle rather than the whole OSTree repo: it is one asset
+      # to attach and one `flatpak build-import-bundle` to consume.
+      - name: Bundle
+        run: |
+          set -eux
+          flatpak build-bundle --arch=aarch64 repo \
+            moraine-aarch64.flatpak io.thern.moraine stable
+          ls -la moraine-aarch64.flatpak
+
+      # Prove the bundle is actually aarch64 before it is published — a bundle
+      # built with the wrong rclone binary would install fine and only fail when
+      # a user runs a cloud backup.
+      - name: Verify
+        run: |
+          set -eux
+          flatpak install --user -y --noninteractive --bundle moraine-aarch64.flatpak
+          flatpak info --user io.thern.moraine | grep -E 'Arch:|Version:'
+          test "$(flatpak run --command=sh io.thern.moraine -c 'uname -m')" = aarch64
+          flatpak run --command=moraine io.thern.moraine --version
+          flatpak run --command=sh io.thern.moraine -c '/app/bin/rclone version | head -1'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-aarch64-flatpak
+          path: moraine-aarch64.flatpak
+
+      - name: Upload to release
+        if: inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: moraine-aarch64.flatpak
+          fail_on_unmatched_files: false
