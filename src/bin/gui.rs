@@ -5758,7 +5758,10 @@ mod tests {
 
         // A .deb install still falls back to this architecture's tarball when the
         // release has no .deb — never to the other architecture's.
-        let deb_suffix = format!("_{}.deb", if native == "x86_64" { "amd64" } else { "arm64" });
+        let deb_suffix = format!(
+            "_{}.deb",
+            if native == "x86_64" { "amd64" } else { "arm64" }
+        );
         let tarball_only = vec![asset(&format!("moraine-linux-{native}.tar.gz"))];
         assert!(super::match_asset(&tarball_only, &deb_suffix).is_some());
     }
@@ -5768,7 +5771,10 @@ mod tests {
         // dpkg says arm64 where rpm/pacman/tarballs say aarch64 — mixing them up
         // silently yields a filename that matches no asset.
         if std::env::consts::ARCH == "x86_64" {
-            assert_eq!(super::arch_tokens(), Some(("amd64", "x86_64", "x86_64", "x86_64")));
+            assert_eq!(
+                super::arch_tokens(),
+                Some(("amd64", "x86_64", "x86_64", "x86_64"))
+            );
         } else if std::env::consts::ARCH == "aarch64" {
             assert_eq!(
                 super::arch_tokens(),

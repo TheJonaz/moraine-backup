@@ -55,7 +55,12 @@ const MANIFEST: &[Candidate] = &[
     c("Pictures", Category::Documents, "~/Pictures", false),
     c("Music", Category::Documents, "~/Music", false),
     c("Videos", Category::Documents, "~/Videos", false),
-    c("App settings (~/.config)", Category::Settings, "~/.config", false),
+    c(
+        "App settings (~/.config)",
+        Category::Settings,
+        "~/.config",
+        false,
+    ),
     c("Firefox profile", Category::Settings, "~/.mozilla", false),
     c("Thunderbird mail", Category::Mail, "~/.thunderbird", false),
     c("Git config", Category::Dev, "~/.gitconfig", false),
@@ -104,7 +109,12 @@ const MANIFEST: &[Candidate] = &[
 const MANIFEST: &[Candidate] = &[];
 
 /// `const`-friendly constructor so the manifests above read as tables.
-const fn c(label: &'static str, category: Category, path: &'static str, sensitive: bool) -> Candidate {
+const fn c(
+    label: &'static str,
+    category: Category,
+    path: &'static str,
+    sensitive: bool,
+) -> Candidate {
     Candidate {
         label,
         category,
@@ -145,7 +155,10 @@ pub fn scan() -> Vec<Found> {
         .iter()
         .filter_map(|&candidate| {
             let resolved = config::expand_tilde(candidate.path);
-            resolved.exists().then_some(Found { candidate, resolved })
+            resolved.exists().then_some(Found {
+                candidate,
+                resolved,
+            })
         })
         .collect()
 }

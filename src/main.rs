@@ -4,7 +4,9 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use moraine::config::{self, Config};
 use moraine::history::{self, LogEntry};
-use moraine::{healthcheck, lock, notify, prune, rclone, recommend, rsync, snapshot, ssh, tools, vpn};
+use moraine::{
+    healthcheck, lock, notify, prune, rclone, recommend, rsync, snapshot, ssh, tools, vpn,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command as SysCommand;
 
@@ -221,7 +223,10 @@ fn cmd_recommend(path: &Path, name: &str, write: bool) -> Result<()> {
         Category::Dev,
         Category::Mail,
     ] {
-        let items: Vec<_> = found.iter().filter(|f| f.candidate.category == cat).collect();
+        let items: Vec<_> = found
+            .iter()
+            .filter(|f| f.candidate.category == cat)
+            .collect();
         if items.is_empty() {
             continue;
         }
@@ -232,7 +237,12 @@ fn cmd_recommend(path: &Path, name: &str, write: bool) -> Result<()> {
             } else {
                 ""
             };
-            println!("    {:<22} {}{}", f.candidate.path, f.resolved.display(), flag);
+            println!(
+                "    {:<22} {}{}",
+                f.candidate.path,
+                f.resolved.display(),
+                flag
+            );
         }
         println!();
     }
