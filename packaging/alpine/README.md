@@ -43,8 +43,15 @@ apk add --allow-untrusted ~/packages/testing/x86_64/moraine-0.1.17-r0.apk
 
 ## Notes
 
-- `arch="x86_64"` only — the CI release binaries are x86-64. Add `aarch64` here
-  once ARM builds are published.
-- `check()` runs `cargo test`; drop it if a release ever ships without tests.
+- `arch="all"` — Alpine builds from source, so this is not tied to which release
+  binaries our CI publishes. rust, cargo-auditable and gtk4.0 (≥ 4.10, which the
+  GUI needs) are available on every Alpine arch, and no dependency is
+  arch-sensitive. Narrow it with `!armhf !armv7 !x86` if the 32-bit builders ever
+  OOM on the release build.
+- `build()`/`check()` use `--frozen` (= `--locked --offline`), which is why
+  `prepare()` runs `cargo fetch`. That keeps the build network-free, so the
+  aport does not need `options="net"`.
+- `check()` runs `cargo test` in the dev profile — Alpine asks packagers not to
+  pass `--release` there. Drop the function if a release ever ships without tests.
 - Runtime deps are `rsync` + `openssh-client` (the `ssh` backend). `rclone` is an
   optional runtime dep for the rclone/FTP backends — install it separately.

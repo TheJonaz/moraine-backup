@@ -5,48 +5,54 @@ pkgver=0.2.2
 pkgrel=0
 pkgdesc="Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)"
 url="https://moraine.thern.io"
-arch="x86_64 aarch64"
+arch="all"
 license="MIT"
 depends="rsync openssh-client"
-makedepends="cargo gtk4.0-dev"
+makedepends="
+	cargo
+	cargo-auditable
+	gtk4.0-dev
+	"
 subpackages="$pkgname-doc"
 source="$pkgname-$pkgver.tar.gz::https://github.com/TheJonaz/moraine-backup/archive/refs/tags/v$pkgver.tar.gz"
 builddir="$srcdir/moraine-backup-$pkgver"
 
+prepare() {
+	default_prepare
+
+	cargo fetch --target="$CTARGET" --locked
+}
+
 build() {
-	cargo build --release --locked
+	cargo auditable build --release --frozen
 }
 
 check() {
-	cargo test --release --locked
+	cargo test --frozen
 }
 
 package() {
-	install -Dm755 target/release/moraine "$pkgdir"/usr/bin/moraine
-	install -Dm755 target/release/moraine-gui "$pkgdir"/usr/bin/moraine-gui
+	install -Dm755 target/release/moraine target/release/moraine-gui \
+		-t "$pkgdir"/usr/bin/
 
 	install -Dm644 assets/moraine-gui.desktop \
-		"$pkgdir"/usr/share/applications/moraine-gui.desktop
+		-t "$pkgdir"/usr/share/applications/
 	install -Dm644 assets/moraine.svg \
-		"$pkgdir"/usr/share/icons/hicolor/scalable/apps/moraine.svg
-	install -Dm644 assets/moraine-256.png \
-		"$pkgdir"/usr/share/icons/hicolor/256x256/apps/moraine.png
-	install -Dm644 assets/moraine-128.png \
-		"$pkgdir"/usr/share/icons/hicolor/128x128/apps/moraine.png
-	install -Dm644 assets/moraine-64.png \
-		"$pkgdir"/usr/share/icons/hicolor/64x64/apps/moraine.png
-	install -Dm644 assets/moraine-48.png \
-		"$pkgdir"/usr/share/icons/hicolor/48x48/apps/moraine.png
+		-t "$pkgdir"/usr/share/icons/hicolor/scalable/apps/
+
+	for _size in 48 64 128 256; do
+		install -Dm644 assets/moraine-$_size.png \
+			"$pkgdir"/usr/share/icons/hicolor/${_size}x${_size}/apps/moraine.png
+	done
 
 	# Runtime assets the GUI loads from /usr/share/moraine/assets.
-	install -Dm644 assets/hero-bg.png "$pkgdir"/usr/share/moraine/assets/hero-bg.png
-	install -Dm644 assets/moraine-64.png "$pkgdir"/usr/share/moraine/assets/moraine-64.png
-	install -Dm644 assets/moraine-256.png "$pkgdir"/usr/share/moraine/assets/moraine-256.png
+	install -Dm644 assets/hero-bg.png assets/moraine-64.png assets/moraine-256.png \
+		-t "$pkgdir"/usr/share/moraine/assets/
 
-	install -Dm644 man/moraine.1 "$pkgdir"/usr/share/man/man1/moraine.1
-	install -Dm644 man/moraine-gui.1 "$pkgdir"/usr/share/man/man1/moraine-gui.1
+	install -Dm644 man/moraine.1 man/moraine-gui.1 \
+		-t "$pkgdir"/usr/share/man/man1/
 
-	install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+	install -Dm644 LICENSE -t "$pkgdir"/usr/share/licenses/$pkgname/
 }
 
 sha512sums="
