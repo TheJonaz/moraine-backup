@@ -176,6 +176,49 @@ jobs:
           files: "*.pkg.tar.zst"
           fail_on_unmatched_files: false
 
+  # ── AppImage — one portable file with GTK bundled, for any modern distro ──
+  # ubuntu-24.04 is deliberate and is the OLDEST base that can work: moraine
+  # builds gtk4-rs with features = ["v4_10"], and 22.04 ships GTK 4.6. That
+  # fixes the AppImage's glibc floor at 2.39 (so no Ubuntu 22.04, no Debian 12 —
+  # those get the Flatpak or the .deb, which is why this is not the only Linux
+  # download). Do NOT "improve" this to ubuntu-latest: a newer base raises the
+  # floor and silently drops working distros.
+  appimage:
+    name: appimage (x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev pkg-config patchelf file zsync \
+            libglib2.0-bin libgdk-pixbuf2.0-bin librsvg2-common \
+            gsettings-desktop-schemas desktop-file-utils
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build AppImage
+        # linuxdeploy is itself an AppImage and the runner has no usable FUSE,
+        # so it has to unpack itself rather than mount.
+        run: APPIMAGE_EXTRACT_AND_RUN=1 ./packaging/appimage/build-appimage.sh
+      - name: Smoke-test it
+        # Proves the bundle is complete enough to reach GTK's display check.
+        # Anything missing from the bundle fails here with a loader error
+        # instead of on a user's machine.
+        run: |
+          set -eux
+          ./Moraine-*-x86_64.AppImage --appimage-extract >/dev/null
+          ./squashfs-root/usr/bin/moraine --version
+          ./squashfs-root/AppRun 2>&1 | tail -1 | grep -q "Failed to open display"
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: "Moraine-*-x86_64.AppImage"
+          fail_on_unmatched_files: false
+
   # ── Windows desktop app (GTK4) — built via MSYS2, bundled with the GTK runtime ──
   # Ships alongside the Windows CLI zip/installer as a one-click app installer.
   windows-gui:
@@ -230,7 +273,10 @@ jobs:
   # this is the only integrity signal beyond TLS.
   checksums:
     name: publish SHA256SUMS
-    needs: [release, rpm, arch, windows-gui]
+    # Every job that uploads an asset must be listed here: this downloads the
+    # whole release and hashes it, so a job that finishes later is silently
+    # missing from SHA256SUMS.
+    needs: [release, rpm, arch, appimage, windows-gui]
     runs-on: ubuntu-latest
     steps:
       - name: Compute and upload SHA256SUMS

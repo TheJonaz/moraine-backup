@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 # Build a Moraine AppImage (GTK desktop app + CLI).
 #
-# Run on an OLD-ish glibc distro (e.g. Ubuntu 22.04) so the result runs
-# everywhere newer. Needs: rustup/cargo, libgtk-4-dev, curl, FUSE.
+# Build on the OLDEST base that still has GTK >= 4.10, which today is Ubuntu
+# 24.04 — moraine builds gtk4-rs with features = ["v4_10"], so the usual
+# "build on 22.04 for portability" advice cannot work there at all (22.04 has
+# GTK 4.6). That puts the glibc floor at 2.39: Ubuntu 24.04+, Debian 13+,
+# Fedora 40+ and the rolling distros run this; Ubuntu 22.04 and Debian 12 do
+# not, and are pointed at the Flatpak or the .deb instead.
+#
+# Needs: rustup/cargo, libgtk-4-dev, curl, patchelf, and FUSE — or set
+# APPIMAGE_EXTRACT_AND_RUN=1 when there is no FUSE (CI, containers).
+#
+# The bundle deliberately leaves 7 libraries to the host (libX11, libxcb,
+# libwayland-client, libfontconfig, libfreetype, libharfbuzz, libfribidi):
+# they are on AppImage's excludelist because they must match the host's
+# display and font stack. Every desktop has them; a bare container does not,
+# which is why a container smoke test needs them installed first.
 #
 # The AppImage bundles GTK but relies on the HOST's rsync / ssh / rclone at
 # runtime (present on virtually every Linux box). Requires moraine >= 0.1.19,
