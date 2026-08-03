@@ -181,8 +181,9 @@ LICENSE="MIT"
 LICENSE+=" Apache-2.0-with-LLVM-exceptions MIT Unicode-3.0 Unlicense"
 SLOT="0"
 KEYWORDS="~amd64"
+IUSE="+gui"
 
-DEPEND="gui-libs/gtk:4"
+DEPEND="gui? ( gui-libs/gtk:4 )"
 RDEPEND="
 	${DEPEND}
 	net-misc/rsync
@@ -191,28 +192,41 @@ RDEPEND="
 # Optional runtime backend: net-misc/rclone (cloud/FTP/SMB/WebDAV/S3)
 
 src_configure() {
-	# cargo.eclass adds --no-default-features whenever myfeatures is set, so
-	# list every default feature explicitly — dropping `tray` here silently
-	# builds a GUI without the StatusNotifierItem tray icon.
-	local myfeatures=( gui tray )
-	cargo_src_configure
+	if use gui; then
+		# Both defaults spelled out, so the build does not silently change
+		# if upstream's default feature set does. `tray` is what compiles
+		# the StatusNotifierItem icon in.
+		local myfeatures=( gui tray )
+		cargo_src_configure
+	else
+		# cargo_src_configure does NOT add --no-default-features on its own
+		# (it only maps myfeatures to --features and forwards "$@"), so
+		# without this the default gui+tray build would happen anyway. The
+		# moraine-gui bin target is required-features = ["gui"], so cargo
+		# then simply skips it and only the CLI is built.
+		cargo_src_configure --no-default-features
+	fi
 }
 
 src_install() {
 	cargo_src_install
 
-	domenu assets/moraine-gui.desktop
+	doman man/moraine.1
 
-	insinto /usr/share/icons/hicolor/scalable/apps
-	doins assets/moraine.svg
-	newicon -s 256 assets/moraine-256.png moraine.png
-	newicon -s 128 assets/moraine-128.png moraine.png
-	newicon -s 64 assets/moraine-64.png moraine.png
-	newicon -s 48 assets/moraine-48.png moraine.png
+	if use gui; then
+		domenu assets/moraine-gui.desktop
 
-	# runtime assets the GUI loads from /usr/share/moraine/assets
-	insinto /usr/share/moraine/assets
-	doins assets/hero-bg.png assets/moraine-64.png assets/moraine-256.png
+		insinto /usr/share/icons/hicolor/scalable/apps
+		doins assets/moraine.svg
+		newicon -s 256 assets/moraine-256.png moraine.png
+		newicon -s 128 assets/moraine-128.png moraine.png
+		newicon -s 64 assets/moraine-64.png moraine.png
+		newicon -s 48 assets/moraine-48.png moraine.png
 
-	doman man/moraine.1 man/moraine-gui.1
+		# runtime assets the GUI loads from /usr/share/moraine/assets
+		insinto /usr/share/moraine/assets
+		doins assets/hero-bg.png assets/moraine-64.png assets/moraine-256.png
+
+		doman man/moraine-gui.1
+	fi
 }

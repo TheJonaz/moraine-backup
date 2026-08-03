@@ -52,6 +52,21 @@ sudo pacman -U https://github.com/TheJonaz/moraine-backup/releases/download/v0.2
 Runtime deps: `gtk4`, `rsync`, `openssh`; optional: `rclone`, `gnupg`,
 `networkmanager`.
 
+### Gentoo
+From the Moraine overlay
+([TheJonaz/moraine-overlay](https://github.com/TheJonaz/moraine-overlay)):
+```bash
+eselect repository add moraine git https://github.com/TheJonaz/moraine-overlay.git
+emaint sync -r moraine
+emerge -av app-backup/moraine
+```
+The `gui` USE flag is on by default. On a headless box, turn it off and the
+GTK4 stack is never pulled in — only the CLI is built:
+```bash
+echo 'app-backup/moraine -gui' >> /etc/portage/package.use/moraine
+```
+Runtime deps: `net-misc/rsync`, `net-misc/openssh`; optional: `net-misc/rclone`.
+
 ### macOS (CLI)
 The command-line client via Homebrew (the desktop app is Linux-only):
 ```bash
