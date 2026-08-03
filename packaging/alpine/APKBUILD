@@ -1,9 +1,8 @@
-# Contributor: Jonaz Thern <info@thern.io>
-# Maintainer: Jonaz Thern <info@thern.io>
+maintainer="Jonaz Thern <info@thern.io>"
 pkgname=moraine
 pkgver=0.2.2
 pkgrel=0
-pkgdesc="Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)"
+pkgdesc="Snapshot-based backup application over SSH/rsync and rclone"
 url="https://moraine.thern.io"
 arch="all"
 license="MIT"
