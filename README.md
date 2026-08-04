@@ -122,6 +122,9 @@ moraine run [--target NAME] [--dry-run]
 moraine list --target NAME         # list snapshots
 moraine check [--target NAME] [--snapshot TS]  # checksum-verify a snapshot
 moraine prune [--target NAME] [--dry-run]
+moraine secrets check [--target NAME]          # can every secret be read right now?
+moraine secrets set --target NAME [--field password] [--stdin]
+moraine secrets migrate [--target NAME] [--dry-run]
 ```
 
 **Ad-hoc backups — no config file.** `moraine run` can define a whole target
@@ -181,6 +184,24 @@ Rust is planned for broader portability (Windows without rsync, mobile).
 
 Moraine handles credentials for your backup destinations. How they are protected:
 
+- **Secrets don't have to be in the config at all.** Each secret field says
+  *where* the secret lives: `"hunter2"` (in the file), `"env:FTP_PW"` (an
+  environment variable) or `"keyring:"` (the OS keyring — Secret Service on
+  Linux/BSD, Credential Manager on Windows, Keychain on macOS). Move the ones
+  already in your config with `moraine secrets migrate`, or with the **Move to
+  keyring** button under each secret field in a target's Settings, and confirm
+  they can still be read with `moraine secrets check`.
+
+  A keyring needs an unlocked desktop session, which **cron does not have** — use
+  `env:` for scheduled runs, and run `moraine secrets check` from the same
+  environment as the schedule to be sure. Keyring support is a build feature
+  (`cargo build --features keyring`); without it, `keyring:` fails with an
+  explanatory error rather than an empty secret.
+
+  This protects against a config being copied somewhere it shouldn't — into a
+  backup, a git repo, a pasted bug report. It does **not** protect against
+  malicious code running as your own user: that can ask the keyring for the same
+  secret Moraine does.
 - **Secrets on disk are owner-only.** The config (`moraine.toml`) can hold SSH
   passwords / key passphrases and FTP passwords in plaintext, and the run log
   (`history.jsonl`) can contain paths and backend error text — both are written

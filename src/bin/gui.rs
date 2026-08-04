@@ -124,7 +124,11 @@ struct TargetForm {
     user: String,
     port: String,
     key: String,
-    password: String,
+    /// The *spec*, not the secret — what the user typed into the field, which is
+    /// a literal secret unless it names a keyring entry or an env var. Mirrors
+    /// `Target::password_spec`; the GUI never resolves secrets, so no keyring
+    /// unlock prompt can be triggered by merely opening the settings modal.
+    password_spec: String,
     strict_host_key: bool,
     dest: String,
     sources: Vec<String>,
@@ -132,8 +136,8 @@ struct TargetForm {
     vpn: String,
     healthcheck: String,
     bwlimit: String,
-    crypt_password: String,
-    crypt_salt: String,
+    crypt_password_spec: String,
+    crypt_salt_spec: String,
     keep_last: String,
     keep_daily: String,
     keep_weekly: String,
@@ -150,7 +154,7 @@ impl TargetForm {
             user: t.user.clone(),
             port: t.port.to_string(),
             key: t.key.clone().unwrap_or_default(),
-            password: t.password.clone(),
+            password_spec: t.password_spec.clone(),
             strict_host_key: t.strict_host_key,
             dest: t.dest.clone(),
             sources: t.sources.clone(),
@@ -158,8 +162,8 @@ impl TargetForm {
             vpn: t.vpn.clone(),
             healthcheck: t.healthcheck.clone(),
             bwlimit: t.bwlimit.clone(),
-            crypt_password: t.crypt_password.clone(),
-            crypt_salt: t.crypt_salt.clone(),
+            crypt_password_spec: t.crypt_password_spec.clone(),
+            crypt_salt_spec: t.crypt_salt_spec.clone(),
             keep_last: r.keep_last.to_string(),
             keep_daily: r.keep_daily.to_string(),
             keep_weekly: r.keep_weekly.to_string(),
@@ -190,7 +194,7 @@ impl TargetForm {
             user: self.user.trim().to_string(),
             port: self.port.trim().parse().unwrap_or(22),
             key,
-            password: self.password.trim().to_string(),
+            password_spec: self.password_spec.trim().to_string(),
             strict_host_key: self.strict_host_key,
             dest: self.dest.trim().to_string(),
             sources: clean(&self.sources),
@@ -198,8 +202,8 @@ impl TargetForm {
             vpn: self.vpn.trim().to_string(),
             healthcheck: self.healthcheck.trim().to_string(),
             bwlimit: self.bwlimit.trim().to_string(),
-            crypt_password: self.crypt_password.trim().to_string(),
-            crypt_salt: self.crypt_salt.trim().to_string(),
+            crypt_password_spec: self.crypt_password_spec.trim().to_string(),
+            crypt_salt_spec: self.crypt_salt_spec.trim().to_string(),
             retention: if retention.is_empty() {
                 None
             } else {
@@ -2379,16 +2383,14 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
     // Secret
     let secret = gtk::PasswordEntry::new();
     secret.set_show_peek_icon(true);
-    secret.set_text(&f.password);
+    secret.set_text(&f.password_spec);
     let sl = gtk::Label::new(Some("Key passphrase / login password (optional)"));
     sl.add_css_class("muted");
     sl.set_halign(gtk::Align::Start);
     body.append(&sl);
     body.append(&secret);
-    {
-        let st = state.clone();
-        secret.connect_changed(move |e| st.borrow_mut().targets[i].password = e.text().to_string());
-    }
+    // Writes password_spec as the user types, and owns the keyring button.
+    attach_keyring_control(&body, &secret, state, ui, i, "password");
 
     // Strict host key (SSH)
     let strict =
@@ -2505,21 +2507,17 @@ fn open_settings(state: &Shared, ui: &Rc<Ui>) {
 
         let cp = gtk::Entry::new();
         cp.set_visibility(false);
-        cp.set_text(&f.crypt_password);
+        cp.set_text(&f.crypt_password_spec);
         cp.set_placeholder_text(Some("passphrase — empty = no encryption"));
         adv.append(&labeled("Encryption passphrase", &cp));
-        let st = state.clone();
-        cp.connect_changed(move |e| {
-            st.borrow_mut().targets[i].crypt_password = e.text().to_string()
-        });
+        attach_keyring_control(&adv, &cp, state, ui, i, "crypt_password");
 
         let cs = gtk::Entry::new();
         cs.set_visibility(false);
-        cs.set_text(&f.crypt_salt);
+        cs.set_text(&f.crypt_salt_spec);
         cs.set_placeholder_text(Some("optional salt (password2) — recommended"));
         adv.append(&labeled("Encryption salt (optional)", &cs));
-        let st = state.clone();
-        cs.connect_changed(move |e| st.borrow_mut().targets[i].crypt_salt = e.text().to_string());
+        attach_keyring_control(&adv, &cs, state, ui, i, "crypt_salt");
 
         let warn = gtk::Label::new(Some(
             "⚠ Keep this passphrase safe — without it, encrypted snapshots can't be restored.",
@@ -3513,9 +3511,10 @@ fn build_help_tab() -> gtk::Widget {
         &[
             "Notifications — a desktop notification when a backup finishes (a critical \
              one on failure).",
-            "Encrypted config backup — export the config (which holds your secrets) as a \
-             password-protected file to move between machines or keep safe; import \
-             replaces the current config.",
+            "Encrypted config backup — export the config as a password-protected file to \
+             move between machines or keep safe. Your secrets are included even when they \
+             live in the OS keyring, so the export is a complete backup; import replaces \
+             the current config and puts those secrets back in the keyring where it can.",
             "Start at login — launch Moraine (minimised) when you log in, so scheduled \
              backups are covered.",
             "Check for updates — Moraine checks GitHub Releases and offers to download a \
@@ -3658,9 +3657,9 @@ fn build_settings_tab(state: &Shared, ui: &Rc<Ui>) -> gtk::Widget {
                     "Enter the password for the encrypted config.",
                     false,
                     move |pw| match import_config(&pw, &path) {
-                        Ok(()) => {
+                        Ok(note) => {
                             reload_all(&st3, &ui4);
-                            set_status(&ui4, "Config imported");
+                            set_status(&ui4, &note);
                         }
                         Err(e) => set_status(&ui4, &format!("Import failed: {e}")),
                     },
@@ -4525,12 +4524,22 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
             let fin = snapshot::finalize_cmd(&target, &ts);
             cmds.push(("ssh".to_string(), ssh::remote_command_args(&target, &fin)));
         }
+        // Resolving the secret can fail (unreachable keyring, unset env var).
+        // Report it as the run's status instead of starting rsync with an empty
+        // secret, which would surface as an opaque authentication failure.
+        let env = match ssh::askpass_env(&target) {
+            Ok(env) => env,
+            Err(e) => {
+                set_status(ui, &format!("{e:#}"));
+                return;
+            }
+        };
         set_log(ui, &format!("snapshot {ts}\n"));
         run_stream(
             ui,
             state,
             cmds,
-            ssh::askpass_env(&target),
+            env,
             pending,
             &msg,
             target.vpn.clone(),
@@ -4548,7 +4557,15 @@ fn run_backup(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         // the commands inside the worker via `prepare` rather than up front.
         // run_cmds wraps the copies in the `.incomplete` marker create/delete,
         // so an interrupted run stays invisible to list/restore/prune.
-        let env = rclone::env_for(&target);
+        // preflight above already resolved these, so this only fails if something
+        // changed underneath us — still not something to paper over.
+        let env = match rclone::env_for(&target) {
+            Ok(env) => env,
+            Err(e) => {
+                set_status(ui, &format!("{e:#}"));
+                return;
+            }
+        };
         let t = target.clone();
         let prepare: Prepare = Box::new(move || {
             let mut cmds = rclone::run_cmds(&t, &ts, dry_run);
@@ -4729,8 +4746,17 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     set_log(ui, &format!("Restore {ts}\n"));
     // askpass env is empty for rclone targets and rclone env for ssh targets,
     // so combining both is always correct for whichever backend runs.
-    let mut env = ssh::askpass_env(&target);
-    env.extend(rclone::env_for(&target));
+    let env = match ssh::askpass_env(&target)
+        .and_then(|mut e| {
+            e.extend(rclone::env_for(&target)?);
+            Ok(e)
+        }) {
+        Ok(env) => env,
+        Err(e) => {
+            set_status(ui, &format!("{e:#}"));
+            return;
+        }
+    };
     run_stream(
         ui,
         state,
@@ -4742,6 +4768,192 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
         None,
         None, // reads the target, writes locally — no target lock needed
     );
+}
+
+/// The spec field a `SECRET_FIELDS` name refers to. Keeping the mapping in one
+/// place means the keyring control below works for all three without three
+/// near-identical copies of it.
+fn spec_field<'a>(f: &'a mut TargetForm, field: &str) -> &'a mut String {
+    match field {
+        "password" => &mut f.password_spec,
+        "crypt_password" => &mut f.crypt_password_spec,
+        _ => &mut f.crypt_salt_spec,
+    }
+}
+
+/// Adds the OS-keyring affordance under a secret entry: a line saying where the
+/// secret currently lives, and a button that either moves it into the keyring or
+/// hands the field back for typing.
+///
+/// While a secret lives in the keyring the entry is emptied and made
+/// insensitive — showing the literal text `keyring:` in a password field reads
+/// as an eight-character password, which is worse than showing nothing.
+fn attach_keyring_control<E>(
+    parent: &gtk::Box,
+    entry: &E,
+    state: &Shared,
+    ui: &Rc<Ui>,
+    i: usize,
+    field: &'static str,
+) where
+    E: IsA<gtk::Widget> + IsA<gtk::Editable> + Clone + 'static,
+{
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let status = gtk::Label::new(None);
+    status.add_css_class("muted");
+    status.set_halign(gtk::Align::Start);
+    status.set_hexpand(true);
+    // Ellipsize rather than wrap: a wrapping label reports a natural width of
+    // roughly one word, so it breaks "Stored in: the config file" across two
+    // lines however much room the row actually has.
+    status.set_wrap(false);
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let button = gtk::Button::new();
+    button.set_halign(gtk::Align::End);
+    row.append(&status);
+    row.append(&button);
+    parent.append(&row);
+
+    // Set while the code (rather than the user) changes the entry text.
+    // `set_text` fires `changed` just like typing does, and without this the
+    // refresh below would write its own cleared field back over the spec —
+    // losing the keyring pointer the moment it was set.
+    let updating = Rc::new(std::cell::Cell::new(false));
+
+    // Renders the row from the current spec. Called on build and after every
+    // change, so the two never disagree.
+    let refresh = {
+        let state = state.clone();
+        let entry = entry.clone();
+        let status = status.clone();
+        let button = button.clone();
+        let updating = updating.clone();
+        Rc::new(move || {
+            let spec = state
+                .borrow()
+                .targets
+                .get(i)
+                .map(|t| match field {
+                    "password" => t.password_spec.clone(),
+                    "crypt_password" => t.crypt_password_spec.clone(),
+                    _ => t.crypt_salt_spec.clone(),
+                })
+                .unwrap_or_default();
+            let in_keyring = spec.trim_start().starts_with("keyring:");
+            let from_env = spec.trim_start().starts_with("env:");
+            entry.set_sensitive(!in_keyring);
+            if in_keyring && !entry.text().is_empty() {
+                updating.set(true);
+                entry.set_text("");
+                updating.set(false);
+            }
+            status.set_text(&format!("Stored in: {}", moraine::secrets::source_of(&spec)));
+            if in_keyring {
+                button.set_label("Type a new one…");
+                button.set_sensitive(true);
+                button.set_tooltip_text(Some(
+                    "Clear the field so you can enter a different secret. \
+                     The one in the keyring is left where it is.",
+                ));
+            } else {
+                button.set_label("Move to keyring");
+                // An env: spec has no secret here to move — moving it would
+                // store the *name of the variable* as the secret.
+                let movable = moraine::secrets::literal_value(&spec).is_some();
+                button.set_sensitive(movable && moraine::secrets::keyring_supported());
+                button.set_tooltip_text(Some(if !moraine::secrets::keyring_supported() {
+                    "This build of Moraine has no keyring support compiled in."
+                } else if from_env {
+                    "This field already reads an environment variable."
+                } else if spec.is_empty() {
+                    "Enter a secret first."
+                } else {
+                    "Store this secret in your OS keyring and keep it out of moraine.toml."
+                }));
+            }
+        })
+    };
+    refresh();
+
+    // The single writer for this field's spec: what the user types *is* the
+    // spec. Keeping it here rather than at each call site means the guard above
+    // covers every path that can change the entry.
+    {
+        let st = state.clone();
+        let refresh = refresh.clone();
+        let updating = updating.clone();
+        entry.connect_changed(move |e| {
+            if updating.get() {
+                return;
+            }
+            {
+                let mut s = st.borrow_mut();
+                if let Some(t) = s.targets.get_mut(i) {
+                    *spec_field(t, field) = e.text().to_string();
+                }
+            }
+            refresh();
+        });
+    }
+
+    let st = state.clone();
+    let ui2 = ui.clone();
+    let refresh2 = refresh.clone();
+    button.connect_clicked(move |_| {
+        let (spec, name) = {
+            let s = st.borrow();
+            let Some(t) = s.targets.get(i) else { return };
+            let spec = match field {
+                "password" => t.password_spec.clone(),
+                "crypt_password" => t.crypt_password_spec.clone(),
+                _ => t.crypt_salt_spec.clone(),
+            };
+            (spec, t.name.trim().to_string())
+        };
+
+        if spec.trim_start().starts_with("keyring:") {
+            // "Type a new one…": hand the field back, empty.
+            *spec_field(&mut st.borrow_mut().targets[i], field) = String::new();
+            refresh2();
+            return;
+        }
+        let Some(secret) = moraine::secrets::literal_value(&spec) else {
+            return;
+        };
+        if name.is_empty() {
+            set_status(&ui2, "Give the target a name first — it identifies the keyring entry.");
+            return;
+        }
+        // The account is written into the spec rather than derived at read time:
+        // the name field can be edited freely, and a derived account would stop
+        // resolving the moment the target is renamed — a failure that would only
+        // surface at the next scheduled backup.
+        let account = moraine::secrets::default_account(&name, field);
+        set_status(&ui2, "Storing in the keyring…");
+        let (n, f2, acct) = (name.clone(), field, account.clone());
+        // Cloned per click: both this handler and run_oneshot's callback are
+        // `Fn`, so neither may consume the captured Rc.
+        let after = refresh2.clone();
+        run_oneshot(
+            &ui2,
+            &st,
+            move || moraine::secrets::store_verified(&n, f2, &secret).map_err(|e| format!("{e:#}")),
+            move |state, ui, res| match res {
+                Ok(()) => {
+                    *spec_field(&mut state.borrow_mut().targets[i], field) =
+                        format!("keyring:{acct}");
+                    after();
+                    // Persist immediately: the secret is in the keyring now, and
+                    // an unsaved config would still hold the plaintext copy.
+                    match state.borrow().save() {
+                        Ok(()) => set_status(ui, &format!("{field} moved to the keyring")),
+                        Err(e) => set_status(ui, &format!("Stored, but saving the config failed: {e}")),
+                    }
+                }
+                Err(e) => set_status(ui, &format!("Could not store in the keyring: {e}")),
+            },
+        );
+    });
 }
 
 /// Run a one-shot job in a thread and deliver its result to a callback on the
@@ -4997,19 +5209,20 @@ fn load_tree(state: &Shared, ui: &Rc<Ui>) {
 
 // ─────────────────── sync backend helpers (run in worker threads) ───────────────────
 
-fn ssh_probe(target: &Target, remote_cmd: &str) -> Command {
+fn ssh_probe(target: &Target, remote_cmd: &str) -> Result<Command, String> {
     let mut cmd = Command::new("ssh");
     cmd.no_console();
     cmd.args(ssh::probe_command_args(target, remote_cmd));
-    cmd.envs(ssh::askpass_env(target));
-    cmd
+    // Fallible since the secret may come from the keyring or the environment.
+    cmd.envs(ssh::askpass_env(target).map_err(|e| format!("{e:#}"))?);
+    Ok(cmd)
 }
 
 /// Only real snapshot timestamps: `latest`, stray directories and anything
 /// else under the base must never show up as a restorable snapshot.
 fn list_snapshots(target: &Target) -> Result<String, String> {
     let mut snaps = if target.backend.is_ssh() {
-        let out = ssh_probe(target, &snapshot::list_cmd(target))
+        let out = ssh_probe(target, &snapshot::list_cmd(target))?
             .output()
             .map_err(|e| format!("could not start ssh: {e}"))?;
         if !out.status.success() {
@@ -5035,7 +5248,7 @@ fn list_snapshots(target: &Target) -> Result<String, String> {
 /// dropped so a malicious server can't traverse outside the restore dir.
 fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
     let raw = if target.backend.is_ssh() {
-        let out = ssh_probe(target, &snapshot::tree_cmd(target, ts))
+        let out = ssh_probe(target, &snapshot::tree_cmd(target, ts))?
             .output()
             .map_err(|e| format!("could not start ssh: {e}"))?;
         if !out.status.success() {
@@ -5057,7 +5270,7 @@ fn list_tree(target: &Target, ts: &str) -> Result<String, String> {
         let out = Command::new("rclone")
             .no_console()
             .args(rclone::tree_args(target, ts))
-            .envs(rclone::env_for(target))
+            .envs(rclone::env_for(target).map_err(|e| format!("{e:#}"))?)
             .output()
             .map_err(|e| format!("could not start rclone: {e}"))?;
         if !out.status.success() {
@@ -5105,7 +5318,7 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
     }
 
     if target.backend.is_ssh() {
-        let probe = ssh_probe(target, "echo ok")
+        let probe = ssh_probe(target, "echo ok")?
             .output()
             .map_err(|e| format!("could not start ssh: {e}"))?;
         let cok = probe.status.success();
@@ -5116,7 +5329,7 @@ fn verify_target(target: &Target) -> Result<(bool, String), String> {
                 mark(true),
                 target.host
             ));
-            let dest = ssh_probe(target, &snapshot::dest_check_cmd(target))
+            let dest = ssh_probe(target, &snapshot::dest_check_cmd(target))?
                 .output()
                 .map_err(|e| format!("could not start ssh: {e}"))?;
             let dok = matches!(
@@ -5188,7 +5401,7 @@ fn prune_target(target: &Target) -> Result<String, String> {
     // prune is the escape hatch. Best-effort; the caller holds the target
     // lock, so nothing in flight can be swept up.
     let cleaned = if target.backend.is_ssh() {
-        let _ = ssh_probe(target, &snapshot::cleanup_incomplete_cmd(target)).output();
+        let _ = ssh_probe(target, &snapshot::cleanup_incomplete_cmd(target)).map(|mut c| c.output());
         0 // rm -rf reports no per-directory count
     } else {
         rclone::cleanup_stale(target, "").len()
@@ -5207,7 +5420,7 @@ fn prune_target(target: &Target) -> Result<String, String> {
         return Ok(format!("Nothing to prune ({} kept{note})", plan.keep.len()));
     }
     if target.backend.is_ssh() {
-        let del = ssh_probe(target, &snapshot::prune_cmd(target, &plan.delete))
+        let del = ssh_probe(target, &snapshot::prune_cmd(target, &plan.delete))?
             .output()
             .map_err(|e| format!("ssh: {e}"))?;
         if !del.status.success() {
@@ -5328,31 +5541,87 @@ fn set_autostart(enabled: bool) -> std::io::Result<()> {
 /// Symmetrically encrypts the current config to `dest` (AES-256, password-based).
 /// gpg writes to stdout and we save via write_private, so the export is 0600
 /// (gpg's own --output would create it with the default umask).
+///
+/// Secrets are **resolved and inlined** first, so the export stays a complete,
+/// self-contained backup even when the config only points at the keyring or an
+/// environment variable — a set of pointers would be worthless on another
+/// machine. The inlined config exists only in memory and inside the encrypted
+/// output; it is never written to disk in the clear.
 fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
-    let encrypted = gpg_with_passphrase(
-        &[
-            "--batch",
-            "--yes",
-            "--pinentry-mode",
-            "loopback",
-            "--passphrase-fd",
-            "0",
-            "--symmetric",
-            "--cipher-algo",
-            "AES256",
-            "--output",
-            "-",
-            CONFIG_PATH,
-        ],
-        passphrase,
-    )
-    .map_err(|e| friendly_gpg_error(&e))?;
+    let mut cfg = Config::load(Path::new(CONFIG_PATH)).map_err(|e| format!("{e:#}"))?;
+    cfg.inline_secrets().map_err(|e| {
+        format!("{e:#}\n\nExport needs every secret readable — fix that first, or clear the field.")
+    })?;
+    let plaintext = toml::to_string_pretty(&cfg)
+        .map_err(|e| format!("could not serialize the config: {e}"))?;
+    let encrypted = gpg_encrypt_stdin(passphrase, plaintext.as_bytes())
+        .map_err(|e| friendly_gpg_error(&e))?;
     moraine::config::write_private(dest, &encrypted)
         .map_err(|e| format!("could not write {}: {e}", dest.display()))
 }
 
+/// Encrypts `plaintext` with gpg without either the plaintext or the passphrase
+/// ever becoming a command-line argument (world-readable in `/proc/*/cmdline`)
+/// or a file on a real disk.
+///
+/// gpg reads the passphrase from a file and the data from stdin. It has to be
+/// that way round: only one of them can use stdin, and the passphrase is the
+/// smaller, shorter-lived secret. The file goes in the private runtime dir —
+/// `/run/user/UID`, a per-user tmpfs — mode 0600, and is removed immediately,
+/// including when gpg fails.
+fn gpg_encrypt_stdin(passphrase: &str, plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    let dir = moraine::tools::private_dir()
+        .ok_or("no private directory available for the gpg passphrase")?;
+    let pw_path = dir.join("export-passphrase");
+    moraine::config::write_private(&pw_path, format!("{passphrase}\n").as_bytes())
+        .map_err(|e| format!("could not stage the gpg passphrase: {e}"))?;
+
+    let result = (|| -> Result<Vec<u8>, String> {
+        let mut child = Command::new("gpg")
+            .no_console()
+            .args([
+                "--batch",
+                "--yes",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase-file",
+                &pw_path.display().to_string(),
+                "--symmetric",
+                "--cipher-algo",
+                "AES256",
+                "--output",
+                "-",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("could not start gpg — is gnupg installed? ({e})"))?;
+        child
+            .stdin
+            .take()
+            .ok_or("no stdin for gpg")?
+            .write_all(plaintext)
+            .map_err(|e| format!("gpg stdin: {e}"))?;
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(out.stdout)
+    })();
+
+    let _ = std::fs::remove_file(&pw_path);
+    result
+}
+
 /// Decrypts `src`, validates it as a config, and replaces the current config.
-fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
+///
+/// The export inlines every secret, so what arrives here has them in plaintext.
+/// When this build can reach a keyring they are moved straight back into it, so
+/// the imported config ends up in the same shape the exporting machine had
+/// rather than quietly leaving every credential in a file. Returns a note about
+/// what happened for the status line.
+fn import_config(passphrase: &str, src: &Path) -> Result<String, String> {
     let src = src.display().to_string();
     let plaintext = gpg_with_passphrase(
         &[
@@ -5371,13 +5640,37 @@ fn import_config(passphrase: &str, src: &Path) -> Result<(), String> {
     let text = String::from_utf8_lossy(&plaintext);
     // Refuse to overwrite unless it parses AND validates as a Moraine config
     // (validate() rejects e.g. traversal characters in target names).
-    let cfg = toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    let mut cfg = toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
     cfg.validate()
         .map_err(|e| format!("invalid config: {e:#}"))?;
-    // Owner-only: the config holds plaintext secrets.
-    moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
-        .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;
-    Ok(())
+
+    if !moraine::secrets::keyring_supported() || cfg.secrets_stored_in_config(None).is_empty() {
+        // Owner-only: the config holds plaintext secrets.
+        moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
+            .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;
+        return Ok("Config imported".to_string());
+    }
+    // A keyring that's compiled in can still be unreachable (locked session, no
+    // Secret Service). Falling back to the plaintext config is right: the import
+    // must not fail and leave the user with nothing.
+    match cfg.migrate_secrets_to_keyring(None) {
+        Ok(moved) => {
+            cfg.save(Path::new(CONFIG_PATH))
+                .map_err(|e| format!("could not write {CONFIG_PATH}: {e:#}"))?;
+            Ok(format!(
+                "Config imported; {} secret(s) stored in the keyring",
+                moved.len()
+            ))
+        }
+        Err(e) => {
+            moraine::config::write_private(Path::new(CONFIG_PATH), text.as_bytes())
+                .map_err(|e| format!("could not write {CONFIG_PATH}: {e}"))?;
+            Ok(format!(
+                "Config imported, but its secrets stayed in {CONFIG_PATH} — the keyring \
+                 was unreachable ({e:#})"
+            ))
+        }
+    }
 }
 
 /// Reloads all state from disk (after an import) and refreshes every view.

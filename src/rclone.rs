@@ -78,7 +78,12 @@ pub fn effective_base(target: &Target) -> String {
 /// Environment variables carrying the FTP connection details for the `:ftp:`
 /// on-the-fly remote (rclone reads `RCLONE_FTP_*` as backend defaults). Empty
 /// for other backends. Apply with `.envs(...)` at every rclone spawn site.
-pub fn env_for(target: &Target) -> Vec<(String, String)> {
+///
+/// Fallible because the target's secrets may live outside the config (keyring,
+/// environment) — see [`crate::secrets`]. An unreadable secret must stop the run
+/// here: handing rclone an empty passphrase would write the snapshot
+/// *unencrypted* to a destination the user believes is encrypted.
+pub fn env_for(target: &Target) -> Result<Vec<(String, String)>> {
     let mut env = Vec::new();
     // FTP connection details — as backend defaults, they also apply when a crypt
     // remote wraps an `:ftp:` underlying remote.
@@ -96,8 +101,11 @@ pub fn env_for(target: &Target) -> Vec<(String, String)> {
         // disable_mlsd: rclone then creates directories correctly and avoids
         // "501 No such directory" against servers with MLSD quirks (common).
         env.push(("RCLONE_FTP_DISABLE_MLSD".to_string(), "true".to_string()));
-        if !target.password.is_empty() {
-            env.push(("RCLONE_FTP_PASS".to_string(), obscure(&target.password)));
+        if target.has_password() {
+            env.push((
+                "RCLONE_FTP_PASS".to_string(),
+                obscure(&target.password()?),
+            ));
         }
     }
     // Destination encryption: define the `mcrypt:` crypt remote on the fly, rooted
@@ -107,12 +115,12 @@ pub fn env_for(target: &Target) -> Vec<(String, String)> {
         let p = "RCLONE_CONFIG_MCRYPT_";
         env.push((format!("{p}TYPE"), "crypt".to_string()));
         env.push((format!("{p}REMOTE"), crypt_underlying(target)));
-        env.push((format!("{p}PASSWORD"), obscure(&target.crypt_password)));
-        if !target.crypt_salt.trim().is_empty() {
-            env.push((format!("{p}PASSWORD2"), obscure(&target.crypt_salt)));
+        env.push((format!("{p}PASSWORD"), obscure(&target.crypt_password()?)));
+        if target.has_crypt_salt() {
+            env.push((format!("{p}PASSWORD2"), obscure(&target.crypt_salt()?)));
         }
     }
-    env
+    Ok(env)
 }
 
 /// Obscures a password via `rclone obscure` (the FTP backend requires it).
@@ -153,14 +161,18 @@ pub fn snapshot_path(target: &Target, ts: &str) -> String {
 /// embeds `pass=` in a connection string. Without this, an obscure failure
 /// (rclone missing/broken) would silently produce `pass=` → a confusing
 /// anonymous-login error instead of the real cause.
+///
+/// Resolving the secrets here also means an unreachable keyring or an unset
+/// environment variable is reported before any transfer starts, rather than
+/// from inside a spawn deep in the run.
 pub fn preflight(target: &Target) -> Result<()> {
     if matches!(target.backend, Backend::Ftp)
-        && !target.password.is_empty()
-        && obscure(&target.password).is_empty()
+        && target.has_password()
+        && obscure(&target.password()?).is_empty()
     {
         bail!("could not obscure the FTP password — is rclone installed and working?");
     }
-    if target.crypt_enabled() && obscure(&target.crypt_password).is_empty() {
+    if target.crypt_enabled() && obscure(&target.crypt_password()?).is_empty() {
         bail!("could not obscure the encryption passphrase — is rclone installed and working?");
     }
     Ok(())
@@ -311,7 +323,7 @@ fn listing(target: &Target) -> Result<Listing> {
     let out = Command::new("rclone")
         .no_console()
         .args(list_args(target))
-        .envs(env_for(target))
+        .envs(env_for(target)?)
         .output()
         .context("could not start rclone")?;
     if !out.status.success() {
@@ -375,6 +387,17 @@ pub fn cleanup_stale(target: &Target, current_ts: &str) -> Vec<String> {
         Ok(l) => l.stale,
         Err(_) => return Vec::new(),
     };
+    // Resolved once for the whole loop: env_for shells out to `rclone obscure`
+    // for each secret, so building it per stale entry would spawn a process per
+    // iteration. Cleanup stays best-effort — an unreadable secret just means
+    // there is nothing we can do here, and the run itself reports it properly.
+    let env = match env_for(target) {
+        Ok(env) => env,
+        Err(e) => {
+            eprintln!("  warning: could not clean up interrupted snapshots: {e:#}");
+            return Vec::new();
+        }
+    };
     let mut cleaned = Vec::new();
     // Belt-and-braces on top of parse_listing's marker filter: only ever
     // delete timestamp-shaped names.
@@ -394,7 +417,7 @@ pub fn cleanup_stale(target: &Target, current_ts: &str) -> Vec<String> {
         let status = Command::new("rclone")
             .no_console()
             .args(marker_delete_args(target, &s.ts))
-            .envs(env_for(target))
+            .envs(env.clone())
             .status();
         match status {
             Ok(st) if st.success() => cleaned.push(s.ts.clone()),
@@ -427,11 +450,18 @@ fn features_fs(target: &Target) -> String {
 /// Asks rclone whether the backend supports server-side copy (`--copy-dest`).
 /// FTP/SMB/WebDAV/local → false; S3/Drive/B2 and others → true.
 pub fn supports_server_side_copy(target: &Target) -> bool {
+    // A capability probe, not a transfer: if the secrets can't be resolved the
+    // probe couldn't have authenticated anyway. Answer conservatively (no
+    // server-side copy) and let the run itself report the real error — every
+    // path that moves data goes through preflight/env_for, which are loud.
+    let Ok(env) = env_for(target) else {
+        return false;
+    };
     let out = Command::new("rclone")
         .no_console()
         .args(["backend", "features"])
         .arg(features_fs(target))
-        .envs(env_for(target))
+        .envs(env)
         .output();
     match out {
         Ok(o) if o.status.success() => serde_json::from_slice::<serde_json::Value>(&o.stdout)
@@ -486,7 +516,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
         let status = Command::new(prog)
             .no_console()
             .args(args)
-            .envs(env_for(target))
+            .envs(env_for(target)?)
             .status()
             .context("could not start rclone")?;
         if !status.success() {
@@ -510,7 +540,7 @@ pub fn purge(target: &Target, ts: &str) -> Result<()> {
     let status = Command::new("rclone")
         .no_console()
         .args(prune_args(target, ts))
-        .envs(env_for(target))
+        .envs(env_for(target)?)
         .status()
         .context("could not start rclone")?;
     if !status.success() {
@@ -613,7 +643,7 @@ mod tests {
         let plain = target("");
         assert_eq!(super::effective_base(&plain), "remote:/backups/n");
         assert_eq!(super::snapshot_path(&plain, "TS"), "remote:/backups/n/TS");
-        assert!(super::env_for(&plain).is_empty());
+        assert!(super::env_for(&plain).unwrap().is_empty());
 
         // Crypt on → mcrypt: remote, rooted at the plain dest (minus /name).
         let enc = target(r#"crypt_password = "hunter2""#);
@@ -630,7 +660,8 @@ mod tests {
             crypt_salt = "pepper"
             "#,
         );
-        let env: std::collections::HashMap<_, _> = super::env_for(&enc).into_iter().collect();
+        let env: std::collections::HashMap<_, _> =
+            super::env_for(&enc).unwrap().into_iter().collect();
         assert_eq!(env.get("RCLONE_CONFIG_MCRYPT_TYPE").unwrap(), "crypt");
         assert_eq!(
             env.get("RCLONE_CONFIG_MCRYPT_REMOTE").unwrap(),

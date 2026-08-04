@@ -179,7 +179,7 @@ pub fn suggested_target(name: &str, found: &[Found]) -> Target {
         user: String::new(),
         port: 22,
         key: None,
-        password: String::new(),
+        password_spec: String::new(),
         strict_host_key: false,
         dest: "/backups".to_string(),
         sources: found.iter().map(|f| f.candidate.path.to_string()).collect(),
@@ -187,8 +187,8 @@ pub fn suggested_target(name: &str, found: &[Found]) -> Target {
         vpn: String::new(),
         healthcheck: String::new(),
         bwlimit: String::new(),
-        crypt_password: String::new(),
-        crypt_salt: String::new(),
+        crypt_password_spec: String::new(),
+        crypt_salt_spec: String::new(),
         retention: None,
     }
 }

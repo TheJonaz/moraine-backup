@@ -268,7 +268,7 @@ pub fn run_target(target: &Target, dry_run: bool) -> Result<String> {
     let status = Command::new("rsync")
         .no_console()
         .args(&args)
-        .envs(ssh::askpass_env(target))
+        .envs(ssh::askpass_env(target)?)
         .status()
         .with_context(|| {
             let how = if cfg!(windows) {
@@ -317,7 +317,7 @@ pub fn finalize(target: &Target, timestamp: &str) -> Result<()> {
     let status = Command::new("ssh")
         .no_console()
         .args(&args)
-        .envs(ssh::askpass_env(target))
+        .envs(ssh::askpass_env(target)?)
         .status()
         .context("could not start ssh to finalize the snapshot")?;
     if !status.success() {

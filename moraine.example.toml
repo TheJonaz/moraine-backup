@@ -1,5 +1,25 @@
 # moraine.toml — one or more [[target]] blocks.
 # Run `moraine run --dry-run` when you're done editing.
+#
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# The secret fields (password, crypt_password, crypt_salt) say *where* the
+# secret is, which need not be in this file:
+#
+#   password = "hunter2"         the secret itself — kept in this file
+#   password = "env:FTP_PW"      read from the environment variable $FTP_PW
+#   password = "keyring:"        read from the OS keyring (see below)
+#   password = "literal:env:x"   the literal "env:x", for a secret that happens
+#                                to start with one of the prefixes above
+#
+# `moraine secrets migrate` moves the secrets in this file into the OS keyring
+# and rewrites the fields as "keyring:". That keeps them out of this file — and
+# so out of any backup, git repo or bug report that copies it.
+#
+#   NOTE: a keyring needs an unlocked desktop session. Scheduled backups run
+#   from cron, which usually has none, so use "env:VAR" for those. Check with
+#   `moraine secrets check` run from the same environment as the schedule.
+#   Keyring support also has to be compiled in (`--features keyring`).
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Show a desktop notification when a backup finishes (success or failure).
 # Optional, default true. Set to false to silence them.
@@ -81,7 +101,8 @@ exclude = [
 # backend = "ftp"
 # host = "ftp.example.com"
 # user = "jonaz"
-# password = "..."        # stored in plain text — chmod 600 moraine.toml
+# password = "..."        # in this file (chmod 600) — or "keyring:" / "env:VAR",
+#                         # see the Secrets note at the top
 # port = 21
 # dest = "backups"
 # sources = ["/home/jonaz/documents"]

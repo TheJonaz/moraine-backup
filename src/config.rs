@@ -1,5 +1,6 @@
 //! Config: reads and validates `moraine.toml`.
 
+use crate::secrets;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -134,11 +135,16 @@ pub struct Target {
     /// Path to the private SSH key. Optional — otherwise ssh-agent is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    /// Secret stored in plaintext in the config: the FTP password for the `ftp`
-    /// backend, or (for `ssh`) the SSH key passphrase or login password, which
-    /// is supplied to ssh/rsync non-interactively via `SSH_ASKPASS`.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub password: String,
+    /// Where to find the FTP password for the `ftp` backend, or (for `ssh`) the
+    /// SSH key passphrase or login password, which is supplied to ssh/rsync
+    /// non-interactively via `SSH_ASKPASS`.
+    ///
+    /// This is a *spec*, not necessarily the secret: `"env:VAR"` reads it from
+    /// the environment, `"keyring:"` from the OS keyring, and anything else is
+    /// the literal secret (the historical format — see [`crate::secrets`]).
+    /// Read it with [`Target::password`], never directly.
+    #[serde(rename = "password", default, skip_serializing_if = "String::is_empty")]
+    pub password_spec: String,
     /// SSH host-key policy. Default (false) is `accept-new`: trust an unknown
     /// host on first connect, reject if the key later changes (TOFU). Set true
     /// for `StrictHostKeyChecking=yes` — the host must already be in
@@ -174,15 +180,28 @@ pub struct Target {
     /// backends only). When a passphrase is set, each file's contents *and* name
     /// are encrypted before they reach the destination, so an untrusted target
     /// never sees plaintext. The same passphrase (and salt) is needed to restore.
-    /// Stored in the config like other secrets — protect it with config
-    /// encryption. Empty/omitted = no encryption.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub crypt_password: String,
+    /// Empty/omitted = no encryption.
+    ///
+    /// A spec like [`Target::password_spec`] — read it with
+    /// [`Target::crypt_password`], never directly.
+    #[serde(
+        rename = "crypt_password",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub crypt_password_spec: String,
     /// Optional second passphrase (rclone crypt's "password2"/salt). Recommended
     /// by rclone; empty uses crypt's built-in default salt. Ignored when
     /// `crypt_password` is empty.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub crypt_salt: String,
+    ///
+    /// A spec like [`Target::password_spec`] — read it with
+    /// [`Target::crypt_salt`], never directly.
+    #[serde(
+        rename = "crypt_salt",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub crypt_salt_spec: String,
     /// Retention policy. Omitted = keep all snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention: Option<Retention>,
@@ -236,6 +255,72 @@ impl Config {
         write_private(path, text.as_bytes())
             .with_context(|| format!("could not write {}", path.display()))?;
         Ok(())
+    }
+
+    /// Replaces every secret spec with the secret itself, making the config
+    /// self-contained. Used by the encrypted config export: without this, a
+    /// config whose secrets live in the keyring would export as a set of
+    /// pointers that mean nothing on another machine.
+    ///
+    /// The result is only ever written encrypted — never back to disk in the
+    /// clear.
+    pub fn inline_secrets(&mut self) -> Result<()> {
+        for t in &mut self.targets {
+            // Resolved before the mutable borrow, and all three up front so a
+            // failure leaves the target untouched rather than half-inlined.
+            let resolved = [t.password()?, t.crypt_password()?, t.crypt_salt()?];
+            for ((_, spec), value) in t.secret_specs_mut().into_iter().zip(resolved) {
+                *spec = secrets::literal_spec(&value);
+            }
+        }
+        Ok(())
+    }
+
+    /// Moves every secret currently stored in the config file into the OS
+    /// keyring, repointing those fields at `keyring:`. Returns the
+    /// `(target, field)` pairs that moved.
+    ///
+    /// Each secret is written to the keyring **and read back** before its spec
+    /// is repointed: the config is the only copy, so a keyring that accepts a
+    /// write it can't return would otherwise destroy it. Fields that already
+    /// point at an environment variable or the keyring are left alone — moving
+    /// an `env:` spec would store the *name of the variable* as the secret.
+    pub fn migrate_secrets_to_keyring(
+        &mut self,
+        only: Option<&str>,
+    ) -> Result<Vec<(String, String)>> {
+        let mut moved = Vec::new();
+        for t in &mut self.targets {
+            if only.is_some_and(|n| n != t.name) {
+                continue;
+            }
+            let name = t.name.clone();
+            for (field, spec) in t.secret_specs_mut() {
+                let Some(literal) = secrets::literal_value(spec) else {
+                    continue;
+                };
+                secrets::store_verified(&name, field, &literal)?;
+                *spec = "keyring:".to_string();
+                moved.push((name.clone(), field.to_string()));
+            }
+        }
+        Ok(moved)
+    }
+
+    /// The `(target, field)` pairs whose secrets sit in the config file, without
+    /// changing anything — the dry run of [`Config::migrate_secrets_to_keyring`].
+    pub fn secrets_stored_in_config(&self, only: Option<&str>) -> Vec<(String, String)> {
+        self.targets
+            .iter()
+            .filter(|t| only.is_none_or(|n| n == t.name))
+            .flat_map(|t| {
+                t.secret_specs()
+                    .into_iter()
+                    .filter(|(_, spec)| secrets::literal_value(spec).is_some())
+                    .map(|(field, _)| (t.name.clone(), field.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     /// Sanity- and safety-checks the config. Public so the GUI can validate an
@@ -325,13 +410,15 @@ impl Config {
             // Destination encryption (rclone crypt) only applies to the rclone/
             // ftp/local backends — the ssh backend uses rsync, which can't encrypt
             // at rest. A salt without a passphrase is meaningless.
-            if !t.crypt_password.is_empty() && t.backend.is_ssh() {
+            // Validation only inspects whether a secret is configured, never what
+            // it is: resolving here would hit the keyring on every config load.
+            if t.crypt_enabled() && t.backend.is_ssh() {
                 bail!(
                     "target '{name}': destination encryption needs the rclone or ftp \
                      backend — the ssh/rsync backend can't encrypt at rest"
                 );
             }
-            if t.crypt_password.is_empty() && !t.crypt_salt.is_empty() {
+            if !t.crypt_enabled() && secrets::is_set(&t.crypt_salt_spec) {
                 bail!("target '{name}': crypt_salt is set but crypt_password is empty");
             }
             if t.sources.is_empty() {
@@ -395,9 +482,58 @@ impl Target {
         self.key.as_deref().map(expand_tilde)
     }
 
-    /// Whether the destination is encrypted at rest with rclone crypt.
+    /// Whether a login password / key passphrase is configured. Inspects the
+    /// spec only — no keyring access, so this is safe on hot paths and on paths
+    /// that must not trigger a keyring unlock prompt.
+    pub fn has_password(&self) -> bool {
+        secrets::is_set(&self.password_spec)
+    }
+
+    /// Whether the destination is encrypted at rest with rclone crypt. Spec-only,
+    /// like [`Target::has_password`].
     pub fn crypt_enabled(&self) -> bool {
-        !self.crypt_password.is_empty()
+        secrets::is_set(&self.crypt_password_spec)
+    }
+
+    /// Whether a crypt salt (rclone crypt's "password2") is configured.
+    pub fn has_crypt_salt(&self) -> bool {
+        secrets::is_set(&self.crypt_salt_spec)
+    }
+
+    /// The login password / key passphrase, resolved from wherever it lives.
+    pub fn password(&self) -> Result<String> {
+        secrets::resolve(&self.password_spec, &self.name, "password")
+    }
+
+    /// The destination-encryption passphrase, resolved from wherever it lives.
+    pub fn crypt_password(&self) -> Result<String> {
+        secrets::resolve(&self.crypt_password_spec, &self.name, "crypt_password")
+    }
+
+    /// The destination-encryption salt, resolved from wherever it lives.
+    pub fn crypt_salt(&self) -> Result<String> {
+        secrets::resolve(&self.crypt_salt_spec, &self.name, "crypt_salt")
+    }
+
+    /// Every secret spec paired with its config key, for tools that work across
+    /// all of them (`moraine secrets`). Keeping the list here means a fourth
+    /// secret can't be added to the struct and silently missed by them.
+    pub fn secret_specs(&self) -> [(&'static str, &str); 3] {
+        [
+            ("password", self.password_spec.as_str()),
+            ("crypt_password", self.crypt_password_spec.as_str()),
+            ("crypt_salt", self.crypt_salt_spec.as_str()),
+        ]
+    }
+
+    /// Mutable counterpart of [`Target::secret_specs`], so `secrets migrate` can
+    /// repoint a spec at the keyring.
+    pub fn secret_specs_mut(&mut self) -> [(&'static str, &mut String); 3] {
+        [
+            ("password", &mut self.password_spec),
+            ("crypt_password", &mut self.crypt_password_spec),
+            ("crypt_salt", &mut self.crypt_salt_spec),
+        ]
     }
 }
 
@@ -467,6 +603,160 @@ mod tests {
             "#
         ))
         .unwrap()
+    }
+
+    /// The secret fields were renamed to `*_spec` in the struct. The TOML keys
+    /// must NOT have changed with them: 0.2.x configs are in the wild across a
+    /// dozen distributions, and a config the GUI saves has to stay readable by
+    /// an older build. This pins both directions.
+    #[test]
+    fn secret_toml_keys_are_unchanged_in_both_directions() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "n"
+            backend = "ftp"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "hunter2"
+            crypt_password = "pepper"
+            crypt_salt = "salt"
+            "#,
+        )
+        .unwrap();
+        let t = &cfg.targets[0];
+        assert_eq!(t.password_spec, "hunter2");
+        assert_eq!(t.password().unwrap(), "hunter2");
+        assert_eq!(t.crypt_password().unwrap(), "pepper");
+        assert_eq!(t.crypt_salt().unwrap(), "salt");
+        assert!(t.has_password() && t.crypt_enabled() && t.has_crypt_salt());
+
+        // Serializing back must emit the original key names, not the field names.
+        let out = toml::to_string(&cfg).unwrap();
+        assert!(out.contains(r#"password = "hunter2""#), "{out}");
+        assert!(out.contains(r#"crypt_password = "pepper""#), "{out}");
+        assert!(out.contains(r#"crypt_salt = "salt""#), "{out}");
+        assert!(!out.contains("_spec"), "field names leaked into TOML: {out}");
+    }
+
+    /// What the encrypted config export does: inline every secret, serialize,
+    /// and (on the other machine) parse it back. Each secret must survive that
+    /// round trip byte for byte, including ones that look like a scheme or
+    /// carry edge whitespace — an export that silently alters a passphrase
+    /// produces snapshots nobody can decrypt.
+    #[test]
+    fn inlining_secrets_survives_a_serialize_parse_round_trip() {
+        std::env::set_var("MORAINE_TEST_EXPORT", "  from env: with spaces  ");
+        let mut cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "a"
+            backend = "ftp"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "env:MORAINE_TEST_EXPORT"
+            crypt_password = "literal:keyring:not-a-scheme"
+            crypt_salt = "  padded  "
+            "#,
+        )
+        .unwrap();
+        cfg.inline_secrets().unwrap();
+        let exported = toml::to_string_pretty(&cfg).unwrap();
+
+        // The importing machine has no such variable — the secret must have
+        // been baked in, not left as a pointer.
+        std::env::remove_var("MORAINE_TEST_EXPORT");
+        let imported: Config = toml::from_str(&exported).unwrap();
+        let t = &imported.targets[0];
+        assert_eq!(t.password().unwrap(), "  from env: with spaces  ");
+        assert_eq!(t.crypt_password().unwrap(), "keyring:not-a-scheme");
+        assert_eq!(t.crypt_salt().unwrap(), "  padded  ");
+        assert!(imported.validate().is_ok());
+    }
+
+    /// The whole point of inlining on export: a config that only *points* at the
+    /// keyring must export with the real secrets in it, or the file is useless
+    /// on the machine it was carried to. Ignored by default — it writes to the
+    /// developer's real credential store:
+    ///     cargo test --features keyring -- --ignored export_pulls
+    #[cfg(feature = "keyring")]
+    #[test]
+    #[ignore = "touches the real OS keyring; needs an unlocked desktop session"]
+    fn export_pulls_secrets_back_out_of_the_keyring() {
+        let mut cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "moraine-exporttest"
+            backend = "ftp"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "hunter2"
+            "#,
+        )
+        .unwrap();
+        let moved = cfg.migrate_secrets_to_keyring(None).unwrap();
+        assert_eq!(moved.len(), 1);
+        assert_eq!(cfg.targets[0].password_spec, "keyring:");
+
+        cfg.inline_secrets().unwrap();
+        let exported = toml::to_string_pretty(&cfg).unwrap();
+        assert!(exported.contains("hunter2"), "export lost the secret");
+
+        let imported: Config = toml::from_str(&exported).unwrap();
+        assert_eq!(imported.targets[0].password().unwrap(), "hunter2");
+
+        crate::secrets::keyring_delete("moraine-exporttest", "password").unwrap();
+    }
+
+    /// The dry run of `secrets migrate` must agree with what it would actually
+    /// move: only secrets kept in the config, never env/keyring pointers.
+    #[test]
+    fn secrets_stored_in_config_lists_only_movable_ones() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [[target]]
+            name = "a"
+            backend = "ftp"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "hunter2"
+            crypt_password = "keyring:"
+
+            [[target]]
+            name = "b"
+            host = "h"
+            user = "u"
+            dest = "/d"
+            sources = ["/s"]
+            password = "env:SOME_VAR"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.secrets_stored_in_config(None),
+            vec![("a".to_string(), "password".to_string())]
+        );
+        assert!(cfg.secrets_stored_in_config(Some("b")).is_empty());
+    }
+
+    /// An empty/absent secret must stay absent — `skip_serializing_if` still
+    /// applies after the rename, so configs don't grow empty `password = ""`.
+    #[test]
+    fn unset_secrets_are_not_written_back() {
+        let cfg = cfg_with_name("n");
+        let out = toml::to_string(&cfg).unwrap();
+        assert!(!out.contains("password"), "{out}");
+        assert!(!out.contains("crypt_salt"), "{out}");
+        assert!(!cfg.targets[0].has_password());
+        assert!(!cfg.targets[0].crypt_enabled());
     }
 
     #[test]

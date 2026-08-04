@@ -45,6 +45,47 @@ List the snapshots on a target.
 .TP
 .B prune \fR[\fB\-\-dry\-run\fR] [\fB\-\-target\fR \fINAME\fR]
 Delete old snapshots according to the target's retention policy.
+.TP
+.B secrets check \fR[\fB\-\-target\fR \fINAME\fR]
+Check that every secret the configuration references can be read right now,
+reporting where each comes from without printing any of them. Run it from the
+same environment as your scheduled backups: a keyring that works in a desktop
+session is usually unreachable from
+.BR cron (8).
+.TP
+.B secrets set \fB\-\-target\fR \fINAME\fR \fR[\fB\-\-field\fR \fIFIELD\fR] [\fB\-\-stdin\fR]
+Store one secret in the OS keyring and point the configuration field at it.
+.I FIELD
+is
+.BR password " (default), " crypt_password " or " crypt_salt .
+The secret is prompted for without echo, or read from standard input with
+.BR \-\-stdin .
+.TP
+.B secrets migrate \fR[\fB\-\-dry\-run\fR] [\fB\-\-target\fR \fINAME\fR]
+Move secrets stored as plaintext in the configuration into the OS keyring and
+rewrite those fields as
+.BR keyring: .
+Each secret is written and read back before the configuration is changed.
+Fields already pointing at an environment variable or the keyring are left
+alone.
+.SH SECRETS
+Each secret field in
+.I moraine.toml
+records
+.I where
+the secret lives, not necessarily the secret itself:
+.BR \(dqhunter2\(dq
+(in the file),
+.BR \(dqenv:VAR\(dq
+(an environment variable),
+.BR \(dqkeyring:\(dq
+(the OS keyring), or
+.BR \(dqliteral:...\(dq
+for a secret that would otherwise be read as one of those prefixes.
+.PP
+Keyring support is a build-time feature; without it a
+.B keyring:
+field fails with an explanatory error rather than resolving to an empty secret.
 .SH FILES
 .TP
 .I moraine.toml
