@@ -295,7 +295,10 @@ fn cmd_secrets_set(path: &Path, target: &str, field: &str, use_stdin: bool) -> R
         }
     }
     cfg.save(path)?;
-    println!("Stored {target}/{field} in the keyring; {field} = \"keyring:\" in {}", path.display());
+    println!(
+        "Stored {target}/{field} in the keyring; {field} = \"keyring:\" in {}",
+        path.display()
+    );
     Ok(())
 }
 
@@ -338,7 +341,11 @@ fn cmd_secrets_migrate(path: &Path, target: Option<&str>, dry_run: bool) -> Resu
         println!("moved {name}/{field} → the keyring");
     }
     cfg.save(path)?;
-    println!("\n{} secret(s) moved; {} rewritten.", moved.len(), path.display());
+    println!(
+        "\n{} secret(s) moved; {} rewritten.",
+        moved.len(),
+        path.display()
+    );
     // Being straight about what migrating does NOT undo. Both of these surprise
     // people who assume the plaintext is now gone everywhere.
     println!(
@@ -744,7 +751,10 @@ fn verify_secrets(t: &config::Target) -> bool {
         match resolved {
             Ok(_) => check(
                 true,
-                &format!("{label} readable from {}", moraine::secrets::source_of(spec)),
+                &format!(
+                    "{label} readable from {}",
+                    moraine::secrets::source_of(spec)
+                ),
             ),
             Err(e) => {
                 ok = false;

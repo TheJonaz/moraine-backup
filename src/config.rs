@@ -638,7 +638,10 @@ mod tests {
         assert!(out.contains(r#"password = "hunter2""#), "{out}");
         assert!(out.contains(r#"crypt_password = "pepper""#), "{out}");
         assert!(out.contains(r#"crypt_salt = "salt""#), "{out}");
-        assert!(!out.contains("_spec"), "field names leaked into TOML: {out}");
+        assert!(
+            !out.contains("_spec"),
+            "field names leaked into TOML: {out}"
+        );
     }
 
     /// What the encrypted config export does: inline every secret, serialize,

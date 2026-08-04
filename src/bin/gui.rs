@@ -4746,11 +4746,10 @@ fn run_restore(state: &Shared, ui: &Rc<Ui>, dry_run: bool) {
     set_log(ui, &format!("Restore {ts}\n"));
     // askpass env is empty for rclone targets and rclone env for ssh targets,
     // so combining both is always correct for whichever backend runs.
-    let env = match ssh::askpass_env(&target)
-        .and_then(|mut e| {
-            e.extend(rclone::env_for(&target)?);
-            Ok(e)
-        }) {
+    let env = match ssh::askpass_env(&target).and_then(|mut e| {
+        e.extend(rclone::env_for(&target)?);
+        Ok(e)
+    }) {
         Ok(env) => env,
         Err(e) => {
             set_status(ui, &format!("{e:#}"));
@@ -4847,7 +4846,10 @@ fn attach_keyring_control<E>(
                 entry.set_text("");
                 updating.set(false);
             }
-            status.set_text(&format!("Stored in: {}", moraine::secrets::source_of(&spec)));
+            status.set_text(&format!(
+                "Stored in: {}",
+                moraine::secrets::source_of(&spec)
+            ));
             if in_keyring {
                 button.set_label("Type a new one…");
                 button.set_sensitive(true);
@@ -4921,7 +4923,10 @@ fn attach_keyring_control<E>(
             return;
         };
         if name.is_empty() {
-            set_status(&ui2, "Give the target a name first — it identifies the keyring entry.");
+            set_status(
+                &ui2,
+                "Give the target a name first — it identifies the keyring entry.",
+            );
             return;
         }
         // The account is written into the spec rather than derived at read time:
@@ -4947,7 +4952,9 @@ fn attach_keyring_control<E>(
                     // an unsaved config would still hold the plaintext copy.
                     match state.borrow().save() {
                         Ok(()) => set_status(ui, &format!("{field} moved to the keyring")),
-                        Err(e) => set_status(ui, &format!("Stored, but saving the config failed: {e}")),
+                        Err(e) => {
+                            set_status(ui, &format!("Stored, but saving the config failed: {e}"))
+                        }
                     }
                 }
                 Err(e) => set_status(ui, &format!("Could not store in the keyring: {e}")),
@@ -5401,7 +5408,8 @@ fn prune_target(target: &Target) -> Result<String, String> {
     // prune is the escape hatch. Best-effort; the caller holds the target
     // lock, so nothing in flight can be swept up.
     let cleaned = if target.backend.is_ssh() {
-        let _ = ssh_probe(target, &snapshot::cleanup_incomplete_cmd(target)).map(|mut c| c.output());
+        let _ =
+            ssh_probe(target, &snapshot::cleanup_incomplete_cmd(target)).map(|mut c| c.output());
         0 // rm -rf reports no per-directory count
     } else {
         rclone::cleanup_stale(target, "").len()
@@ -5552,10 +5560,10 @@ fn export_config(passphrase: &str, dest: &Path) -> Result<(), String> {
     cfg.inline_secrets().map_err(|e| {
         format!("{e:#}\n\nExport needs every secret readable — fix that first, or clear the field.")
     })?;
-    let plaintext = toml::to_string_pretty(&cfg)
-        .map_err(|e| format!("could not serialize the config: {e}"))?;
-    let encrypted = gpg_encrypt_stdin(passphrase, plaintext.as_bytes())
-        .map_err(|e| friendly_gpg_error(&e))?;
+    let plaintext =
+        toml::to_string_pretty(&cfg).map_err(|e| format!("could not serialize the config: {e}"))?;
+    let encrypted =
+        gpg_encrypt_stdin(passphrase, plaintext.as_bytes()).map_err(|e| friendly_gpg_error(&e))?;
     moraine::config::write_private(dest, &encrypted)
         .map_err(|e| format!("could not write {}: {e}", dest.display()))
 }
@@ -5640,7 +5648,8 @@ fn import_config(passphrase: &str, src: &Path) -> Result<String, String> {
     let text = String::from_utf8_lossy(&plaintext);
     // Refuse to overwrite unless it parses AND validates as a Moraine config
     // (validate() rejects e.g. traversal characters in target names).
-    let mut cfg = toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
+    let mut cfg =
+        toml::from_str::<Config>(&text).map_err(|e| format!("not a valid config: {e}"))?;
     cfg.validate()
         .map_err(|e| format!("invalid config: {e:#}"))?;
 

@@ -102,10 +102,7 @@ pub fn env_for(target: &Target) -> Result<Vec<(String, String)>> {
         // "501 No such directory" against servers with MLSD quirks (common).
         env.push(("RCLONE_FTP_DISABLE_MLSD".to_string(), "true".to_string()));
         if target.has_password() {
-            env.push((
-                "RCLONE_FTP_PASS".to_string(),
-                obscure(&target.password()?),
-            ));
+            env.push(("RCLONE_FTP_PASS".to_string(), obscure(&target.password()?)));
         }
     }
     // Destination encryption: define the `mcrypt:` crypt remote on the fly, rooted

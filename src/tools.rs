@@ -25,9 +25,7 @@ pub fn private_dir() -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_dir())
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from))
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))
         .or_else(|| {
             // Windows has no XDG dirs; LOCALAPPDATA is per-user and ACL'd.
             std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from)

@@ -326,11 +326,17 @@ mod tests {
     /// whitespace in a way that looks exactly like a wrong password.
     #[test]
     fn a_literal_secret_keeps_its_whitespace() {
-        assert_eq!(resolve("  padded  ", "n", "password").unwrap(), "  padded  ");
+        assert_eq!(
+            resolve("  padded  ", "n", "password").unwrap(),
+            "  padded  "
+        );
         assert_eq!(resolve("literal:  x  ", "n", "password").unwrap(), "  x  ");
         // Scheme detection still tolerates formatting whitespace around it.
         std::env::set_var("MORAINE_TEST_WS", "v");
-        assert_eq!(resolve("  env:MORAINE_TEST_WS  ", "n", "password").unwrap(), "v");
+        assert_eq!(
+            resolve("  env:MORAINE_TEST_WS  ", "n", "password").unwrap(),
+            "v"
+        );
         std::env::remove_var("MORAINE_TEST_WS");
     }
 
