@@ -1,61 +1,81 @@
 name: moraine
+title: Moraine
 base: core24
 version: '0.2.2'
-summary: Snapshot backups over SSH and rclone
+summary: Snapshot backups over SSH/rsync and rclone
+license: MIT
+contact: info@thern.io
+issues: https://github.com/TheJonaz/moraine-backup/issues
+source-code: https://github.com/TheJonaz/moraine-backup
+website: https://moraine.thern.io
 description: |
-  Moraine is a small, fast backup client in Rust with a native GTK desktop app
-  and a scriptable command line — same engine, same config.
+  Moraine takes hard-linked snapshots of your files to a NAS or server over
+  SSH, or to cloud/FTP/SMB/WebDAV/S3/Drive storage via rclone. Every run becomes
+  its own timestamped snapshot where unchanged files share storage, so you keep
+  full history at almost no extra disk cost. Restore whole snapshots or single
+  files, schedule runs from cron, and prune old snapshots with a retention
+  policy.
 
-  Hard-linked snapshots over SSH make every run look like a complete tree, but
-  only what changed takes new space. Restore anything, from any snapshot. An
-  rclone backend adds cloud/object storage and FTP targets.
+  This snap ships the **command-line client only**. The GTK desktop app is
+  distributed as a Flatpak, an AppImage and a .deb instead — see
+  https://moraine.thern.io/distribution.html
 
-  This snap bundles rsync, the OpenSSH client and rclone, so all backends work
-  out of the box. It is strictly confined and can back up your home directory
-  and removable/mounted media (the `home`, `removable-media` and `ssh-keys`
-  interfaces). Backing up paths outside those needs classic confinement or a
-  `system-files` interface declaration — see packaging/snap/README.md.
+  rsync, the OpenSSH client and rclone are bundled, so every backend works
+  without installing anything else.
 
 grade: stable
-confinement: strict
+
+# Classic, not strict — and not for convenience.
+#
+# A backup tool has to read whatever paths the user points it at. Under strict
+# confinement the `home` interface grants "access to non-hidden files in the
+# home directory": snapd's AppArmor rule is `owner @{HOME}/[^s.]** rwkl`, which
+# excludes every top-level dotfile. Six of the eleven locations `moraine
+# recommend` suggests on Linux are exactly that — ~/.config, ~/.mozilla,
+# ~/.thunderbird, ~/.gitconfig, ~/.ssh, ~/.gnupg — i.e. the configuration and
+# keys a backup exists for, while the five that would work are re-downloadable
+# media.
+#
+# `personal-files` cannot close the gap either: it declares *named* paths and
+# needs a store request per path, whereas the set here is whatever the user
+# chooses. Scheduling writes to crontab, which strict confinement also denies.
+#
+# Classic requires manual store review. See README.md for the request text.
+confinement: classic
 compression: lzo
 
-# Requires the moraine 0.1.19 asset-path change (XDG_DATA_DIRS resolution).
-
 apps:
-  moraine-gui:
-    command: usr/bin/moraine-gui
-    extensions: [gnome]
-    environment:
-      XDG_DATA_DIRS: $SNAP/usr/share:$XDG_DATA_DIRS
-    plugs: [home, removable-media, network, ssh-keys]
   moraine:
-    command: usr/bin/moraine
-    plugs: [home, removable-media, network, ssh-keys]
+    command: bin/moraine
+    # A classic snap runs with the host's environment, so unlike a strict one it
+    # does NOT get $SNAP/usr/bin prepended for free. Without this, moraine would
+    # shell out to whatever rsync/ssh/rclone the host happens to have — or fail
+    # on a host with no rclone at all — and the bundled copies would be dead
+    # weight. Host tools still win nothing: ours come first deliberately, so the
+    # snap behaves the same everywhere.
     environment:
-      XDG_DATA_DIRS: $SNAP/usr/share:$XDG_DATA_DIRS
+      PATH: $SNAP/usr/bin:$SNAP/bin:$PATH
 
 parts:
   moraine:
     plugin: rust
     source: https://github.com/TheJonaz/moraine-backup.git
     source-tag: v0.2.2
+    # Classic snaps get no snap-specific library paths at runtime, so staged
+    # binaries must be patched to find the libraries shipped alongside them
+    # rather than whatever the host happens to have.
+    build-attributes: [enable-patchelf]
     build-packages:
-      - libgtk-4-dev
       - pkg-config
     stage-packages:
       - rsync
       - openssh-client
       - rclone
     override-build: |
-      cargo build --release --locked --features gui --bin moraine --bin moraine-gui
-      install -Dm755 target/release/moraine     "$CRAFT_PART_INSTALL/usr/bin/moraine"
-      install -Dm755 target/release/moraine-gui "$CRAFT_PART_INSTALL/usr/bin/moraine-gui"
-      # runtime assets the GUI loads from $XDG_DATA_DIRS/moraine/assets
-      install -Dm644 assets/hero-bg.png     "$CRAFT_PART_INSTALL/usr/share/moraine/assets/hero-bg.png"
-      install -Dm644 assets/moraine-64.png  "$CRAFT_PART_INSTALL/usr/share/moraine/assets/moraine-64.png"
-      install -Dm644 assets/moraine-256.png "$CRAFT_PART_INSTALL/usr/share/moraine/assets/moraine-256.png"
-      # desktop entry + icon
-      install -Dm644 assets/moraine-gui.desktop "$CRAFT_PART_INSTALL/usr/share/applications/moraine-gui.desktop"
-      install -Dm644 assets/moraine.svg "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/moraine.svg"
-      install -Dm644 assets/moraine-256.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/moraine.png"
+      # CLI only: --no-default-features drops the GTK app (and with it the
+      # keyring feature, which wants a desktop session this snap has no use for
+      # — scheduled runs read their secrets from the config or the environment).
+      cargo build --release --locked --no-default-features --bin moraine
+      install -Dm755 target/release/moraine "$CRAFT_PART_INSTALL/bin/moraine"
+      install -Dm644 man/moraine.1 \
+        "$CRAFT_PART_INSTALL/usr/share/man/man1/moraine.1"

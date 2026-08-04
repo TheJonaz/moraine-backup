@@ -1,0 +1,58 @@
+# A snapcraft build environment that needs no snapd on the host.
+#
+# snapcraft normally runs from a snap and builds inside an LXD/multipass VM that
+# snapd manages. Some distributions (Linux Mint) block snapd outright, and snapd
+# itself wants systemd, which a container does not have. So instead: unsquash
+# the snapcraft, core24 and snapd snaps into the absolute /snap/<name>/current
+# paths their binaries are linked against, and run `snapcraft
+# --destructive-mode` directly in this image.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq \
+      binutils \
+      build-essential \
+      ca-certificates \
+      curl \
+      file \
+      git \
+      jq \
+      libssl-dev \
+      pkg-config \
+      squashfs-tools \
+      sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# snapcraft — the builder itself.
+# core24 — supplies the ELF interpreter snapcraft's own binaries are linked
+#          against (/snap/core24/current/lib64/ld-linux-x86-64.so.2), and is the
+#          base the snap we build targets.
+# snapd  — only for its `snap` CLI, which the final pack step shells out to
+#          (`snap pack --check-skeleton`). A static Go binary; no daemon needed.
+RUN set -eux; \
+    for name in snapcraft core24 snapd; do \
+      url="$(curl -sH 'Snap-Device-Series: 16' \
+        "https://api.snapcraft.io/v2/snaps/info/${name}?architecture=amd64&fields=download" \
+        | jq -r '.["channel-map"][] | select(.channel.name=="stable") | .download.url' \
+        | head -1)"; \
+      curl -sL -o "/tmp/${name}.snap" "$url"; \
+      mkdir -p "/snap/${name}"; \
+      unsquashfs -q -d "/snap/${name}/current" "/tmp/${name}.snap"; \
+      rm "/tmp/${name}.snap"; \
+    done; \
+    ln -sf /snap/snapd/current/usr/bin/snap /usr/local/bin/snap
+
+# The rust plugin would install the `rustup` snap. With no snapd, provide the
+# same binary the conventional way — this stands in for the environment a real
+# snapcraft build gets and leaves the recipe itself unchanged.
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y \
+      --default-toolchain stable --no-modify-path
+
+# /usr/sbin is on PATH because snapcraft's library linter shells out to ldconfig.
+ENV SNAP=/snap/snapcraft/current \
+    SNAP_NAME=snapcraft \
+    SNAP_ARCH=amd64 \
+    CARGO_HOME=/root/.cargo \
+    RUSTUP_HOME=/root/.rustup \
+    LD_LIBRARY_PATH=/snap/core24/current/lib/x86_64-linux-gnu:/snap/core24/current/usr/lib/x86_64-linux-gnu \
+    PATH=/root/.cargo/bin:/snap/snapcraft/current/bin:/snap/snapcraft/current/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin

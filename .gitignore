@@ -18,3 +18,6 @@
 *.dsc
 *.buildinfo
 *.changes
+
+# Snap build output (packaging/snap/build-in-docker.sh)
+*.snap
