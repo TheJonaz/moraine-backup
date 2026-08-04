@@ -12,6 +12,35 @@
 //! `usr\bin` root — which is what makes `/c/…` drive paths resolve and gives ssh
 //! a valid HOME for known_hosts.
 
+/// A directory only the current user can reach, for short-lived files that must
+/// never be world-readable — currently the passphrase handed to `gpg` during a
+/// config export.
+///
+/// Prefers `$XDG_RUNTIME_DIR` (`/run/user/UID`: already mode 0700, per-user, and
+/// a tmpfs, so contents never reach a disk), then the user's cache dir, then the
+/// OS temp dir. Never a shared, predictable path like `/tmp/moraine`, which a
+/// local attacker could pre-plant.
+pub fn private_dir() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))
+        .or_else(|| {
+            // Windows has no XDG dirs; LOCALAPPDATA is per-user and ACL'd.
+            std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from)
+        })?;
+    let dir = base.join("moraine");
+    std::fs::create_dir_all(&dir).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Also tightens a looser pre-existing directory.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).ok()?;
+    }
+    Some(dir)
+}
+
 /// Extension on `Command` to stop Windows flashing a console window every time
 /// the (windowless) GUI spawns a console program — rsync, ssh, rclone, curl,
 /// schtasks. Applied at every spawn site; a no-op on Linux/macOS.

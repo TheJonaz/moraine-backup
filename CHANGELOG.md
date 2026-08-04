@@ -7,6 +7,53 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Added
+- **Secrets can live outside the config file.** Each secret field
+  (`password`, `crypt_password`, `crypt_salt`) now records *where* the secret
+  is: `"hunter2"` keeps it in the file as before, `"env:VAR"` reads an
+  environment variable, and `"keyring:"` reads the OS keyring (Secret Service
+  on Linux/BSD, Credential Manager on Windows, Keychain on macOS). The TOML
+  format is unchanged, so existing configs keep working untouched.
+- `moraine secrets check` reports whether every configured secret can be read
+  right now, and where each comes from, without printing any of them.
+  `moraine verify` performs the same check before it tries to connect.
+- `moraine secrets set` stores one secret in the keyring; `moraine secrets
+  migrate` moves the plaintext secrets already in a config there, writing and
+  reading each back before rewriting the config.
+- A **Move to keyring** button under each secret field in a target's Settings.
+  It stores the secret, repoints the field and saves the config in one step, on
+  a worker thread so a locked keyring can't freeze the window. While a secret
+  lives in the keyring the field shows where it is rather than a meaningless row
+  of dots, and *Type a new one…* hands it back for editing. The button writes
+  the keyring account into the field (`keyring:nas/password`) instead of leaving
+  it to be derived from the target name, so renaming a target in the GUI can't
+  strand its secret.
+- Keyring support is the optional `keyring` build feature, off by default: it
+  needs an unlocked desktop session, which cron and headless servers do not
+  have. On Unix it uses the pure-Rust Secret Service backend, sharing the zbus
+  already pulled in by the tray rather than linking libdbus.
+
+### Changed
+- Resolving a secret can now fail, and failure stops the run. Previously an
+  unavailable secret could only ever be the empty string; with an external
+  store that would mean writing an *unencrypted* snapshot to a destination the
+  user believes is encrypted, or an unexplained authentication failure.
+- **⚙ Settings → Export config** now resolves secrets before encrypting, so the
+  export stays a complete backup even when the config only points at the keyring
+  or an environment variable. The plaintext is passed to `gpg` on stdin and
+  never written to disk; the passphrase goes in a mode-0600 file in the per-user
+  tmpfs (`/run/user/UID`) and is removed immediately. **Import** puts those
+  secrets back into the keyring when the build supports it, and falls back to
+  leaving them in the config — with a message saying so — if the keyring is
+  unreachable.
+
+### Fixed
+- A secret with leading or trailing whitespace is no longer trimmed. Trimming
+  turns a working config into an authentication failure that looks exactly like
+  a wrong password.
+
 ## [0.2.2] — 2026-07-22
 
 ### Changed

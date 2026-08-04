@@ -47,10 +47,17 @@ required-features = ["gui"]
 
 [features]
 default = ["gui", "tray"]
-gui = ["dep:gtk4", "dep:async-channel"]
+# The desktop client implies keyring support: a machine running a GTK app has a
+# desktop session, which is exactly where a Secret Service exists. Headless
+# builds (`--no-default-features`) get neither, which is the right pairing —
+# cron has no unlocked keyring to read from anyway.
+gui = ["dep:gtk4", "dep:async-channel", "keyring"]
 # Linux system-tray icon (ksni / StatusNotifierItem over D-Bus). Implies `gui`.
 # Left out of the Windows/macOS GUI builds — ksni is Linux-only.
 tray = ["gui", "dep:ksni"]
+# Store secrets in the OS keyring (`password = "keyring:"`). Implied by `gui`;
+# available on its own for a CLI build that wants it without GTK.
+keyring = ["dep:keyring", "dep:rpassword"]
 
 [dependencies]
 # ── CLI + library core (small, all packaged in Debian) ──
@@ -72,6 +79,28 @@ async-channel = { version = "2", optional = true }
 # dependency (zbus, no libdbus C lib and no tokio). NOTE: ksni is not yet in
 # Debian, so the official Debian recipe must vendor it or drop the tray.
 ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"], optional = true }
+# Read a secret from the terminal without echoing it (`moraine secrets set`).
+# Only needed alongside the keyring, so it rides on the same feature.
+rpassword = { version = "7", optional = true }
+
+# ── OS keyring, gated behind the `keyring` feature ──
+# Stores target secrets in the platform's credential store instead of in
+# plaintext in moraine.toml. One dependency per platform so no build ever pulls
+# in a backend it can't use:
+#   * Unix (Linux, FreeBSD ...) — Secret Service over D-Bus. The `zbus-*` store
+#     is pure Rust and shares the zbus already pulled in by ksni; the `dbus-*`
+#     one would link libdbus (a C library) into a dozen distro recipes.
+#   * Windows/macOS — the OS-native stores, no extra runtime dependency.
+# Deliberately NOT in `default`: a keyring needs an unlocked desktop session, so
+# server and cron installs must be able to build entirely without it.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+keyring = { version = "4", default-features = false, features = ["v1", "zbus-secret-service-keyring-store"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "4", default-features = false, features = ["v1", "apple-native-keyring-store"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "4", default-features = false, features = ["v1", "windows-native-keyring-store"], optional = true }
 
 # Windows-only: embed the app icon + version info into the .exe (build.rs). Gated
 # on a Windows host, which is where the Windows release is built.

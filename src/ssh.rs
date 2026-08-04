@@ -1,6 +1,7 @@
 //! SSH helpers shared by the rsync transport and the snapshot handling.
 
 use crate::config::Target;
+use anyhow::Result;
 #[cfg(not(windows))]
 use std::path::PathBuf;
 
@@ -26,7 +27,7 @@ pub fn ssh_options(target: &Target) -> Vec<String> {
     // connection* so a client ssh_config that disables them — common on Windows,
     // where `KbdInteractiveAuthentication no` silently breaks password logins —
     // can't get in the way. Per-connection `-o` overrides the config file.
-    if !target.password.trim().is_empty() {
+    if target.has_password() {
         opts.push("-o".to_string());
         opts.push("PasswordAuthentication=yes".to_string());
         opts.push("-o".to_string());
@@ -61,7 +62,7 @@ pub fn remote_command_args(target: &Target, remote_cmd: &str) -> Vec<String> {
 /// a dead host.
 pub fn probe_command_args(target: &Target, remote_cmd: &str) -> Vec<String> {
     let mut args = ssh_options(target);
-    if target.password.is_empty() {
+    if !target.has_password() {
         args.push("-o".to_string());
         args.push("BatchMode=yes".to_string());
     }
@@ -80,18 +81,23 @@ pub fn probe_command_args(target: &Target, remote_cmd: &str) -> Vec<String> {
 ///
 /// The secret is passed through the environment, never written to disk; only a
 /// tiny generic helper script is written (once).
-pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
-    if target.password.is_empty() || !target.backend.is_ssh() {
-        return Vec::new();
+///
+/// Fallible because the secret may live outside the config (keyring,
+/// environment) — see [`crate::secrets`]. Failing here rather than passing an
+/// empty secret is deliberate: an empty `MORAINE_SSH_SECRET` turns into an
+/// authentication failure whose real cause (an unreachable keyring) is invisible.
+pub fn askpass_env(target: &Target) -> Result<Vec<(String, String)>> {
+    if !target.has_password() || !target.backend.is_ssh() {
+        return Ok(Vec::new());
     }
     let Some(askpass) = askpass_program() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let mut env = vec![
         ("SSH_ASKPASS".to_string(), askpass),
         // Force askpass even when a terminal is attached (OpenSSH >= 8.4).
         ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),
-        ("MORAINE_SSH_SECRET".to_string(), target.password.clone()),
+        ("MORAINE_SSH_SECRET".to_string(), target.password()?),
     ];
     // ssh consults askpass only when DISPLAY is set (the value is unused). Set it
     // on Windows too — the bundled cygwin `moraine-ssh` wants it as well.
@@ -113,7 +119,7 @@ pub fn askpass_env(target: &Target) -> Vec<(String, String)> {
             env.push(("HOME".to_string(), profile.to_string_lossy().into_owned()));
         }
     }
-    env
+    Ok(env)
 }
 
 /// The program ssh runs as SSH_ASKPASS: a tiny shell script on Unix, and our own
