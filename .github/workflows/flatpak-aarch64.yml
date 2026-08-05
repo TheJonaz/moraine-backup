@@ -30,11 +30,10 @@ jobs:
       # module with "Failed to execute child process eu-strip", after the whole
       # thing has already compiled. Name it explicitly.
       - name: Install flatpak-builder
-        run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder elfutils
+        uses: ./.github/actions/apt-install
+        with:
+          no-install-recommends: 'true'
+          packages: flatpak flatpak-builder elfutils
 
       # The runtimes are ~3 GB. Nothing here is cached deliberately: a stale SDK
       # is a worse failure than a slow job, and this runs a handful of times a year.

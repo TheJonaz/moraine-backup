@@ -28,7 +28,9 @@ jobs:
       # The GTK 4 GUI links the system GTK libraries.
       - name: Install GTK (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libgtk-4-dev
       - name: Install GTK (macOS)
         if: runner.os == 'macOS'
         run: brew install gtk4 pkgconf
@@ -55,7 +57,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install GTK
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libgtk-4-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
