@@ -18,18 +18,22 @@
 #
 # It does NOT regenerate the vendored crate lists (flatpak/cargo-sources.json,
 # gentoo CRATES, freebsd CARGO_CRATES) — those only change when Cargo.lock's
-# dependencies change. Regenerate them with their platform tools when that happens.
+# dependencies change, and each needs its own platform tool. It DOES check them
+# against the released tag's Cargo.lock and refuse to bump if they diverge, so a
+# release cannot go out with lists that would break the offline builds.
+# Override with --skip-crate-check.
 set -euo pipefail
 
 die(){ printf 'bump-recipes: %s\n' "$*" >&2; exit 1; }
 
-NEW=""; DRY=0; NOCOMMIT=0; PUSH=1; YES=0
+NEW=""; DRY=0; NOCOMMIT=0; PUSH=1; YES=0; SKIPCRATES=0
 for a in "$@"; do
     case "$a" in
         --dry-run)   DRY=1 ;;
         --no-commit) NOCOMMIT=1 ;;
         --no-push)   PUSH=0 ;;
         -y|--yes)    YES=1 ;;
+        --skip-crate-check) SKIPCRATES=1 ;;
         -*) die "unknown option: $a" ;;
         *) [ -z "$NEW" ] || die "unexpected argument: $a"; NEW="$a" ;;
     esac
@@ -67,6 +71,23 @@ curl -fsSL --max-time 120 "$WIN_URL" -o "$TMP/win.zip" || die "cannot fetch $WIN
 NEW_SRC256="$(sha256sum "$TMP/src.tgz" | cut -d' ' -f1)"
 NEW_SRC512="$(sha512sum "$TMP/src.tgz" | cut -d' ' -f1)"
 NEW_WIN256="$(sha256sum "$TMP/win.zip" | cut -d' ' -f1)"
+
+# The vendored crate lists must describe the tag the recipes are about to point
+# at, so check them against *that* Cargo.lock — taken from the tarball we just
+# downloaded, not from the working tree, which may be ahead of the release.
+#
+# Before any file is written: a mismatch should stop the bump outright rather
+# than leave the recipes half-edited. This is the failure mode worth being
+# strict about — it only surfaces on the distributions that build offline, long
+# after the release, and nowhere the author would think to look.
+if [ "$SKIPCRATES" = 0 ] && [ "$DRY" = 0 ]; then
+    tar -xzf "$TMP/src.tgz" -C "$TMP" --strip-components=1 --wildcards '*/Cargo.lock' 2>/dev/null \
+        || die "could not read Cargo.lock out of the v$NEW tarball"
+    if ! "$PKG/check-crate-lists.py" "$TMP/Cargo.lock"; then
+        die "vendored crate lists do not match v$NEW — regenerate them as shown above,
+     or re-run with --skip-crate-check if you know the offline builds are fine"
+    fi
+fi
 
 DATE="$(date +%F)"
 RPMDATE="$(LC_ALL=C date '+%a %b %d %Y')"
@@ -177,6 +198,6 @@ fi
 cat <<EOF
 
 bump-recipes: the vendored crate lists were left untouched
-(flatpak/cargo-sources.json, gentoo CRATES, freebsd CARGO_CRATES). If Cargo.lock's
-dependencies changed this release, regenerate them with their platform tools.
+(flatpak/cargo-sources.json, gentoo CRATES, freebsd CARGO_CRATES) — they were
+checked against v$NEW's Cargo.lock and matched, so nothing needed regenerating.
 EOF
