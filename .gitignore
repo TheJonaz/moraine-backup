@@ -22,5 +22,8 @@
 # Snap build output (packaging/snap/build-in-docker.sh)
 *.snap
 
+# Chocolatey build output (packaging/chocolatey/build-nupkg.py)
+*.nupkg
+
 # Python bytecode (packaging/check-crate-lists.py)
 __pycache__/
