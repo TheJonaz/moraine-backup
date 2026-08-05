@@ -70,13 +70,46 @@ already.
 Classic confinement needs manual review — the snap cannot be released until a
 reviewer grants it.
 
+First, **sign the developer agreement** at <https://snapcraft.io/account>.
+Without it `snapcraft register` fails with `user-not-ready: Developer has not
+signed agreement`, which does not say where to go.
+
+Publishing happens in the build container, since the host may have no snapcraft.
+Run it **from the repository root** — a wrong `$PWD` makes Docker silently
+create an empty directory and mount that, and the upload then fails with
+`'moraine_...snap' is not a valid file`:
+
 ```sh
-snapcraft login
-snapcraft register moraine        # once, if the name is free
-snapcraft upload moraine_0.2.2_amd64.snap    # will be held for review
+docker run -it --rm -v "$PWD/packaging/snap:/out" -w /out moraine-snapcraft bash
+ls /out        # must show the .snap; if not, you are in the wrong directory
 ```
 
-Then request classic on the [forum](https://forum.snapcraft.io/c/store-requests/19),
+Then, in one session — `--rm` discards the credentials on exit:
+
+```sh
+export SNAPCRAFT_STORE_AUTH=candid          # see below
+snapcraft export-login /tmp/creds           # NOT /out: that is inside the repo
+export SNAPCRAFT_STORE_CREDENTIALS="$(cat /tmp/creds)"
+snapcraft register moraine                  # once, if the name is free
+snapcraft upload moraine_0.2.2_amd64.snap   # held for review — expected
+```
+
+Two reasons this is not simply `snapcraft login`:
+
+- `login` stores its token in a keyring, and the container has none (no D-Bus,
+  no Secret Service). It fails with *"No keyring found to store or retrieve
+  credentials from"*. `export-login` writes to a file instead and exists for
+  exactly this case.
+- The classic email/password flow returns `invalid-data: Invalid request data`
+  on an account with two-factor auth. `SNAPCRAFT_STORE_AUTH=candid` switches to
+  the browser-based flow: it prints a URL to open on the host, and the password
+  never enters the container. Keep the variable exported for the whole session —
+  the credentials are in candid format and the later commands need to know.
+
+A successful upload reports `(NEEDS REVIEW) confinement 'classic' not allowed`.
+That is the revision being held, not a failure.
+
+Then request classic on the [forum](https://forum.snapcraft.io/c/store-requests/classic-confinement/26),
 stating the case: a backup client has to read arbitrary user-chosen paths, and
 the `home` interface's exclusion of top-level dotfiles removes most of what
 users back up. The table above is the argument.
