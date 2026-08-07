@@ -229,9 +229,13 @@ jobs:
           ./squashfs-root/usr/bin/moraine --version
           ./squashfs-root/AppRun 2>&1 | tail -1 | grep -q "Failed to open display"
           # A bundle built for the wrong architecture would install and only
-          # fail on a user's machine, so check it rather than assume it.
-          test "$(file -b ./squashfs-root/usr/bin/moraine | grep -o 'x86-64\|aarch64')" \
-             = "$(echo ${{ matrix.arch }} | sed 's/x86_64/x86-64/')"
+          # fail on a user's machine, so check it rather than assume it. `file`
+          # prints the arch token more than once (the ELF header and the
+          # interpreter path, e.g. ld-linux-aarch64.so.1), so assert that the
+          # expected token is present instead of string-comparing grep -o's
+          # multi-line output against a single token.
+          file -b ./squashfs-root/usr/bin/moraine \
+            | grep -qw "$(echo ${{ matrix.arch }} | sed 's/x86_64/x86-64/')"
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:

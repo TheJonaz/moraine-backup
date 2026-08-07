@@ -78,7 +78,10 @@ jobs:
           ./Moraine-*-aarch64.AppImage --appimage-extract >/dev/null
           ./squashfs-root/usr/bin/moraine --version
           ./squashfs-root/AppRun 2>&1 | tail -1 | grep -q "Failed to open display"
-          test "$(file -b ./squashfs-root/usr/bin/moraine | grep -o 'aarch64')" = "aarch64"
+          # `file` prints "aarch64" more than once (ELF header + interpreter
+          # path), so assert the token is present rather than string-comparing
+          # grep -o's multi-line output.
+          file -b ./squashfs-root/usr/bin/moraine | grep -qw aarch64
       - uses: actions/upload-artifact@v4
         with:
           name: moraine-aarch64-appimage
