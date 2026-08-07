@@ -1,0 +1,86 @@
+name: Test build (macOS pkg + arm64 AppImage)
+
+# A throwaway, off-release harness. It builds ONLY the two packaging artifacts
+# that cannot be produced on a Linux workstation — the universal macOS installer
+# and the native aarch64 AppImage — and uploads them as workflow artifacts.
+#
+# It deliberately does NOT: create a GitHub Release, push to main, or bump any
+# downstream recipe. Its whole job is to prove these two recipes build from the
+# branch before they ever reach a real tag (release.yml builds them for real,
+# but only on a v* tag). Remove this file before merging the branch to main.
+#
+# Triggered by pushing the branch — a plain workflow_dispatch would not work
+# here, because GitHub only exposes dispatchable workflows that already live on
+# the default branch, and this one does not yet.
+on:
+  push:
+    branches: [macos-bsd-arm64]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Universal (arm64 + x86_64) CLI installer — mirrors release.yml's macos-pkg
+  # job, but uploads an artifact instead of attaching to a Release.
+  macos-pkg:
+    name: macos installer (pkg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the package
+        run: ./packaging/macos/build-pkg.sh
+      # The script proves the payload's layout; this proves the binary inside it
+      # actually runs on the runner's architecture.
+      - name: Smoke-test the installed binary
+        run: |
+          set -eux
+          sudo installer -pkg moraine-*-macos-universal.pkg -target /
+          /usr/local/bin/moraine --version
+          man -w moraine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-macos-universal-pkg
+          path: moraine-*-macos-universal.pkg
+          if-no-files-found: error
+
+  # Native aarch64 AppImage — mirrors the aarch64 leg of release.yml's appimage
+  # matrix. The x86_64 leg is already shipping, so only this one is new.
+  appimage-arm64:
+    name: appimage (aarch64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        uses: ./.github/actions/apt-install
+        with:
+          no-install-recommends: 'true'
+          packages: >-
+            libgtk-4-dev pkg-config patchelf file zsync
+            libglib2.0-bin libgdk-pixbuf2.0-bin librsvg2-common
+            gsettings-desktop-schemas desktop-file-utils
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build AppImage
+        # linuxdeploy is itself an AppImage and the runner has no usable FUSE,
+        # so it has to unpack itself rather than mount.
+        run: APPIMAGE_EXTRACT_AND_RUN=1 ./packaging/appimage/build-appimage.sh
+      - name: Smoke-test it
+        run: |
+          set -eux
+          ./Moraine-*-aarch64.AppImage --appimage-extract >/dev/null
+          ./squashfs-root/usr/bin/moraine --version
+          ./squashfs-root/AppRun 2>&1 | tail -1 | grep -q "Failed to open display"
+          test "$(file -b ./squashfs-root/usr/bin/moraine | grep -o 'aarch64')" = "aarch64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-aarch64-appimage
+          path: Moraine-*-aarch64.AppImage
+          if-no-files-found: error
