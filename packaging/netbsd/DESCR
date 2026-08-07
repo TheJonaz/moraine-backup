@@ -1,0 +1,11 @@
+Moraine takes timestamped, hard-linked snapshots of the files you choose to a
+NAS or server over SSH/rsync, or to cloud storage via rclone. Each snapshot
+looks like a complete tree, but unchanged files are hard links against the
+previous one, so keeping history costs almost nothing.
+
+Snapshots can be listed, pruned with a grandfather-father-son retention policy,
+and restored either whole or file by file. Targets, schedules and exclusions are
+described in a TOML configuration file, and secrets can be kept outside it.
+
+This package installs the command-line client. The GTK desktop application is
+not built here.

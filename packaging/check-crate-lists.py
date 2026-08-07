@@ -74,6 +74,23 @@ def from_flatpak(path):
     return out
 
 
+def from_openbsd(path):
+    # MODCARGO_CRATES += name<TAB>version   [# licence]
+    return {
+        f"{m.group(1)}-{m.group(2)}"
+        for m in re.finditer(
+            r"^MODCARGO_CRATES\s*\+=\s*(\S+)\s+(\S+)", path.read_text(), re.M
+        )
+    }
+
+
+def from_netbsd(path):
+    # CARGO_CRATE_DEPENDS+= name-version
+    return set(
+        re.findall(r"^CARGO_CRATE_DEPENDS\s*\+=\s*(\S+)", path.read_text(), re.M)
+    )
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__.strip().splitlines()[-4], file=sys.stderr)
@@ -94,6 +111,10 @@ def main():
          "pycargoebuild, or regenerate CRATES= from Cargo.lock"),
         ("flatpak/cargo-sources.json", from_flatpak, PKG / "flatpak/cargo-sources.json",
          "flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json"),
+        ("openbsd/crates.inc", from_openbsd, PKG / "openbsd/crates.inc",
+         "packaging/bsd-distinfo.py --tag v<version>"),
+        ("netbsd/cargo-depends.mk", from_netbsd, PKG / "netbsd/cargo-depends.mk",
+         "packaging/bsd-distinfo.py --tag v<version>"),
     ]
 
     print(f"check-crate-lists: {len(expected)} crates.io dependencies in {lockfile}")

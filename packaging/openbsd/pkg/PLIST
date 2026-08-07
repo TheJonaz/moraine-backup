@@ -1,0 +1,4 @@
+@bin bin/moraine
+@man man/man1/moraine.1
+share/examples/moraine/
+share/examples/moraine/moraine.example.toml
