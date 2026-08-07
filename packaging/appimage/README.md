@@ -1,8 +1,15 @@
 # AppImage packaging for Moraine
 
-`build-appimage.sh` produces a single portable `Moraine-<version>-x86_64.AppImage`
-containing the GTK desktop app (`moraine-gui`) and the CLI (`moraine`), with GTK 4
-and its dependencies bundled via `linuxdeploy-plugin-gtk`.
+`build-appimage.sh` produces a single portable
+`Moraine-<version>-<arch>.AppImage` containing the GTK desktop app
+(`moraine-gui`) and the CLI (`moraine`), with GTK 4 and its dependencies bundled
+via `linuxdeploy-plugin-gtk`.
+
+**x86_64 and aarch64** are both built, each on its own native runner. There is
+no cross-compiling here: linuxdeploy bundles the *host's* GTK stack, so the
+architecture of the AppImage is the architecture of the machine that built it.
+The script refuses to run anywhere else rather than emitting something
+mislabelled.
 
 > **Requires moraine ≥ 0.1.19** — the AppRun exports `XDG_DATA_DIRS` pointing
 > inside the AppImage, and 0.1.19 resolves its assets from there.
@@ -39,9 +46,12 @@ plugin into `.appimage-tools/`, and emits the `.AppImage` in the repo root.
 Without FUSE (CI, containers), set `APPIMAGE_EXTRACT_AND_RUN=1` so linuxdeploy
 unpacks itself instead of mounting.
 
-CI builds it per release: the `appimage` job in `.github/workflows/release.yml`
-attaches `Moraine-X.Y.Z-x86_64.AppImage` to the GitHub release, and the CDN pull
-picks it up from there.
+CI builds both per release: the `appimage` job in `.github/workflows/release.yml`
+is a matrix over `ubuntu-24.04` and `ubuntu-24.04-arm`, attaching
+`Moraine-X.Y.Z-x86_64.AppImage` and `Moraine-X.Y.Z-aarch64.AppImage` to the
+GitHub release, and the CDN pull picks them up from there. Each job checks the
+binary inside its own bundle really is the architecture it claims — a
+mislabelled AppImage installs perfectly and only fails on a user's machine.
 
 ## What the host must provide
 
@@ -61,9 +71,13 @@ backend, `rclone` for cloud/FTP.
 ## Run
 
 ```sh
-chmod +x Moraine-*-x86_64.AppImage
-./Moraine-*-x86_64.AppImage
+chmod +x Moraine-*.AppImage
+./Moraine-*.AppImage
 ```
+
+On a Raspberry Pi take the `aarch64` build, and note the GTK floor: the desktop
+app needs GTK ≥ 4.10, which Raspberry Pi OS *bookworm* does not have. The CLI
+inside the bundle runs regardless.
 
 Optionally integrate it into menus with
 [Gear Lever](https://github.com/mijorus/gearlever) or `appimaged`.
