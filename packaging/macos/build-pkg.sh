@@ -101,10 +101,13 @@ sed "s/@VERSION@/$version/g" "$here/distribution.xml" > "$work/distribution.xml"
 sign=()
 [ -n "${MORAINE_PKG_SIGN_ID:-}" ] && sign=(--sign "$MORAINE_PKG_SIGN_ID")
 
+# ${sign[@]+"${sign[@]}"}, not "${sign[@]}": macOS's /bin/bash is 3.2, where
+# expanding an empty array under `set -u` is an "unbound variable" error rather
+# than the empty string newer bash gives. This keeps unsigned builds working.
 productbuild --distribution "$work/distribution.xml" \
              --package-path "$work" \
              --resources "$res" \
-             "${sign[@]}" \
+             ${sign[@]+"${sign[@]}"} \
              "$out"
 
 echo "==> verifying the package"
