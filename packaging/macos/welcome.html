@@ -1,0 +1,32 @@
+<!-- Shown on the installer's first pane. Deliberately short: the two things a
+     user cannot discover afterwards are what gets installed where, and which
+     external tools the backends need. -->
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;font-size:13px;line-height:1.5">
+
+<p><b>Moraine</b> is a command-line backup client. It takes timestamped,
+hard-linked snapshots of the files you choose to a NAS or server over
+SSH/rsync, or to cloud storage via rclone.</p>
+
+<p>This package installs:</p>
+<ul>
+  <li><code>/usr/local/bin/moraine</code> — the command (already on your PATH)</li>
+  <li><code>/usr/local/share/man/man1/moraine.1</code> — the manual page</li>
+  <li><code>/usr/local/share/doc/moraine/</code> — README, changelog, licence and
+      an example configuration</li>
+</ul>
+
+<p>The desktop application is Linux-only; on macOS, Moraine is the CLI.</p>
+
+<p><b>The backends need tools Apple does not ship in a usable form.</b> macOS
+includes an rsync, but an old or reduced one depending on the release — install
+a current one with <code>brew install rsync</code>. For cloud targets, install
+rclone with <code>brew install rclone</code>. The OpenSSH client is already
+present.</p>
+
+<p>After installing, run <code>moraine recommend</code> to see what is worth
+backing up on this Mac, and <code>man moraine</code> for the rest.</p>
+
+</body>
+</html>
