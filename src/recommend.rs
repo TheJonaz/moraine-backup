@@ -48,7 +48,18 @@ pub struct Candidate {
 // restore usefully, never whole-home sweeps that drag in caches, VM images or
 // game libraries. Grow it here as apps move their config locations.
 
-#[cfg(target_os = "linux")]
+// Linux and the BSDs are one manifest, not four: a BSD desktop is the same XDG
+// layout, the same `~/.config`, and the same dot-directories for Firefox and
+// Thunderbird. Ports exist for FreeBSD, OpenBSD and NetBSD — without this arm
+// they fall through to the empty fallback below, so `moraine recommend` builds
+// and installs perfectly and then answers "nothing to suggest".
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
 const MANIFEST: &[Candidate] = &[
     c("Documents", Category::Documents, "~/Documents", false),
     c("Desktop", Category::Documents, "~/Desktop", false),
@@ -105,7 +116,18 @@ const MANIFEST: &[Candidate] = &[
     c("SSH keys", Category::Dev, "~/.ssh", true),
 ];
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+// Anything else (Solaris, Haiku, …) builds but has nothing curated to suggest.
+// `scan()` returning empty is handled by the callers, so this stays a real
+// fallback rather than a compile error.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+    target_os = "macos",
+    target_os = "windows",
+)))]
 const MANIFEST: &[Candidate] = &[];
 
 /// `const`-friendly constructor so the manifests above read as tables.
@@ -213,6 +235,32 @@ mod tests {
                 f.candidate.path.starts_with('~'),
                 "{} must be a ~-relative template",
                 f.candidate.path
+            );
+        }
+    }
+
+    /// Guards the `cfg` arms above on whichever platform the tests run.
+    ///
+    /// The BSDs used to fall through to the empty fallback, so `moraine
+    /// recommend` compiled, installed and shipped while answering "nothing to
+    /// suggest" — a typo in one `target_os` string still compiles, so only an
+    /// assertion catches it. A ports or pkgsrc builder running `make test`
+    /// checks its own platform here.
+    #[test]
+    fn every_supported_platform_has_suggestions() {
+        if cfg!(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+            target_os = "macos",
+            target_os = "windows",
+        )) {
+            assert!(
+                !MANIFEST.is_empty(),
+                "this platform is one moraine ships packages for, so it needs a \
+                 manifest — check the cfg arms in this file"
             );
         }
     }
