@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>                 <string>Moraine</string>
+  <key>CFBundleDisplayName</key>          <string>Moraine</string>
+  <key>CFBundleIdentifier</key>           <string>@IDENT@</string>
+  <key>CFBundleVersion</key>              <string>@VERSION@</string>
+  <key>CFBundleShortVersionString</key>   <string>@VERSION@</string>
+  <key>CFBundlePackageType</key>          <string>APPL</string>
+  <!-- The executable is a small launcher script that points GTK at the bundled
+       loaders/schemas/icons before exec'ing the real Mach-O binary. -->
+  <key>CFBundleExecutable</key>           <string>moraine-gui</string>
+  <key>CFBundleIconFile</key>             <string>moraine.icns</string>
+  <key>LSMinimumSystemVersion</key>       <string>11.0</string>
+  <key>NSHighResolutionCapable</key>      <true/>
+  <key>LSApplicationCategoryType</key>    <string>public.app-category.utilities</string>
+  <key>NSHumanReadableCopyright</key>     <string>MIT — github.com/TheJonaz/moraine-backup</string>
+</dict>
+</plist>

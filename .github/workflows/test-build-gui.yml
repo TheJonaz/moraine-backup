@@ -1,0 +1,56 @@
+name: Test build (macOS GUI .app/.dmg)
+
+# Throwaway harness for the macOS desktop app (GTK4). Builds Moraine.app + the
+# .dmg via packaging/macos/build-app.sh and uploads it as a workflow artifact —
+# no Release, no recipe bump, main untouched. Remove before merging to main.
+#
+# Push-triggered: a workflow_dispatch is only exposed once the file is on the
+# default branch, which this is not yet.
+on:
+  push:
+    branches: [macos-gui]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos-app:
+    name: macos desktop app (dmg)
+    runs-on: macos-latest        # arm64 (Apple Silicon)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the app + dmg
+        run: ./packaging/macos/build-app.sh
+      - name: Smoke-test the bundle
+        # Can't run a GTK app on a headless runner, so prove the bundle is
+        # self-contained instead: mount the dmg, confirm the .app is there, and
+        # assert nothing still links against Homebrew (every dep must resolve
+        # inside Frameworks/ or the system) — the failure mode that only bites on
+        # a clean Mac. Then verify the (ad-hoc) signature.
+        run: |
+          set -eux
+          hdiutil attach moraine-*-macos-arm64.dmg -mountpoint /tmp/mdmg -nobrowse
+          test -d /tmp/mdmg/Moraine.app
+          check() {
+            if otool -L "$1" | grep -E '/opt/homebrew|/usr/local'; then
+              echo "UNBUNDLED dependency in $1" >&2; exit 1
+            fi
+          }
+          check /tmp/mdmg/Moraine.app/Contents/MacOS/moraine-gui.bin
+          for f in /tmp/mdmg/Moraine.app/Contents/Frameworks/*.dylib; do check "$f"; done
+          for f in /tmp/mdmg/Moraine.app/Contents/Resources/lib/gdk-pixbuf-2.0/*/loaders/*.so; do check "$f"; done
+          codesign --verify --deep --strict --verbose=2 /tmp/mdmg/Moraine.app
+          hdiutil detach /tmp/mdmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moraine-macos-app-dmg
+          path: moraine-*-macos-arm64.dmg
+          if-no-files-found: error
