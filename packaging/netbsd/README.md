@@ -1,8 +1,8 @@
 # NetBSD / pkgsrc package for Moraine
 
-A `sysutils/moraine` pkgsrc package building the **command-line client**.
-pkgsrc runs on far more than NetBSD — the same recipe serves SmartOS, Illumos,
-and pkgsrc-on-macOS/Linux installations.
+A `sysutils/moraine` pkgsrc package building the **CLI and the GTK desktop app**
+(`moraine-gui`). pkgsrc runs on far more than NetBSD — the same recipe serves
+SmartOS, Illumos, and pkgsrc-on-macOS/Linux installations.
 
 | File | Purpose |
 |------|---------|
@@ -12,13 +12,16 @@ and pkgsrc-on-macOS/Linux installations.
 | `DESCR` | long description |
 | `PLIST` | packing list |
 
-## Why no GUI
+## The GUI
 
-Consistency with the [OpenBSD port](../openbsd/), where the GUI is blocked by
-`WANTLIB` needing a real build to generate. pkgsrc has no such obstacle — it
-would be `.include "../../x11/gtk4/buildlink3.mk"` and `CARGO_FEATURES+= gui` —
-so this is the cheaper of two reversible choices, not a limitation. The GTK
-client ships on Linux and FreeBSD.
+The GTK 4 desktop app (`moraine-gui`) is built here. pkgsrc has no `WANTLIB`
+obstacle — unlike the [OpenBSD port](../openbsd/), where the GUI is still blocked
+by `WANTLIB` needing a real build to enumerate — so it is just
+`.include "../../x11/gtk4/buildlink3.mk"` plus `CARGO_FEATURES+= gui` and the
+usual `.desktop`/icon/asset install. `tray` (ksni) is left off, matching the
+FreeBSD port. The crate list already carries the gtk4-rs crates — `Cargo.lock`
+locks every feature's dependencies — so enabling `gui` needs no distinfo change.
+The GTK client now ships on Linux, FreeBSD and NetBSD.
 
 ## Build it
 
@@ -68,9 +71,14 @@ SHA512 and Size to `textproc/ripgrep`'s distinfo in pkgsrc.
 `packaging/check-crate-lists.py` compares `cargo-depends.mk` against a lockfile
 and is run by the release bump, so the list cannot silently rot.
 
-## Status — builds clean on NetBSD 10.1
+## Status
 
-Verified end to end on 2026-08-06 against NetBSD 10.1/amd64 with
+**The CLI-only variant was verified end to end on 2026-08-06.** The GUI
+additions above (the gtk4 buildlink, `CARGO_FEATURES+= gui`, the
+`.desktop`/icon/asset install and the enlarged `PLIST`) are **not yet re-verified
+on NetBSD** — the GTK build and the `file-check`/`PLIST` match need a fresh `make
+package`, and pulling in gtk4 makes the build meaningfully longer than the
+CLI's 19 minutes. The CLI run below, against NetBSD 10.1/amd64 with
 `pkgsrc-2026Q2` and the binary `rust-1.96.0`:
 
 | Step | Result |

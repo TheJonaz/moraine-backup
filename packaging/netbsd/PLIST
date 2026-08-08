@@ -1,4 +1,12 @@
 @comment $NetBSD$
 bin/moraine
+bin/moraine-gui
+man/man1/moraine-gui.1
 man/man1/moraine.1
+share/applications/moraine-gui.desktop
 share/examples/moraine/moraine.example.toml
+share/icons/hicolor/256x256/apps/moraine.png
+share/icons/hicolor/scalable/apps/moraine.svg
+share/moraine/assets/hero-bg.png
+share/moraine/assets/moraine-256.png
+share/moraine/assets/moraine-64.png
