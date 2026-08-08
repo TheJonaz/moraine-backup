@@ -27,6 +27,15 @@ cd "$repo"
 APPDIR="${APPDIR:-$PWD/AppDir}"
 rm -rf "$APPDIR"
 
+# Native builds only — linuxdeploy bundles the host's GTK, so the AppImage's
+# architecture is whatever machine is running this. x86_64 and aarch64 are the
+# two GitHub provides runners for.
+arch=$(uname -m)
+case "$arch" in
+  x86_64|aarch64) ;;
+  *) echo "build-appimage.sh: unsupported architecture $arch" >&2; exit 1 ;;
+esac
+
 echo "==> building release binaries"
 cargo build --release --locked --features gui --bin moraine --bin moraine-gui
 
@@ -46,15 +55,20 @@ cp assets/moraine.svg "$APPDIR/moraine.svg"
 echo "==> fetching linuxdeploy + gtk plugin"
 tools="$PWD/.appimage-tools"; mkdir -p "$tools"
 fetch() { [ -f "$tools/$1" ] || curl -fsSL -o "$tools/$1" "$2"; chmod +x "$tools/$1"; }
-fetch linuxdeploy-x86_64.AppImage \
-  https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+fetch "linuxdeploy-$arch.AppImage" \
+  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$arch.AppImage"
 fetch linuxdeploy-plugin-gtk.sh \
   https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
 
 echo "==> bundling GTK + producing the AppImage"
 export DEPLOY_GTK_VERSION=4
-export OUTPUT="Moraine-$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-x86_64.AppImage"
-"$tools/linuxdeploy-x86_64.AppImage" \
+version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+export OUTPUT="Moraine-$version-$arch.AppImage"
+# appimagetool (which linuxdeploy invokes) guesses the architecture from the
+# binaries and aborts when the guess is ambiguous. Telling it outright is one
+# variable and removes the failure mode entirely.
+export ARCH="$arch"
+"$tools/linuxdeploy-$arch.AppImage" \
   --appdir "$APPDIR" \
   --plugin gtk \
   --desktop-file "$APPDIR/usr/share/applications/io.thern.moraine.desktop" \

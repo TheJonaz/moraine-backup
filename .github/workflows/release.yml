@@ -185,9 +185,22 @@ jobs:
   # those get the Flatpak or the .deb, which is why this is not the only Linux
   # download). Do NOT "improve" this to ubuntu-latest: a newer base raises the
   # floor and silently drops working distros.
+  #
+  # Both architectures are built natively — linuxdeploy bundles the host's GTK,
+  # so there is no cross-compiling this. GitHub's ARM runners are free for
+  # public repos and are the same 24.04 base, so the floor above applies
+  # unchanged to aarch64.
   appimage:
-    name: appimage (x86_64)
-    runs-on: ubuntu-24.04
+    name: appimage (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -212,14 +225,55 @@ jobs:
         # instead of on a user's machine.
         run: |
           set -eux
-          ./Moraine-*-x86_64.AppImage --appimage-extract >/dev/null
+          ./Moraine-*-${{ matrix.arch }}.AppImage --appimage-extract >/dev/null
           ./squashfs-root/usr/bin/moraine --version
           ./squashfs-root/AppRun 2>&1 | tail -1 | grep -q "Failed to open display"
+          # A bundle built for the wrong architecture would install and only
+          # fail on a user's machine, so check it rather than assume it. `file`
+          # prints the arch token more than once (the ELF header and the
+          # interpreter path, e.g. ld-linux-aarch64.so.1), so assert that the
+          # expected token is present instead of string-comparing grep -o's
+          # multi-line output against a single token.
+          file -b ./squashfs-root/usr/bin/moraine \
+            | grep -qw "$(echo ${{ matrix.arch }} | sed 's/x86_64/x86-64/')"
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: "Moraine-*-x86_64.AppImage"
+          files: "Moraine-*-${{ matrix.arch }}.AppImage"
+          fail_on_unmatched_files: false
+
+  # ── macOS installer (.pkg) — universal CLI into /usr/local ──
+  # Separate from the `release` matrix, which produces the plain .tar.gz: this
+  # one builds both architectures and lipos them, so it needs its own toolchain
+  # targets and takes roughly twice as long. Unsigned — see packaging/macos/.
+  macos-pkg:
+    name: macos installer (pkg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the package
+        run: ./packaging/macos/build-pkg.sh
+      # The script proves the payload's layout; this proves the binary inside it
+      # actually runs on the runner's architecture. Both matter: a package can
+      # be well-formed and still contain something that will not execute.
+      - name: Smoke-test the installed binary
+        run: |
+          set -eux
+          sudo installer -pkg moraine-*-macos-universal.pkg -target /
+          /usr/local/bin/moraine --version
+          man -w moraine
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: moraine-*-macos-universal.pkg
           fail_on_unmatched_files: false
 
   # ── Windows desktop app (GTK4) — built via MSYS2, bundled with the GTK runtime ──
@@ -279,7 +333,7 @@ jobs:
     # Every job that uploads an asset must be listed here: this downloads the
     # whole release and hashes it, so a job that finishes later is silently
     # missing from SHA256SUMS.
-    needs: [release, rpm, arch, appimage, windows-gui]
+    needs: [release, rpm, arch, appimage, macos-pkg, windows-gui]
     runs-on: ubuntu-latest
     steps:
       - name: Compute and upload SHA256SUMS

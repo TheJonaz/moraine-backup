@@ -1,0 +1,4 @@
+@comment $NetBSD$
+bin/moraine
+man/man1/moraine.1
+share/examples/moraine/moraine.example.toml

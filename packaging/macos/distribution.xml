@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- productbuild distribution for the Moraine CLI package.
+     @VERSION@ is substituted by build-pkg.sh; do not hard-code a version. -->
+<installer-gui-script minSpecVersion="2">
+    <title>Moraine @VERSION@</title>
+
+    <!-- customize="never": one component, nothing to choose. Listing both
+         architectures makes the installer run natively on Intel instead of
+         under Rosetta. -->
+    <options customize="never" require-scripts="false"
+             hostArchitectures="arm64,x86_64"/>
+
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <license file="LICENSE.txt" mime-type="text/plain"/>
+
+    <!-- macOS 11 is the floor for the arm64 slice, so it is the floor for the
+         universal binary. -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="11.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="io.thern.moraine"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="io.thern.moraine" visible="false">
+        <pkg-ref id="io.thern.moraine"/>
+    </choice>
+
+    <pkg-ref id="io.thern.moraine" version="@VERSION@" onConclusion="none">moraine-component.pkg</pkg-ref>
+</installer-gui-script>
