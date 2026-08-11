@@ -9,7 +9,7 @@
 //!  * Schedule — create schedules and install them in crontab / Task Scheduler.
 //!  * Restore — list snapshots, browse the tree, selective restore.
 //!  * History — the run log.
-
+#![forbid(unsafe_code)]
 // On Windows, a GUI app should not allocate a console (no black window flashing
 // behind it). Release builds use the "windows" subsystem; debug builds keep the
 // console so `eprintln!` diagnostics are visible. No effect on Linux/macOS.

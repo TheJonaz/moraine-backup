@@ -4,6 +4,7 @@
 //! and `moraine-gui` binaries. Its API is NOT a semver contract — modules,
 //! functions and types may change in any release. The stable interfaces are
 //! the CLI, the config file format and the on-target snapshot layout.
+#![forbid(unsafe_code)]
 
 pub mod config;
 pub mod healthcheck;

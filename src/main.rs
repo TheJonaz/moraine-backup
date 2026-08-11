@@ -1,4 +1,5 @@
 //! moraine — CLI for snapshot-based backup over SSH/rsync and rclone.
+#![forbid(unsafe_code)]
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
