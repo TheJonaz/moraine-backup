@@ -16,6 +16,9 @@ use std::process::Command;
 /// The `--link-dest` value, relative to the snapshot directory: points to `<base>/latest`.
 pub const LINK_DEST: &str = "../latest";
 
+/// I/O-idle timeout shared by every rsync invocation (backup, restore, verify).
+const IO_TIMEOUT: &str = "--timeout=300";
+
 /// A local path as rsync expects it on the command line. On Windows the bundled
 /// (msys/cygwin) rsync reads a drive path like `C:\dir` as the remote host `C`,
 /// so rewrite it to the msys form `/c/dir`. On Unix — and for any non-drive path
@@ -77,11 +80,18 @@ pub fn build_args(
         // --protect-args: send remote paths verbatim, not through the remote
         // shell — so spaces/metacharacters in dest or filenames can't break or
         // inject the remote command.
+        // --timeout: I/O-idle timeout, NOT wall-clock — a big transfer may run
+        // for hours, but 5 min with no data moving means the connection is dead
+        // and rsync should say so instead of hanging (and holding the target
+        // lock) forever. ssh-level keepalives complement this (see
+        // `ssh::ssh_options`); rsync ≥ 3.1 sends its own keep-alives during
+        // long quiet phases, so checksum scans don't trip it.
         "-aAX".into(),
         "--delete".into(),
         "--mkpath".into(),
         "--protect-args".into(),
         "--human-readable".into(),
+        IO_TIMEOUT.into(),
     ];
 
     if dry_run {
@@ -140,6 +150,7 @@ pub fn restore_args(
         "--mkpath".into(),
         "--protect-args".into(),
         "--human-readable".into(),
+        IO_TIMEOUT.into(),
     ];
     if !target.bwlimit.trim().is_empty() {
         args.push(format!("--bwlimit={}", target.bwlimit.trim()));
@@ -182,6 +193,7 @@ pub fn restore_selected_args(
         "--mkpath".into(),
         "--protect-args".into(),
         "--human-readable".into(),
+        IO_TIMEOUT.into(),
     ];
     if !target.bwlimit.trim().is_empty() {
         args.push(format!("--bwlimit={}", target.bwlimit.trim()));
@@ -221,6 +233,7 @@ pub fn verify_args(target: &Target, timestamp: &str) -> Vec<String> {
         "--checksum".into(),
         "--itemize-changes".into(),
         "--protect-args".into(),
+        IO_TIMEOUT.into(),
     ];
     for pattern in &target.exclude {
         args.push(format!("--exclude={pattern}"));
@@ -385,6 +398,27 @@ mod tests {
         assert!(!super::vanished_files_only(Some(23)));
         assert!(!super::vanished_files_only(Some(0)));
         assert!(!super::vanished_files_only(None));
+    }
+
+    #[test]
+    fn io_timeout_reaches_every_rsync_invocation() {
+        // Stall detection, not wall-clock: without it a dead connection hangs
+        // rsync forever while the target lock blocks every later run.
+        let t = target("");
+        for (name, args) in [
+            ("backup", super::build_args(&t, "/d/n/ts", None, false)),
+            ("restore", super::restore_args(&t, "ts", "/local", false)),
+            (
+                "selected",
+                super::restore_selected_args(&t, "ts", &["a".into()], "/local", false),
+            ),
+            ("verify", super::verify_args(&t, "ts")),
+        ] {
+            assert!(
+                args.contains(&super::IO_TIMEOUT.to_string()),
+                "{name}: {args:?}"
+            );
+        }
     }
 
     #[test]

@@ -22,6 +22,15 @@ pub fn ssh_options(target: &Target) -> Vec<String> {
     } else {
         "StrictHostKeyChecking=accept-new".to_string()
     });
+    // Notice a dead peer instead of hanging forever: with no traffic for 15 s
+    // ssh probes the server, and after 3 unanswered probes (the default
+    // ServerAliveCountMax) it closes the connection — ~45 s after the network
+    // silently went away (laptop switched networks, NAT entry expired). This
+    // matters because a hung transfer holds the per-target lock (see
+    // `crate::lock`): every later run, cron included, would fail with "another
+    // process holds it" until someone kills the stuck one.
+    opts.push("-o".to_string());
+    opts.push("ServerAliveInterval=15".to_string());
     // When a login password (or key passphrase) is set, we authenticate via
     // SSH_ASKPASS. Force-enable password + keyboard-interactive *for this
     // connection* so a client ssh_config that disables them — common on Windows,
@@ -216,6 +225,14 @@ mod tests {
         ))
         .unwrap();
         cfg.targets.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn keepalive_on_every_connection() {
+        // A dead peer must be noticed (~45 s), not hung on forever — a hung
+        // transfer holds the target lock and silently stops all later backups.
+        let opts = super::ssh_options(&target("")).join(" ");
+        assert!(opts.contains("ServerAliveInterval=15"), "{opts}");
     }
 
     #[test]
