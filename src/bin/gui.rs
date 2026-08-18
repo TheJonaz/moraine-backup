@@ -775,7 +775,21 @@ fn build_ui(app: &gtk::Application) {
     update_bar.append(&dismiss_btn);
     root.append(&update_bar);
 
-    root.append(&switcher);
+    // Tab bar, with the Thern account control sitting right after the last tab
+    // (Help): "👤 Sign in", or "👤 <name>" once signed in.
+    let nav_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    nav_row.append(&switcher);
+    let account_btn = gtk::Button::new();
+    account_btn.add_css_class("linkbtn");
+    account_btn.set_valign(gtk::Align::Center);
+    refresh_account_btn(&account_btn);
+    {
+        let ui2 = ui.clone();
+        let btn = account_btn.clone();
+        account_btn.connect_clicked(move |_| open_account_action(&ui2, &btn));
+    }
+    nav_row.append(&account_btn);
+    root.append(&nav_row);
     root.append(&stack);
 
     // Silent update check at startup: only reveal the banner if a newer release
@@ -1066,6 +1080,250 @@ fn asset(name: &str) -> String {
 
 // ─────────────────────────── Bugs & Feedback ───────────────────────────
 
+/// Footer account button label, reflecting the stored Thern session.
+fn account_label() -> String {
+    #[cfg(feature = "keyring")]
+    if let Some(s) = moraine::account::load() {
+        let who = if s.name.trim().is_empty() { s.email } else { s.name };
+        if !who.trim().is_empty() {
+            return format!("👤 {who}");
+        }
+    }
+    "👤 Sign in".to_string()
+}
+
+fn refresh_account_btn(btn: &gtk::Button) {
+    btn.set_label(&account_label());
+}
+
+/// Footer account button click: sign in, or manage the current session.
+fn open_account_action(ui: &Rc<Ui>, btn: &gtk::Button) {
+    #[cfg(feature = "keyring")]
+    if let Some(s) = moraine::account::load() {
+        show_account_dialog(ui, btn, &s);
+        return;
+    }
+    open_login_dialog(ui, btn);
+}
+
+/// Shown when already signed in: who you are, a link to the web account, sign out.
+#[cfg(feature = "keyring")]
+fn show_account_dialog(ui: &Rc<Ui>, btn: &gtk::Button, s: &moraine::account::Session) {
+    let win = gtk::Window::builder()
+        .transient_for(&ui.window)
+        .modal(true)
+        .title("Your Thern account")
+        .default_width(380)
+        .build();
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    b.set_margin_top(16);
+    b.set_margin_bottom(16);
+    b.set_margin_start(16);
+    b.set_margin_end(16);
+
+    let who = if s.name.trim().is_empty() { s.email.clone() } else { s.name.clone() };
+    let hello = gtk::Label::new(Some(&format!("Signed in as {who}")));
+    hello.set_halign(gtk::Align::Start);
+    b.append(&hello);
+    if !s.email.trim().is_empty() {
+        let em = gtk::Label::new(Some(&s.email));
+        em.add_css_class("muted");
+        em.set_halign(gtk::Align::Start);
+        b.append(&em);
+    }
+
+    let web = gtk::Button::with_label("Open my account on the web");
+    web.connect_clicked(|_| {
+        let _ = gio::AppInfo::launch_default_for_uri(
+            "https://moraine.thern.io/account.php",
+            gio::AppLaunchContext::NONE,
+        );
+    });
+    b.append(&web);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let out = gtk::Button::with_label("Sign out");
+    out.add_css_class("danger");
+    {
+        let win = win.clone();
+        let btn = btn.clone();
+        out.connect_clicked(move |_| {
+            moraine::account::sign_out();
+            refresh_account_btn(&btn);
+            win.close();
+        });
+    }
+    row.append(&out);
+    let close = gtk::Button::with_label("Close");
+    {
+        let win = win.clone();
+        close.connect_clicked(move |_| win.close());
+    }
+    row.append(&close);
+    b.append(&row);
+
+    win.set_child(Some(&b));
+    win.present();
+}
+
+/// The device-code sign-in flow: the app shows a code, the user approves it in a
+/// browser (where they sign in normally), and we poll until a bearer arrives.
+fn open_login_dialog(ui: &Rc<Ui>, account_btn: &gtk::Button) {
+    enum Msg {
+        Started(moraine::account::Started),
+        Approved(Box<moraine::account::Session>),
+        Fail(String),
+    }
+
+    let win = gtk::Window::builder()
+        .transient_for(&ui.window)
+        .modal(true)
+        .title("Sign in to Thern")
+        .default_width(430)
+        .build();
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    b.set_margin_top(18);
+    b.set_margin_bottom(18);
+    b.set_margin_start(18);
+    b.set_margin_end(18);
+
+    let title = gtk::Label::new(Some("Sign in to your Thern account"));
+    title.set_halign(gtk::Align::Start);
+    b.append(&title);
+    let info = gtk::Label::new(Some(
+        "A browser will open where you sign in and approve this app. Check the code below matches.",
+    ));
+    info.add_css_class("muted");
+    info.set_halign(gtk::Align::Start);
+    info.set_wrap(true);
+    b.append(&info);
+
+    let code = gtk::Label::new(None);
+    code.set_markup("<span size='xx-large' font_family='monospace' weight='bold'>· · · ·</span>");
+    b.append(&code);
+
+    let status = gtk::Label::new(Some("Starting…"));
+    status.add_css_class("muted");
+    status.set_halign(gtk::Align::Start);
+    status.set_wrap(true);
+    b.append(&status);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let open = gtk::Button::with_label("Open browser to approve");
+    open.add_css_class("accent");
+    open.set_sensitive(false);
+    row.append(&open);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    row.append(&spacer);
+    let cancel = gtk::Button::with_label("Cancel");
+    {
+        let win = win.clone();
+        cancel.connect_clicked(move |_| win.close());
+    }
+    row.append(&cancel);
+    b.append(&row);
+
+    let (tx, rx) = async_channel::bounded::<Msg>(8);
+
+    // Worker thread: open a request, then poll to a terminal state.
+    std::thread::spawn(move || match moraine::account::start() {
+        Err(e) => {
+            let _ = tx.send_blocking(Msg::Fail(e.to_string()));
+        }
+        Ok(started) => {
+            let secret = started.secret.clone();
+            let _ = tx.send_blocking(Msg::Started(started));
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                match moraine::account::poll(&secret) {
+                    Ok(moraine::account::Poll::Pending) => continue,
+                    Ok(moraine::account::Poll::Approved(s)) => {
+                        let _ = tx.send_blocking(Msg::Approved(s));
+                        break;
+                    }
+                    Ok(moraine::account::Poll::Denied) => {
+                        let _ = tx.send_blocking(Msg::Fail("Denied in the browser.".into()));
+                        break;
+                    }
+                    Ok(_) => {
+                        let _ = tx.send_blocking(Msg::Fail("The code expired — start again.".into()));
+                        break;
+                    }
+                    Err(e) => {
+                        let _ = tx.send_blocking(Msg::Fail(format!("Network error: {e}")));
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Holds the approve URL so the "Open browser" button can re-open it.
+    let approve_url: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    {
+        let approve_url = approve_url.clone();
+        open.connect_clicked(move |_| {
+            if let Some(u) = approve_url.borrow().as_ref() {
+                let _ = gio::AppInfo::launch_default_for_uri(u, gio::AppLaunchContext::NONE);
+            }
+        });
+    }
+
+    let code_l = code.clone();
+    let status_l = status.clone();
+    let open_l = open.clone();
+    let win_l = win.clone();
+    let btn_l = account_btn.clone();
+    glib::spawn_future_local(async move {
+        while let Ok(msg) = rx.recv().await {
+            match msg {
+                Msg::Started(st) => {
+                    code_l.set_markup(&format!(
+                        "<span size='xx-large' font_family='monospace' weight='bold'>{}</span>",
+                        st.code
+                    ));
+                    let url = moraine::account::approve_url(&st.code);
+                    *approve_url.borrow_mut() = Some(url.clone());
+                    open_l.set_sensitive(true);
+                    status_l.set_text("Waiting for approval in your browser…");
+                    let _ = gio::AppInfo::launch_default_for_uri(&url, gio::AppLaunchContext::NONE);
+                }
+                Msg::Approved(s) => {
+                    let _ = moraine::account::save(&s);
+                    refresh_account_btn(&btn_l);
+                    let who = if s.name.trim().is_empty() {
+                        s.email.clone()
+                    } else {
+                        s.name.clone()
+                    };
+                    status_l.remove_css_class("muted");
+                    status_l.set_text(&format!("Signed in as {who} ✔"));
+                    open_l.set_sensitive(false);
+                    let win2 = win_l.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(1100), move || {
+                        win2.close()
+                    });
+                    break;
+                }
+                Msg::Fail(e) => {
+                    status_l.remove_css_class("muted");
+                    status_l.add_css_class("danger");
+                    status_l.set_text(&e);
+                    open_l.set_sensitive(false);
+                    break;
+                }
+            }
+        }
+    });
+
+    win.set_child(Some(&b));
+    win.present();
+}
+
 /// Modal where the user files a bug / feedback / feature request. The message
 /// plus the app version and host OS are POSTed to `FEEDBACK_URL`.
 fn open_feedback_dialog(ui: &Rc<Ui>) {
@@ -1109,9 +1367,36 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
     scroll.set_child(Some(&msg));
     b.append(&scroll);
 
-    let email = gtk::Entry::new();
-    email.set_placeholder_text(Some("Your email (optional — so I can reply)"));
-    b.append(&email);
+    // When signed in, the report is already tied to the account (bearer →
+    // customer_id server-side), so show who it is filed as instead of asking for
+    // an email. Signed out, keep the optional reply-to field.
+    #[cfg(feature = "keyring")]
+    let signed = moraine::account::load();
+    #[cfg(not(feature = "keyring"))]
+    let signed: Option<moraine::account::Session> = None;
+
+    let email_entry: Option<gtk::Entry>;
+    let account_email: Option<String>;
+    if let Some(s) = signed {
+        let who = if s.name.trim().is_empty() { s.email.clone() } else { s.name.clone() };
+        let text = if s.email.trim().is_empty() {
+            format!("Filing as {who}")
+        } else {
+            format!("Filing as {who} ({})", s.email)
+        };
+        let l = gtk::Label::new(Some(&text));
+        l.add_css_class("muted");
+        l.set_halign(gtk::Align::Start);
+        b.append(&l);
+        email_entry = None;
+        account_email = Some(s.email);
+    } else {
+        let email = gtk::Entry::new();
+        email.set_placeholder_text(Some("Your email (optional — so I can reply)"));
+        b.append(&email);
+        email_entry = Some(email);
+        account_email = None;
+    }
 
     let info = gtk::Label::new(Some(&format!(
         "Attaches Moraine {} · {} {} so I can reproduce. Your IP address is \
@@ -1150,7 +1435,8 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
         let win = win.clone();
         let kind = kind.clone();
         let msg = msg.clone();
-        let email = email.clone();
+        let email_entry = email_entry.clone();
+        let account_email = account_email.clone();
         let status = status.clone();
         let send_btn = send.clone();
         send.connect_clicked(move |_| {
@@ -1170,10 +1456,15 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
                 2 => "feature",
                 _ => "feedback",
             };
+            let email_val = match (&email_entry, &account_email) {
+                (Some(e), _) => e.text().to_string(),
+                (None, Some(a)) => a.clone(),
+                _ => String::new(),
+            };
             let payload = serde_json::json!({
                 "type": kind_val,
                 "message": text,
-                "email": email.text().to_string(),
+                "email": email_val,
                 "version": moraine::VERSION,
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
@@ -1222,22 +1513,30 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
 fn post_feedback(payload: &str) -> Result<(), String> {
     use std::io::Write;
     let key_hdr = format!("X-Moraine-Key: {FEEDBACK_KEY}");
+    // Attribute the report to the signed-in Thern account, if any: feedback.php
+    // resolves this bearer to a customer and stores it (email-only otherwise).
+    let bearer = moraine::account::bearer_header();
+    let mut args: Vec<&str> = vec![
+        "-fsS",
+        "--max-time",
+        "20",
+        "-X",
+        "POST",
+        "-H",
+        "Content-Type: application/json",
+        "-H",
+        key_hdr.as_str(),
+        "--data-binary",
+        "@-",
+    ];
+    if let Some(ref b) = bearer {
+        args.push("-H");
+        args.push(b.as_str());
+    }
+    args.push(FEEDBACK_URL);
     let mut child = Command::new("curl")
         .no_console()
-        .args([
-            "-fsS",
-            "--max-time",
-            "20",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-H",
-            key_hdr.as_str(),
-            "--data-binary",
-            "@-",
-            FEEDBACK_URL,
-        ])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
