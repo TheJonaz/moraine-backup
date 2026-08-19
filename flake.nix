@@ -7,22 +7,24 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
+      # Track Cargo.toml so the flake never needs a separate version bump.
+      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
     in
     {
       packages = forAll (pkgs:
         let
-          moraine = pkgs.rustPlatform.buildRustPackage rec {
+          moraine = pkgs.rustPlatform.buildRustPackage {
             pname = "moraine";
-            version = "0.2.2";
+            inherit version;
 
-            src = pkgs.fetchFromGitHub {
-              owner = "TheJonaz";
-              repo = "moraine-backup";
-              rev = "v${version}";
-              # `nix build` prints the correct value on first run — paste it here.
-              hash = pkgs.lib.fakeHash;
-            };
-            cargoHash = pkgs.lib.fakeHash;
+            # Build from the flake's own tree — no fetchFromGitHub, so no source
+            # hash to keep in sync, and `nix build`/`nix run` work straight from a
+            # checkout or `github:TheJonaz/moraine-backup`.
+            src = self;
+
+            # Vendor dependencies straight from Cargo.lock (all crates.io — no git
+            # sources), which removes the cargoHash that used to drift on updates.
+            cargoLock.lockFile = ./Cargo.lock;
 
             buildFeatures = [ "gui" ];
 
@@ -64,11 +66,18 @@
           default = moraine;
         });
 
-      apps = forAll (pkgs: {
-        default = {
+      # `nix run github:TheJonaz/moraine-backup` runs the CLI (headless-friendly);
+      # `nix run github:TheJonaz/moraine-backup#gui` launches the desktop app.
+      apps = forAll (pkgs: rec {
+        moraine = {
+          type = "app";
+          program = "${self.packages.${pkgs.system}.moraine}/bin/moraine";
+        };
+        gui = {
           type = "app";
           program = "${self.packages.${pkgs.system}.moraine}/bin/moraine-gui";
         };
+        default = moraine;
       });
     };
 }
