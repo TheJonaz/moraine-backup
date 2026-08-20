@@ -1,0 +1,109 @@
+# DRAFT — proposed STRICT rework of the snap, replacing the classic confinement
+# recipe (packaging/snap/snapcraft.yaml). Pending the forum discussion:
+#   https://forum.snapcraft.io/t/request-for-classic-confinement-moraine/52730
+#
+# Why strict now: a reviewer declined classic "as of now" (the project is judged
+# too new/small — an eligibility bar, not a technical one), and Oliver Grawert
+# pointed out the `system-backup` interface, "designed for exactly this type of
+# application", plus `personal-files` for the known dotfile locations. Strict +
+# these interfaces sidesteps the classic-eligibility gate entirely: the snap can
+# be published as-is and users enable the privileged bits with one `snap connect`
+# (no store auto-connect request needed).
+#
+# ── Two honest limitations vs the classic build ──────────────────────────────
+# 1. SCHEDULING: strict confinement cannot write the host crontab, so the snap
+#    drops in-app scheduling. Snap users schedule externally instead, e.g. a
+#    systemd timer or host cron entry running `snap run moraine backup <target>`.
+# 2. WHOLE-SYSTEM / arbitrary paths: `home` + `personal-files` cover the home
+#    directory and its dotfiles at their real paths (the common case, no extra
+#    steps). Backing up paths OUTSIDE home (/etc, /var, other users) goes through
+#    `system-backup`, which exposes the host root read-only at
+#    /var/lib/snapd/hostfs — so those sources are addressed as
+#    /var/lib/snapd/hostfs/etc/... This is the open UX question in the forum reply.
+
+name: moraine
+title: Moraine
+base: core24
+version: '0.2.2'
+summary: Snapshot backups over SSH/rsync and rclone
+license: MIT
+contact: info@thern.io
+issues: https://github.com/TheJonaz/moraine-backup/issues
+source-code: https://github.com/TheJonaz/moraine-backup
+website: https://moraine.thern.io
+description: |
+  Moraine takes hard-linked snapshots of your files to a NAS or server over
+  SSH, or to cloud/FTP/SMB/WebDAV/S3/Drive storage via rclone. Every run becomes
+  its own timestamped snapshot where unchanged files share storage, so you keep
+  full history at almost no extra disk cost. Restore whole snapshots or single
+  files and prune old snapshots with a retention policy.
+
+  This snap ships the **command-line client only**. The GTK desktop app is
+  distributed as a Flatpak, an AppImage and a .deb — see
+  https://moraine.thern.io/distribution.html
+
+  rsync, the OpenSSH client and rclone are bundled, so every backend works.
+
+  **Strict confinement.** Your home directory and removable media work out of the
+  box. To back up your dotfiles (SSH keys, ~/.config, GPG, …) or the whole
+  system, connect the backup interfaces once:
+
+      snap connect moraine:dot-files      # ~/.ssh, ~/.gnupg, ~/.config, …
+      snap connect moraine:system-backup  # anything outside home (read-only)
+
+  Schedule backups from a host systemd timer or cron running
+  `snap run moraine backup <target>` (the snap itself does not touch crontab).
+
+grade: stable
+confinement: strict
+compression: lzo
+
+apps:
+  moraine:
+    command: bin/moraine
+    # Bundled rsync/ssh/rclone come first so behaviour is identical everywhere.
+    environment:
+      PATH: $SNAP/usr/bin:$SNAP/bin:$PATH
+    plugs:
+      - home              # non-hidden files in $HOME (real paths) — auto-connects
+      - removable-media   # /media, /mnt — external backup drives
+      - network           # rsync-over-SSH / rclone to remote destinations
+      - network-bind
+      - ssh-keys          # let the bundled ssh authenticate with ~/.ssh keys
+      - system-backup     # read-only host root at /var/lib/snapd/hostfs
+      - dot-files         # read the dotfiles a backup exists to protect
+
+plugs:
+  # Read-only access to the configuration and keys `moraine recommend` suggests
+  # by default. moraine only ever READS sources, never writes them, so `read:`.
+  dot-files:
+    interface: personal-files
+    read:
+      - $HOME/.ssh
+      - $HOME/.gnupg
+      - $HOME/.config
+      - $HOME/.local/share
+      - $HOME/.gitconfig
+      - $HOME/.mozilla
+      - $HOME/.thunderbird
+      - $HOME/.bashrc
+      - $HOME/.profile
+
+parts:
+  moraine:
+    plugin: rust
+    source: https://github.com/TheJonaz/moraine-backup.git
+    source-tag: v0.2.2
+    build-packages:
+      - pkg-config
+    stage-packages:
+      - rsync
+      - openssh-client
+      - rclone
+    override-build: |
+      # CLI only: --no-default-features drops the GTK app and the keyring (a
+      # scheduled/headless snap has no desktop session to unlock one).
+      cargo build --release --locked --no-default-features --bin moraine
+      install -Dm755 target/release/moraine "$CRAFT_PART_INSTALL/bin/moraine"
+      install -Dm644 man/moraine.1 \
+        "$CRAFT_PART_INSTALL/usr/share/man/man1/moraine.1"
