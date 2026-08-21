@@ -142,6 +142,10 @@ pub fn approve_url(code: &str) -> String {
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 /// `~/.config/moraine/account.json` — display fields only, never the token.
+///
+/// Only the keyring builds persist a session; without that feature there is no
+/// token to pair the state with, so nothing calls this.
+#[cfg(feature = "keyring")]
 fn state_path() -> Option<std::path::PathBuf> {
     let dir = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
@@ -216,15 +220,67 @@ pub fn sign_out() {
     }
 }
 
-/// `Authorization: Bearer …` for the signed-in account, or None. Used to attribute
-/// feedback to the account that filed it.
-pub fn bearer_header() -> Option<String> {
+/// A curl config file (`curl -K <path>`) carrying the account's bearer token,
+/// deleted when dropped.
+///
+/// The token deliberately does NOT travel as a `-H` argument: process arguments
+/// are world-readable on Linux (`/proc/<pid>/cmdline`), so any other local user
+/// could read the credential for as long as curl runs. A config file passed by
+/// path leaks only the path. It is written mode 0600 inside our own config
+/// directory rather than the shared temp dir, which also rules out a symlink
+/// race on a predictable /tmp name.
+pub struct CurlAuth(std::path::PathBuf);
+
+impl CurlAuth {
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for CurlAuth {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Write the signed-in account's `Authorization` header to a private curl config
+/// file, or None when signed out (or when it cannot be written privately —
+/// attribution is a nicety, never worth leaking a token for).
+pub fn curl_auth() -> Option<CurlAuth> {
     #[cfg(feature = "keyring")]
     {
-        load().map(|s| format!("Authorization: Bearer {}", s.token))
+        let session = load()?;
+        if session.token.is_empty() {
+            return None;
+        }
+        let path = state_path()?.with_file_name("auth-curl.conf");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok()?;
+        }
+        write_private(
+            &path,
+            &format!("header = \"Authorization: Bearer {}\"\n", session.token),
+        )
+        .ok()?;
+        Some(CurlAuth(path))
     }
     #[cfg(not(feature = "keyring"))]
     {
         None
     }
+}
+
+/// Create (or truncate) `path` readable only by this user, and write `contents`.
+#[cfg(feature = "keyring")]
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(path)?.write_all(contents.as_bytes())
 }

@@ -1514,8 +1514,12 @@ fn post_feedback(payload: &str) -> Result<(), String> {
     use std::io::Write;
     let key_hdr = format!("X-Moraine-Key: {FEEDBACK_KEY}");
     // Attribute the report to the signed-in Thern account, if any: feedback.php
-    // resolves this bearer to a customer and stores it (email-only otherwise).
-    let bearer = moraine::account::bearer_header();
+    // resolves the bearer to a customer and stores it (email-only otherwise).
+    // The token goes in a private config file read with -K, never in argv —
+    // arguments are world-readable via /proc/<pid>/cmdline. `auth` deletes the
+    // file when it drops at the end of this function.
+    let auth = moraine::account::curl_auth();
+    let auth_path = auth.as_ref().map(|a| a.path().to_string_lossy().into_owned());
     let mut args: Vec<&str> = vec![
         "-fsS",
         "--max-time",
@@ -1529,9 +1533,9 @@ fn post_feedback(payload: &str) -> Result<(), String> {
         "--data-binary",
         "@-",
     ];
-    if let Some(ref b) = bearer {
-        args.push("-H");
-        args.push(b.as_str());
+    if let Some(ref p) = auth_path {
+        args.push("-K");
+        args.push(p.as_str());
     }
     args.push(FEEDBACK_URL);
     let mut child = Command::new("curl")
