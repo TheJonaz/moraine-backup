@@ -1,3 +1,26 @@
+# Strict-confinement snap for the Moraine CLI.
+#
+# History: the first upload used `confinement: classic`, which a store reviewer
+# declined "as of now" on eligibility grounds (project too new/small), while
+# Oliver Grawert pointed to strict + `system-backup` + `personal-files` instead.
+# Thread: https://forum.snapcraft.io/t/request-for-classic-confinement-moraine/52730
+#
+# This recipe covers the COMMON case with no code change and no store request —
+# publish, and users enable the privileged plugs with one `snap connect`:
+#   • $HOME non-hidden files      → home (auto-connects)
+#   • dotfiles (SSH/GPG/config …) → personal-files `dot-files` (snap connect)
+#   • external drives             → removable-media
+#   • remote destinations         → network + the bundled ssh/rclone
+#
+# ── Deliberately deferred to a future release (need a moraine code change) ────
+#   • Whole-system / arbitrary paths outside $HOME: the `system-backup` interface
+#     exposes the host root read-only at /var/lib/snapd/hostfs, so source paths
+#     must be prefixed with it. Oliver confirmed the prefix is required and should
+#     be hidden in the UI — that's app-side work, so it lands with a later release.
+#   • Scheduling: strict cannot write the host crontab. For now, schedule from a
+#     host systemd timer / cron running `snap run moraine backup <target>`. Snap
+#     systemd timers are the eventual path (dynamic per-target timers TBD).
+
 name: moraine
 title: Moraine
 base: core24
@@ -13,58 +36,75 @@ description: |
   SSH, or to cloud/FTP/SMB/WebDAV/S3/Drive storage via rclone. Every run becomes
   its own timestamped snapshot where unchanged files share storage, so you keep
   full history at almost no extra disk cost. Restore whole snapshots or single
-  files, schedule runs from cron, and prune old snapshots with a retention
-  policy.
+  files and prune old snapshots with a retention policy.
 
   This snap ships the **command-line client only**. The GTK desktop app is
-  distributed as a Flatpak, an AppImage and a .deb instead — see
+  distributed as a Flatpak, an AppImage and a .deb — see
   https://moraine.thern.io/distribution.html
 
-  rsync, the OpenSSH client and rclone are bundled, so every backend works
-  without installing anything else.
+  rsync, the OpenSSH client and rclone are bundled, so every backend works.
+
+  **Strict confinement.** Your home directory's non-hidden files, external
+  drives and every remote backend work out of the box. To let the bundled ssh
+  use your keys, connect once:
+
+      snap connect moraine:ssh-keys
+
+  Backing up top-level dotfiles (~/.config, ~/.gnupg, …) is not yet available in
+  the snap — the `personal-files` interface it needs is awaiting store approval.
+  Until then use the .deb, Flatpak or AppImage if you back those up.
+
+  Schedule backups from a host systemd timer or cron running
+  `snap run moraine backup <target>` (the snap itself does not touch crontab).
 
 grade: stable
-
-# Classic, not strict — and not for convenience.
-#
-# A backup tool has to read whatever paths the user points it at. Under strict
-# confinement the `home` interface grants "access to non-hidden files in the
-# home directory": snapd's AppArmor rule is `owner @{HOME}/[^s.]** rwkl`, which
-# excludes every top-level dotfile. Six of the eleven locations `moraine
-# recommend` suggests on Linux are exactly that — ~/.config, ~/.mozilla,
-# ~/.thunderbird, ~/.gitconfig, ~/.ssh, ~/.gnupg — i.e. the configuration and
-# keys a backup exists for, while the five that would work are re-downloadable
-# media.
-#
-# `personal-files` cannot close the gap either: it declares *named* paths and
-# needs a store request per path, whereas the set here is whatever the user
-# chooses. Scheduling writes to crontab, which strict confinement also denies.
-#
-# Classic requires manual store review. See README.md for the request text.
-confinement: classic
+confinement: strict
 compression: lzo
 
 apps:
   moraine:
     command: bin/moraine
-    # A classic snap runs with the host's environment, so unlike a strict one it
-    # does NOT get $SNAP/usr/bin prepended for free. Without this, moraine would
-    # shell out to whatever rsync/ssh/rclone the host happens to have — or fail
-    # on a host with no rclone at all — and the bundled copies would be dead
-    # weight. Host tools still win nothing: ours come first deliberately, so the
-    # snap behaves the same everywhere.
+    # Bundled rsync/ssh/rclone come first so behaviour is identical everywhere.
     environment:
       PATH: $SNAP/usr/bin:$SNAP/bin:$PATH
+    plugs:
+      - home              # non-hidden files in $HOME (real paths) — auto-connects
+      - removable-media   # /media, /mnt — external backup drives
+      - network           # rsync-over-SSH / rclone to remote destinations
+      - ssh-keys          # bundled ssh authenticates with ~/.ssh keys (manual connect)
+
+# NOTE — the `dot-files` (personal-files) plug is temporarily REMOVED.
+#
+# Revision 2 carried it and was REJECTED by the store: personal-files is a
+# "super-privileged" interface, and merely *using* it — not just auto-connecting
+# it — requires its own store-request post first:
+#   https://snapcraft.io/docs/super-privileged-interfaces
+#   https://snapcraft.io/docs/process-for-aliases-auto-connections-and-tracks
+#
+# So this revision ships without it, which publishes immediately and covers
+# $HOME's non-hidden files, external drives and every remote backend. The
+# request for personal-files is drafted in personal-files-request.md; once it is
+# granted, restore this block verbatim and bump the revision:
+#
+#   plugs:
+#     dot-files:
+#       interface: personal-files
+#       read:
+#         - $HOME/.ssh
+#         - $HOME/.gnupg
+#         - $HOME/.config
+#         - $HOME/.local/share
+#         - $HOME/.gitconfig
+#         - $HOME/.mozilla
+#         - $HOME/.thunderbird
+#         - $HOME/.bashrc
+#         - $HOME/.profile
 
 parts:
   moraine:
     plugin: rust
     source: https://github.com/TheJonaz/moraine-backup.git
     source-tag: v0.2.2
-    # Classic snaps get no snap-specific library paths at runtime, so staged
-    # binaries must be patched to find the libraries shipped alongside them
-    # rather than whatever the host happens to have.
-    build-attributes: [enable-patchelf]
     build-packages:
       - pkg-config
     stage-packages:
@@ -72,9 +112,8 @@ parts:
       - openssh-client
       - rclone
     override-build: |
-      # CLI only: --no-default-features drops the GTK app (and with it the
-      # keyring feature, which wants a desktop session this snap has no use for
-      # — scheduled runs read their secrets from the config or the environment).
+      # CLI only: --no-default-features drops the GTK app and the keyring (a
+      # scheduled/headless snap has no desktop session to unlock one).
       cargo build --release --locked --no-default-features --bin moraine
       install -Dm755 target/release/moraine "$CRAFT_PART_INSTALL/bin/moraine"
       install -Dm644 man/moraine.1 \

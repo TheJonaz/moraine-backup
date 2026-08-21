@@ -1,36 +1,51 @@
 # Snap packaging for Moraine
 
-`snapcraft.yaml` builds a **classically confined, CLI-only** snap: the `moraine`
+`snapcraft.yaml` builds a **strictly confined, CLI-only** snap: the `moraine`
 command with `rsync`, the OpenSSH client and `rclone` bundled, so every backend
 works without installing anything else.
 
 The GTK desktop app is **not** in this snap. It ships as a
 [Flatpak](../flatpak/), an [AppImage](../appimage/) and a `.deb`.
 
-## Why classic, and why no GUI
+## Why strict (it started out classic)
 
-Both follow from the same constraint, and neither is a shortcut.
+The first upload used `confinement: classic`, because the `home` interface only
+grants "access to non-hidden files in the home directory" — its AppArmor rule is
+literally `owner @{HOME}/[^s.]** rwkl`, which excludes every top-level dotfile.
+Of the eleven locations `moraine recommend` suggests on Linux, six are exactly
+those:
 
-**Strict confinement cannot see the files worth backing up.** The `home`
-interface is documented as granting "access to non-hidden files in the home
-directory", and snapd's AppArmor rule is literally `owner @{HOME}/[^s.]** rwkl`
-— every top-level dotfile is excluded. Of the eleven locations `moraine
-recommend` suggests on Linux, six are exactly those:
-
-| Reachable under `home` | Invisible to a strict snap |
+| Reachable under `home` | Excluded by `home` (need `personal-files`) |
 | --- | --- |
 | `~/Documents`, `~/Desktop`, `~/Pictures`, `~/Music`, `~/Videos` | `~/.config`, `~/.mozilla`, `~/.thunderbird`, `~/.gitconfig`, `~/.ssh`, `~/.gnupg` |
 
-The split is worse than 5–6 suggests: what works is re-downloadable media, what
-does not is configuration and keys — the things a backup exists for.
-`personal-files` cannot close the gap either, because it declares *named* paths
-and needs a store request per path, while the set here is whatever the user
-chooses. Scheduling also writes to crontab, which strict confinement denies.
+A store reviewer declined classic *"as of now"* on eligibility grounds (classic
+is reserved for mature, well-known apps and the project is judged too new), and
+Oliver Grawert pointed out the right approach:
+[thread 52730](https://forum.snapcraft.io/t/request-for-classic-confinement-moraine/52730).
+So the snap is now **strict**, and the excluded dotfiles come back via a
+read-only `personal-files` plug (`dot-files`) declaring that default set —
+exactly the "named paths" personal-files is for.
 
-**Classic rules out the GUI.** The `gnome` extension, which supplies GTK and its
-runtime to a snap, only exists for strict confinement. A GUI under classic would
-mean bundling GTK 4 and patching rpath by hand — a separate project, for a
-platform already covered three other ways.
+**Covered now** (the common case, at real paths, no host prefix):
+`home` + `dot-files` (personal-files) + `removable-media` + `network` +
+`ssh-keys`. `home` auto-connects; enable the rest once with
+`snap connect moraine:dot-files`.
+
+**Deferred to a later release** (each needs app-side work):
+
+- **Whole-system / arbitrary paths outside `$HOME`** via the `system-backup`
+  interface, which exposes the host root read-only at `/var/lib/snapd/hostfs`.
+  Oliver confirmed source paths must be prefixed with that and the prefix should
+  be hidden in the UI — so it lands once moraine gains snap-path handling.
+- **In-app scheduling.** Strict confinement cannot write the host crontab. For
+  now, schedule from a host systemd timer / cron running
+  `snap run moraine backup <target>`. Snap systemd timers are the eventual path
+  (dynamic per-target timers are still an open question).
+
+**Why no GUI.** The snap is CLI-only regardless of confinement — the GTK app is
+already covered by the Flatpak, AppImage and `.deb`, and bundling GTK 4 into a
+snap is a separate project for no new reach.
 
 ## Build locally
 
@@ -42,7 +57,7 @@ ships `/etc/apt/preferences.d/nosnap.pref`):
 ./packaging/snap/build-in-docker.sh --local    # the working tree instead
 ```
 
-The `.snap` lands in `packaging/snap/build/`. [`Dockerfile.build`](Dockerfile.build)
+The `.snap` lands in `packaging/snap/`. [`Dockerfile.build`](Dockerfile.build)
 explains how it runs snapcraft without snapd — briefly: snapcraft, `core24` and
 `snapd` are unsquashed into the absolute `/snap/<name>/current` paths their
 binaries are linked against, and `snapcraft --destructive-mode` runs in place.
@@ -57,29 +72,28 @@ snapcraft
 ## Install and run
 
 ```sh
-sudo snap install --dangerous --classic moraine_0.2.2_amd64.snap
+sudo snap install --dangerous moraine_0.2.2_amd64.snap
+sudo snap connect moraine:dot-files    # to back up ~/.ssh, ~/.config, GPG, …
 moraine --version
 ```
 
-`--classic` is required; `--dangerous` only because a local file is unsigned.
-There are no interfaces to connect: a classic snap has the host's filesystem
-already.
+`--dangerous` is only because a local file is unsigned. `home`, `network`,
+`removable-media` and `ssh-keys` connect automatically; `dot-files` is the one
+manual step.
 
 ## Publish to the Snap Store
 
-Classic confinement needs manual review — the snap cannot be released until a
-reviewer grants it.
-
 ```sh
 snapcraft login
-snapcraft register moraine        # once, if the name is free
-snapcraft upload moraine_0.2.2_amd64.snap    # will be held for review
+snapcraft register moraine                            # once, if the name is free
+snapcraft upload --release=stable moraine_0.2.2_amd64.snap
 ```
 
-Then request classic on the [forum](https://forum.snapcraft.io/c/store-requests/19),
-stating the case: a backup client has to read arbitrary user-chosen paths, and
-the `home` interface's exclusion of top-level dotfiles removes most of what
-users back up. The table above is the argument.
+The `personal-files` plug is likely to be **flagged for a store review** (it can
+read sensitive paths), but a narrow one — the reviewer checks the declared
+dotfile paths, which are justified for a backup tool — not the classic
+eligibility gate. Reply on [thread 52730](https://forum.snapcraft.io/t/request-for-classic-confinement-moraine/52730)
+if the reviewer has questions.
 
 ## Known limitations
 
@@ -89,6 +103,8 @@ users back up. The table above is the argument.
   been in rclone far longer than that, but newer cloud backends and fixes are
   missing. A `rclone` part built from source would remove the ceiling.
 - **amd64 only** as written. Other architectures need `platforms:` and builders.
+- **Whole-system paths and in-app scheduling are deferred** — see the two bullets
+  under "Why strict" above.
 
 ## On each new release
 

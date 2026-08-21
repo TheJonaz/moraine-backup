@@ -41,3 +41,18 @@ Two practical questions before I publish:
    `daemon` + `timer` preferred here?
 
 Thanks again for steering me to the right interfaces.
+
+---
+
+## Second reply (closing) — post after Oliver's answers
+
+Perfect, thanks — that settles it.
+
+I'll ship a strict snap now for the common case: home directory, dotfiles via
+`personal-files`, and removable media, all at their real paths (so no hostfs
+prefix is needed there), scheduled from a host systemd timer / cron running
+`snap run moraine backup`.
+
+Whole-system paths via `system-backup` — with the hostfs prefix hidden in the UI,
+per your tip — and in-snap scheduling via snap timers, I'll add in a follow-up
+release once the app-side path handling is in. Really appreciate the guidance!
