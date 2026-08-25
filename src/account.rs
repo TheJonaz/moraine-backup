@@ -87,7 +87,12 @@ fn post(action: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.trim();
-        bail!(if err.is_empty() { "server unreachable" } else { err }.to_string());
+        bail!(if err.is_empty() {
+            "server unreachable"
+        } else {
+            err
+        }
+        .to_string());
     }
     serde_json::from_slice(&out.stdout).context("unexpected response from server")
 }
@@ -96,7 +101,10 @@ fn post(action: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
 pub fn start() -> Result<Started> {
     let v = post("start", &serde_json::json!({}))?;
     if v["ok"] != serde_json::Value::Bool(true) {
-        bail!(v["error"].as_str().unwrap_or("could not start sign-in").to_string());
+        bail!(v["error"]
+            .as_str()
+            .unwrap_or("could not start sign-in")
+            .to_string());
     }
     Ok(Started {
         code: v["code"].as_str().unwrap_or_default().to_string(),
@@ -149,7 +157,9 @@ pub fn approve_url(code: &str) -> String {
 fn state_path() -> Option<std::path::PathBuf> {
     let dir = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))?;
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+        })?;
     Some(dir.join("moraine").join("account.json"))
 }
 
@@ -202,7 +212,12 @@ pub fn load() -> Option<Session> {
         return None;
     }
     let (name, email, is_admin) = read_state();
-    Some(Session { token, name, email, is_admin })
+    Some(Session {
+        token,
+        name,
+        email,
+        is_admin,
+    })
 }
 
 /// Forget the account on this device: drop the keyring token and the state file.

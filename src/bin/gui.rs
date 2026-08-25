@@ -1084,7 +1084,11 @@ fn asset(name: &str) -> String {
 fn account_label() -> String {
     #[cfg(feature = "keyring")]
     if let Some(s) = moraine::account::load() {
-        let who = if s.name.trim().is_empty() { s.email } else { s.name };
+        let who = if s.name.trim().is_empty() {
+            s.email
+        } else {
+            s.name
+        };
         if !who.trim().is_empty() {
             return format!("👤 {who}");
         }
@@ -1121,7 +1125,11 @@ fn show_account_dialog(ui: &Rc<Ui>, btn: &gtk::Button, s: &moraine::account::Ses
     b.set_margin_start(16);
     b.set_margin_end(16);
 
-    let who = if s.name.trim().is_empty() { s.email.clone() } else { s.name.clone() };
+    let who = if s.name.trim().is_empty() {
+        s.email.clone()
+    } else {
+        s.name.clone()
+    };
     let hello = gtk::Label::new(Some(&format!("Signed in as {who}")));
     hello.set_halign(gtk::Align::Start);
     b.append(&hello);
@@ -1250,7 +1258,8 @@ fn open_login_dialog(ui: &Rc<Ui>, account_btn: &gtk::Button) {
                         break;
                     }
                     Ok(_) => {
-                        let _ = tx.send_blocking(Msg::Fail("The code expired — start again.".into()));
+                        let _ =
+                            tx.send_blocking(Msg::Fail("The code expired — start again.".into()));
                         break;
                     }
                     Err(e) => {
@@ -1304,9 +1313,10 @@ fn open_login_dialog(ui: &Rc<Ui>, account_btn: &gtk::Button) {
                     status_l.set_text(&format!("Signed in as {who} ✔"));
                     open_l.set_sensitive(false);
                     let win2 = win_l.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(1100), move || {
-                        win2.close()
-                    });
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(1100),
+                        move || win2.close(),
+                    );
                     break;
                 }
                 Msg::Fail(e) => {
@@ -1378,7 +1388,11 @@ fn open_feedback_dialog(ui: &Rc<Ui>) {
     let email_entry: Option<gtk::Entry>;
     let account_email: Option<String>;
     if let Some(s) = signed {
-        let who = if s.name.trim().is_empty() { s.email.clone() } else { s.name.clone() };
+        let who = if s.name.trim().is_empty() {
+            s.email.clone()
+        } else {
+            s.name.clone()
+        };
         let text = if s.email.trim().is_empty() {
             format!("Filing as {who}")
         } else {
@@ -1519,7 +1533,9 @@ fn post_feedback(payload: &str) -> Result<(), String> {
     // arguments are world-readable via /proc/<pid>/cmdline. `auth` deletes the
     // file when it drops at the end of this function.
     let auth = moraine::account::curl_auth();
-    let auth_path = auth.as_ref().map(|a| a.path().to_string_lossy().into_owned());
+    let auth_path = auth
+        .as_ref()
+        .map(|a| a.path().to_string_lossy().into_owned());
     let mut args: Vec<&str> = vec![
         "-fsS",
         "--max-time",
