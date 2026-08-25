@@ -5,7 +5,8 @@
 //!
 //! Advisory OS file locks (`flock` on Unix, `LockFileEx` on Windows, via
 //! `std::fs::File::try_lock`): the OS releases them automatically when the
-//! process exits, so a crashed run never leaves a stale lock behind. The lock
+//! process exits, so a crashed run never leaves a stale lock behind. Releasing
+//! one while the process lives is explicit — see `TargetLock::drop`. The lock
 //! *file* is deliberately never deleted — unlinking a lock file opens the
 //! classic race where two processes each lock a different inode at the same
 //! path and both think they hold "the" lock.
@@ -18,7 +19,25 @@ use std::path::PathBuf;
 /// Holds the OS lock for one target; dropping it releases the lock.
 #[derive(Debug)]
 pub struct TargetLock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for TargetLock {
+    /// Release the lock explicitly rather than leaving it to the `close(2)` in
+    /// `File`'s own drop.
+    ///
+    /// `close` only releases an `flock` when the *last* reference to the open
+    /// file description goes away, and `fork` duplicates the whole descriptor
+    /// table — so any thread that happens to be spawning a child (rsync, ssh,
+    /// rclone, notify-send) at that moment holds a reference to this lock and
+    /// keeps it alive until the child reaches `execve`. `O_CLOEXEC` closes it
+    /// there, but not before, and in that window a second Moraine run is told
+    /// the target is busy when it is not. `LOCK_UN` applies to the description
+    /// itself, so it releases the lock no matter how many processes still share
+    /// it.
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 /// Tries to take the exclusive lock for a target. Fails immediately (never
@@ -36,7 +55,7 @@ pub fn acquire(target: &Target) -> Result<TargetLock> {
         .open(&path)
         .with_context(|| format!("could not open lock file {}", path.display()))?;
     match file.try_lock() {
-        Ok(()) => Ok(TargetLock { _file: file }),
+        Ok(()) => Ok(TargetLock { file }),
         Err(TryLockError::WouldBlock) => bail!(
             "target '{}' is busy — another Moraine run (CLI or desktop app) is \
              already backing up or pruning it",

@@ -53,6 +53,13 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 - A secret with leading or trailing whitespace is no longer trimmed. Trimming
   turns a working config into an authentication failure that looks exactly like
   a wrong password.
+- A target could be reported as busy right after the run holding it finished.
+  Releasing the per-target lock relied on the file being closed, but `close`
+  only drops an `flock` once the last reference to it is gone — and any child
+  process being spawned at that instant (rsync, ssh, rclone, notify-send)
+  inherits one until it reaches `exec`. A second run starting inside that window
+  was told "another Moraine run is already backing up or pruning it" when none
+  was. The lock is now released explicitly.
 
 ## [0.2.2] — 2026-07-22
 
