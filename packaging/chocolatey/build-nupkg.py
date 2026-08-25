@@ -24,6 +24,15 @@ HERE = Path(__file__).resolve().parent
 NUSPEC = HERE / "moraine.nuspec"
 NS = "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"
 
+# Serialize the manifest with a *default* namespace rather than the `ns0:`
+# prefixes ElementTree invents on its own. NuGet's NuspecReader resolves <id>,
+# <version> and the rest against the metadata element's default namespace, so a
+# prefixed manifest reads back as a package with no id: the download step then
+# dies with "Value cannot be null. Parameter name: id" before the install script
+# ever runs. chocolatey.org's own parser ignores namespaces, so server-side
+# validation passes and only the verifier catches it.
+ElementTree.register_namespace("", NS)
+
 # Fixed timestamp: the package should be byte-identical across rebuilds of the
 # same sources, so a rebuild can be diffed against what was pushed.
 ZIP_DATE = (2020, 1, 1, 0, 0, 0)
