@@ -6,6 +6,7 @@
 //! the CLI, the config file format and the on-target snapshot layout.
 #![forbid(unsafe_code)]
 
+pub mod account;
 pub mod config;
 pub mod healthcheck;
 pub mod history;
