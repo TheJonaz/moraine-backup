@@ -4,6 +4,7 @@ pkgbase = moraine
 	pkgrel = 1
 	url = https://github.com/TheJonaz/moraine-backup
 	arch = x86_64
+	arch = aarch64
 	license = MIT
 	makedepends = cargo
 	depends = gtk4
