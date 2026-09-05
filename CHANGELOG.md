@@ -10,6 +10,22 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 ## [Unreleased]
 
 ### Added
+- **"What should I back up?"** `moraine recommend` scans the machine for a
+  curated, OS-specific set of important locations — documents, media, app
+  settings, dev keys, mail — and prints them grouped, flagging
+  credential-bearing paths as `[sensitive]` with a nudge to turn on
+  `crypt_password`. It emits a ready-to-paste `[[target]]` with sensible
+  excludes; `--write` appends it to the config, preserving existing comments
+  and refusing to duplicate a target name. The manifest covers Linux, Windows,
+  macOS and the BSDs.
+- A **✨ Suggest sources** button in the desktop app's Quick Backup panel opens
+  the same recommender as a dialog: tick the locations you want and it builds a
+  ready-made target from them, leaving host and destination to fill in.
+- **Optional Thern account sign-in in the desktop app.** A device-code login
+  against www.thern.io stores a bearer token in the OS keyring — never in the
+  config file — so feedback you send from the app is attributed to your
+  account. Signing in is entirely optional and backups work exactly the same
+  without it.
 - **Secrets can live outside the config file.** Each secret field
   (`password`, `crypt_password`, `crypt_salt`) now records *where* the secret
   is: `"hunter2"` keeps it in the file as before, `"env:VAR"` reads an
@@ -36,6 +52,12 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   already pulled in by the tray rather than linking libdbus.
 
 ### Changed
+- **The in-app updater now offers a build for the CPU it is running on.** It
+  previously picked its download by operating system alone, so an arm64 machine
+  — a Raspberry Pi, an ARM server — was offered an x86_64 binary it cannot
+  execute, and an Intel Mac was offered the Apple-silicon tarball. Asset names
+  now carry the running architecture, and a platform with no published build
+  says so instead of downloading the wrong thing.
 - Resolving a secret can now fail, and failure stops the run. Previously an
   unavailable secret could only ever be the empty string; with an external
   store that would mean writing an *unencrypted* snapshot to a destination the
@@ -50,6 +72,17 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   unreachable.
 
 ### Fixed
+- **A dropped network connection no longer hangs a backup forever.** If the
+  link died mid-transfer without TCP ever seeing a reset — a laptop switching
+  networks, a NAT entry expiring — rsync and ssh could wait indefinitely. The
+  stuck run kept holding its per-target lock, so every later run, cron included,
+  failed with "another process holds it": backups silently stopped happening
+  until somebody noticed and killed it. ssh now sends keep-alives
+  (`ServerAliveInterval=15`, so a dead peer is spotted in ~45 s) and every rsync
+  invocation runs with `--timeout=300`, aborting with a clear error after five
+  minutes with no data moving. Wall-clock limits were the wrong tool — a large
+  first transfer legitimately runs for hours — so this detects a stalled
+  transfer, not a long one. Found by an external security review.
 - A secret with leading or trailing whitespace is no longer trimmed. Trimming
   turns a working config into an authentication failure that looks exactly like
   a wrong password.
@@ -60,6 +93,29 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   inherits one until it reaches `exec`. A second run starting inside that window
   was told "another Moraine run is already backing up or pruning it" when none
   was. The lock is now released explicitly.
+
+### Packaging
+- **aarch64/arm64 builds ship with the release.** Release CI gained a native
+  linux/arm64 job, so ARM users get a tarball and a `.deb` instead of having to
+  compile.
+- **The AppImage is built in CI and published to cdn.thern.io.** The recipe had
+  never actually been run. Building it fixed its glibc floor at 2.39 — Ubuntu
+  24.04+, Debian 13+, Fedora 40+ and the rolling distros — because Moraine needs
+  GTK 4.10 and the older bases it recommended ship 4.6. Older systems keep the
+  Flatpak and the `.deb`.
+- **A macOS installer.** `moraine-<version>-macos-universal.pkg` puts the CLI,
+  its manual page and the docs in `/usr/local`, as one universal binary covering
+  Apple Silicon and Intel.
+- **OpenBSD ports and NetBSD pkgsrc recipes** (CLI-only), with their crate lists
+  and checksum files generated off-BSD from the tagged tarball.
+- Alpine: the aport was readied and submitted to `testing/`, and reworked along
+  the way to `cargo-auditable`, `arch="all"` and the `maintainer=` variable.
+- Gentoo: published from the project's own overlay, with the GUI as a USE flag.
+- Flatpak: aarch64 is built alongside x86_64, and a stale commit pin that had
+  been silently building an old release is fixed.
+- Snap: rebuilt as a classic CLI snap that no longer needs snapd to build.
+- Chocolatey: the package is built on Linux, with a pinned icon and a valid
+  nuspec namespace.
 
 ## [0.2.2] — 2026-07-22
 
