@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>moraine</id>
-    <version>0.2.2</version>
+    <version>0.3.0</version>
     <title>Moraine (CLI)</title>
     <authors>Jonaz Thern</authors>
     <owners>TheJonaz</owners>
@@ -12,7 +12,7 @@
     <bugTrackerUrl>https://github.com/TheJonaz/moraine-backup/issues</bugTrackerUrl>
     <licenseUrl>https://github.com/TheJonaz/moraine-backup/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <iconUrl>https://cdn.jsdelivr.net/gh/TheJonaz/moraine-backup@v0.2.2/assets/moraine-128.png</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/TheJonaz/moraine-backup@v0.3.0/assets/moraine-128.png</iconUrl>
     <docsUrl>https://moraine.thern.io/wiki.html</docsUrl>
     <tags>moraine backup snapshot rsync rclone ssh cli</tags>
     <summary>Snapshot-based backup over SSH/rsync and rclone (command-line client).</summary>

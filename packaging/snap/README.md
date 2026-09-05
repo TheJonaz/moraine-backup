@@ -57,7 +57,7 @@ snapcraft
 ## Install and run
 
 ```sh
-sudo snap install --dangerous --classic moraine_0.2.2_amd64.snap
+sudo snap install --dangerous --classic moraine_0.3.0_amd64.snap
 moraine --version
 ```
 
@@ -73,7 +73,7 @@ reviewer grants it.
 ```sh
 snapcraft login
 snapcraft register moraine        # once, if the name is free
-snapcraft upload moraine_0.2.2_amd64.snap    # will be held for review
+snapcraft upload moraine_0.3.0_amd64.snap    # will be held for review
 ```
 
 Then request classic on the [forum](https://forum.snapcraft.io/c/store-requests/19),

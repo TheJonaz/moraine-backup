@@ -20,7 +20,7 @@ is taken. A wrong or truncated file cannot reach the output.
 The formats are not invented; they were read off live ports:
 textproc/ripgrep in openbsd/ports and in NetBSD/pkgsrc.
 
-    packaging/bsd-distinfo.py --tag v0.2.2
+    packaging/bsd-distinfo.py --tag v0.3.0
 
 The crate list is read from the Cargo.lock **inside the release tarball**, never
 from the working tree. Those two diverge the moment a dependency changes after a

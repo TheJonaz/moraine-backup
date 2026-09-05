@@ -1,7 +1,7 @@
 name: moraine
 title: Moraine
 base: core24
-version: '0.2.2'
+version: '0.3.0'
 summary: Snapshot backups over SSH/rsync and rclone
 license: MIT
 contact: info@thern.io
@@ -60,7 +60,7 @@ parts:
   moraine:
     plugin: rust
     source: https://github.com/TheJonaz/moraine-backup.git
-    source-tag: v0.2.2
+    source-tag: v0.3.0
     # Classic snaps get no snap-specific library paths at runtime, so staged
     # binaries must be patched to find the libraries shipped alongside them
     # rather than whatever the host happens to have.

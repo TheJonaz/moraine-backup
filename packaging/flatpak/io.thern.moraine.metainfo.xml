@@ -58,6 +58,11 @@
   </keywords>
 
   <releases>
+    <release version="0.3.0" date="2026-09-05">
+      <description>
+        <p>"What should I back up?" moraine recommend scans the machine for a curated, OS-specific set of important locations — documents, media, app settings, dev keys, mail — and prints them grouped, flagging credential-bearing paths as [sensitive] with a nudge to turn on crypt_password.</p>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-07-22">
       <description>
         <p>The manual pages moved from debian/ to man/.</p>

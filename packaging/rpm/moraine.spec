@@ -1,5 +1,5 @@
 Name:           moraine
-Version:        0.2.2
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Snapshot-based backup over SSH/rsync and rclone (CLI + GTK desktop app)
 
@@ -73,6 +73,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/moraine-gui.desktop
 %{_mandir}/man1/moraine-gui.1*
 
 %changelog
+* Sat Sep 05 2026 Jonaz Thern <info@thern.io> - 0.3.0-1
+- "What should I back up?" moraine recommend scans the machine for a curated, OS-specific set of important locations — documents, media, app settings, dev keys, mail — and prints them grouped, flagging credential-bearing paths as [sensitive] with a nudge to turn on crypt_password.
+
 * Wed Jul 22 2026 Jonaz Thern <info@thern.io> - 0.2.2-1
 - The manual pages moved from debian/ to man/.
 

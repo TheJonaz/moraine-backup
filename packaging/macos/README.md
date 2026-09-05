@@ -41,10 +41,10 @@ Three ways past it, in the order worth telling users about:
 
 ```sh
 # 1. The command line does no Gatekeeper assessment at all.
-sudo installer -pkg moraine-0.2.2-macos-universal.pkg -target /
+sudo installer -pkg moraine-0.3.0-macos-universal.pkg -target /
 
 # 2. Strip the quarantine flag, then open normally.
-xattr -d com.apple.quarantine moraine-0.2.2-macos-universal.pkg
+xattr -d com.apple.quarantine moraine-0.3.0-macos-universal.pkg
 ```
 
 3. Control-click the file → **Open** → **Open**, or approve it afterwards under

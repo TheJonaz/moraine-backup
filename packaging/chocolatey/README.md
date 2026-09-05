@@ -49,12 +49,12 @@ Pushing is a plain HTTP PUT with the API key from
 
 ```powershell
 choco apikey --key <YOUR_KEY> --source https://push.chocolatey.org/
-choco push moraine.0.2.2.nupkg --source https://push.chocolatey.org/
+choco push moraine.0.3.0.nupkg --source https://push.chocolatey.org/
 ```
 
 ```sh
 curl -H "X-NuGet-ApiKey: $CHOCO_API_KEY" \
-     -T packaging/chocolatey/moraine.0.2.2.nupkg \
+     -T packaging/chocolatey/moraine.0.3.0.nupkg \
      https://push.chocolatey.org/api/v2/package
 ```
 

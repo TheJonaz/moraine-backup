@@ -6,7 +6,7 @@ into a `sysutils/moraine/` directory to build and submit.
 
 **Build-verified on FreeBSD 15.1-RELEASE (2026-07-27):** `make install`
 succeeds, `check-plist` reports no issues, and both binaries run
-(`moraine 0.2.2`).
+(`moraine 0.3.0`).
 
 ## Build & test
 

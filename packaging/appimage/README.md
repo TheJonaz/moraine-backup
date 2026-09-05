@@ -30,7 +30,7 @@ the `.deb`, so nothing is actually lost — but do not "upgrade" the CI job to
 `ubuntu-latest`, because that silently raises the floor and drops working
 distros.
 
-Verified 0.2.2 on Ubuntu 24.04 (glibc 2.39) and Arch (glibc 2.43): the app links
+Verified 0.3.0 on Ubuntu 24.04 (glibc 2.39) and Arch (glibc 2.43): the app links
 and reaches GTK's display check. Ubuntu 22.04 and Debian 12 fail at the loader
 with `version 'GLIBC_2.39' not found`, as expected.
 

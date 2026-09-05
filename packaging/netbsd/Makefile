@@ -1,6 +1,6 @@
 # $NetBSD$
 
-DISTNAME=	moraine-0.2.2
+DISTNAME=	moraine-0.3.0
 CATEGORIES=	sysutils
 MASTER_SITES=	${MASTER_SITE_GITHUB:=TheJonaz/}
 GITHUB_PROJECT=	moraine-backup

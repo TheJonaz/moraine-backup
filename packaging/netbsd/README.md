@@ -55,7 +55,7 @@ This is the same trap the FreeBSD port hit with `quarterly` vs ports HEAD.
 ## Regenerating cargo-depends.mk and distinfo
 
 ```sh
-packaging/bsd-distinfo.py --tag v0.2.2
+packaging/bsd-distinfo.py --tag v0.3.0
 ```
 
 The generator does off NetBSD what `make makesum` does on it. It reads the crate
@@ -78,12 +78,12 @@ Verified end to end on 2026-08-06 against NetBSD 10.1/amd64 with
 | `make checksum` | 158/158 files, BLAKE2s **and** SHA512 |
 | `make build` | 19m02s |
 | `make install` | `.crates.toml`/`.crates2.json` are removed by `cargo.mk`, so `PLIST` need not list them |
-| `make package` | `moraine-0.2.2.tgz` — the `file-check` step is what validates `PLIST` |
+| `make package` | `moraine-0.3.0.tgz` — the `file-check` step is what validates `PLIST` |
 | `pkglint -Wall` | *Looks fine.* |
-| `pkg_add` + run | installs, prints `moraine 0.2.2`, `man moraine` resolves |
+| `pkg_add` + run | installs, prints `moraine 0.3.0`, `man moraine` resolves |
 
 `DISTNAME`, `PKGNAME` and `WRKSRC` all resolve as intended — `WRKSRC` lands on
-`moraine-backup-0.2.2`, the repository name rather than `DISTNAME`, which is the
+`moraine-backup-0.3.0`, the repository name rather than `DISTNAME`, which is the
 one thing the explicit `WRKSRC=` line exists to get right.
 
 Two traps worth keeping in mind:

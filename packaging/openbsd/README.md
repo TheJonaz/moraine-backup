@@ -54,7 +54,7 @@ Both are produced by [`../bsd-distinfo.py`](../bsd-distinfo.py), which does off
 OpenBSD what `make modcargo-gen-crates` and `make makesum` do on it:
 
 ```sh
-packaging/bsd-distinfo.py --tag v0.2.2
+packaging/bsd-distinfo.py --tag v0.3.0
 ```
 
 It reads the crate list from the `Cargo.lock` **inside the tagged tarball**, not
@@ -78,16 +78,16 @@ Verified end to end on 2026-08-06 against OpenBSD 7.9/amd64 with the matching
 | `make checksum` | `>> (SHA256) all files: OK` — 158 distfiles |
 | `make build` | 28m25s, **33 crates** — proof `--no-default-features` took effect |
 | `make fake` | clean; man page and example config land where `post-install` says |
-| `make package` | `moraine-0.2.2.tgz` created — which is what validates `PLIST` |
+| `make package` | `moraine-0.3.0.tgz` created — which is what validates `PLIST` |
 | `make port-lib-depends-check` | clean, no output |
 | `portcheck` | clean |
-| `pkg_add` + `moraine --version` | installs, pulls `net/rsync` + `sysutils/rclone`, prints `moraine 0.2.2` |
+| `pkg_add` + `moraine --version` | installs, pulls `net/rsync` + `sysutils/rclone`, prints `moraine 0.3.0` |
 
 `WANTLIB` resolves to `c pthread c++abi` through `${MODCARGO_WANTLIB}` — the
 reason a CLI port is safe to write off-machine and a GTK one is not.
 
 The variables all resolve as intended, which is the part that would have been
-guesswork otherwise: `PKGNAME=moraine-0.2.2`, `DISTNAME=moraine-backup-0.2.2`
+guesswork otherwise: `PKGNAME=moraine-0.3.0`, `DISTNAME=moraine-backup-0.3.0`
 (the leading `v` stripped from the tag, matching what `distinfo` names), and
 `MODCARGO_INSTALL_ARGS=--bin moraine --no-default-features`.
 
