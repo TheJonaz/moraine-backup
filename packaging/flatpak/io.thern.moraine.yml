@@ -113,7 +113,7 @@ modules:
       - type: git
         url: https://github.com/TheJonaz/moraine-backup.git
         tag: v0.3.0
-        commit: 833e2fc84c364106f70bee6711729c4ab7dc9b47
+        commit: 4c50c1ea9349694914e66a992224a8a21ddfeb11
       # Taken from next to this manifest, NOT from the git checkout: the release
       # entry for a version is usually written after that version is tagged, so
       # the copy inside the tag is one release behind and software centres would
