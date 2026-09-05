@@ -302,8 +302,9 @@ jobs:
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-rust
             mingw-w64-ucrt-x86_64-binutils
+      # gui,keyring — `gui` alone no longer implies the keyring (see Cargo.toml).
       - name: Build moraine-gui
-        run: cargo build --release --no-default-features --features gui --bin moraine-gui
+        run: cargo build --release --no-default-features --features gui,keyring --bin moraine-gui
       - name: Bundle GTK runtime
         run: bash packaging/windows/bundle-gtk.sh
       - name: Package installer

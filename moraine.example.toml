@@ -18,7 +18,8 @@
 #   NOTE: a keyring needs an unlocked desktop session. Scheduled backups run
 #   from cron, which usually has none, so use "env:VAR" for those. Check with
 #   `moraine secrets check` run from the same environment as the schedule.
-#   Keyring support also has to be compiled in (`--features keyring`).
+#   Keyring support also has to be compiled in. The default build has it; a
+#   headless (--no-default-features) build and Debian's package do not.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Show a desktop notification when a backup finishes (success or failure).

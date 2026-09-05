@@ -11,6 +11,14 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # ksni crate (StatusNotifierItem over D-Bus). ksni is not in Debian, so the
 # Debian build drops the tray icon; the GUI has a #[cfg(not(feature = "tray"))]
 # path and runs without it.
+#
+# `keyring` is dropped for the same reason: keyring-core and
+# zbus-secret-service-keyring-store are not in Debian at all, and librust-keyring
+# / librust-secret-service are packaged at older majors than upstream uses.
+# Upstream keeps `keyring` out of the `gui` feature specifically so this build is
+# possible — do not "fix" this line by adding it back. Without it the app has no
+# Thern account control and `password = "keyring:"` fails with an explanatory
+# error; `env:` and in-config secrets are unaffected.
 CARGO_FEATURES = --no-default-features --features gui
 
 %:

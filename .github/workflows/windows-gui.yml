@@ -31,8 +31,10 @@ jobs:
             mingw-w64-ucrt-x86_64-rust
             mingw-w64-ucrt-x86_64-binutils
 
-      - name: Build moraine-gui (gui, no tray)
-        run: cargo build --release --no-default-features --features gui --bin moraine-gui
+      # gui,keyring — `gui` alone stopped implying the keyring (see Cargo.toml);
+      # Windows stores secrets in Credential Manager, so it must stay opted in.
+      - name: Build moraine-gui (gui + keyring, no tray)
+        run: cargo build --release --no-default-features --features gui,keyring --bin moraine-gui
 
       - name: Bundle GTK runtime
         run: bash packaging/windows/bundle-gtk.sh

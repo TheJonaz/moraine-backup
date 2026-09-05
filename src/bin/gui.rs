@@ -779,16 +779,22 @@ fn build_ui(app: &gtk::Application) {
     // (Help): "👤 Sign in", or "👤 <name>" once signed in.
     let nav_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     nav_row.append(&switcher);
-    let account_btn = gtk::Button::new();
-    account_btn.add_css_class("linkbtn");
-    account_btn.set_valign(gtk::Align::Center);
-    refresh_account_btn(&account_btn);
+    // Only with `keyring`: the session token is kept in the OS keyring and
+    // nowhere else, so a build without it has no place to sign in *to*. Offering
+    // the control anyway would be a button that can only ever fail.
+    #[cfg(feature = "keyring")]
     {
-        let ui2 = ui.clone();
-        let btn = account_btn.clone();
-        account_btn.connect_clicked(move |_| open_account_action(&ui2, &btn));
+        let account_btn = gtk::Button::new();
+        account_btn.add_css_class("linkbtn");
+        account_btn.set_valign(gtk::Align::Center);
+        refresh_account_btn(&account_btn);
+        {
+            let ui2 = ui.clone();
+            let btn = account_btn.clone();
+            account_btn.connect_clicked(move |_| open_account_action(&ui2, &btn));
+        }
+        nav_row.append(&account_btn);
     }
-    nav_row.append(&account_btn);
     root.append(&nav_row);
     root.append(&stack);
 
@@ -1081,6 +1087,7 @@ fn asset(name: &str) -> String {
 // ─────────────────────────── Bugs & Feedback ───────────────────────────
 
 /// Footer account button label, reflecting the stored Thern session.
+#[cfg(feature = "keyring")]
 fn account_label() -> String {
     #[cfg(feature = "keyring")]
     if let Some(s) = moraine::account::load() {
@@ -1096,11 +1103,13 @@ fn account_label() -> String {
     "👤 Sign in".to_string()
 }
 
+#[cfg(feature = "keyring")]
 fn refresh_account_btn(btn: &gtk::Button) {
     btn.set_label(&account_label());
 }
 
 /// Footer account button click: sign in, or manage the current session.
+#[cfg(feature = "keyring")]
 fn open_account_action(ui: &Rc<Ui>, btn: &gtk::Button) {
     #[cfg(feature = "keyring")]
     if let Some(s) = moraine::account::load() {
@@ -1179,6 +1188,7 @@ fn show_account_dialog(ui: &Rc<Ui>, btn: &gtk::Button, s: &moraine::account::Ses
 
 /// The device-code sign-in flow: the app shows a code, the user approves it in a
 /// browser (where they sign in normally), and we poll until a bearer arrives.
+#[cfg(feature = "keyring")]
 fn open_login_dialog(ui: &Rc<Ui>, account_btn: &gtk::Button) {
     enum Msg {
         Started(moraine::account::Started),

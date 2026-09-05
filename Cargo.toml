@@ -46,17 +46,26 @@ path = "src/bin/gui.rs"
 required-features = ["gui"]
 
 [features]
-default = ["gui", "tray"]
-# The desktop client implies keyring support: a machine running a GTK app has a
-# desktop session, which is exactly where a Secret Service exists. Headless
-# builds (`--no-default-features`) get neither, which is the right pairing —
-# cron has no unlocked keyring to read from anyway.
-gui = ["dep:gtk4", "dep:async-channel", "keyring"]
+default = ["gui", "tray", "keyring"]
+# GTK desktop client only — deliberately NOT implying `keyring`.
+#
+# A desktop session is exactly where a Secret Service exists, so pairing the two
+# is the right *default* (hence `keyring` in `default` above, which keeps every
+# ordinary build identical to before). But it cannot be an implication: Debian
+# builds the GUI as `--no-default-features --features gui` against Debian's own
+# librust-* packages, and the keyring stack is not there — `keyring-core` and
+# `zbus-secret-service-keyring-store` are absent entirely, and `keyring` and
+# `secret-service` are packaged at older majors (3.x / 4.x against the 4.x / 5.x
+# used here). Tying keyring to `gui` would therefore have kept the desktop app
+# out of Debian altogether. Distributions that can supply the keyring stack build
+# `gui,keyring`, or simply take the defaults.
+gui = ["dep:gtk4", "dep:async-channel"]
 # Linux system-tray icon (ksni / StatusNotifierItem over D-Bus). Implies `gui`.
 # Left out of the Windows/macOS GUI builds — ksni is Linux-only.
 tray = ["gui", "dep:ksni"]
-# Store secrets in the OS keyring (`password = "keyring:"`). Implied by `gui`;
-# available on its own for a CLI build that wants it without GTK.
+# Store secrets in the OS keyring (`password = "keyring:"`). In `default`, and
+# usable on its own for a CLI build that wants it without GTK — or droppable
+# from a GUI build whose distribution cannot supply the crates (see `gui`).
 keyring = ["dep:keyring", "dep:rpassword"]
 
 [dependencies]
@@ -91,8 +100,10 @@ rpassword = { version = "7", optional = true }
 #     is pure Rust and shares the zbus already pulled in by ksni; the `dbus-*`
 #     one would link libdbus (a C library) into a dozen distro recipes.
 #   * Windows/macOS — the OS-native stores, no extra runtime dependency.
-# Deliberately NOT in `default`: a keyring needs an unlocked desktop session, so
-# server and cron installs must be able to build entirely without it.
+# In `default`, but always droppable: a keyring needs an unlocked desktop
+# session, so server and cron installs must be able to build entirely without it
+# (`--no-default-features`), and so must a distribution that cannot supply the
+# crates — see the `gui` feature above.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 keyring = { version = "4", default-features = false, features = ["v1", "zbus-secret-service-keyring-store"], optional = true }
 

@@ -243,10 +243,12 @@ RDEPEND="
 
 src_configure() {
 	if use gui; then
-		# Both defaults spelled out, so the build does not silently change
-		# if upstream's default feature set does. `tray` is what compiles
-		# the StatusNotifierItem icon in.
-		local myfeatures=( gui tray )
+		# All three defaults spelled out, so the build does not silently
+		# change if upstream's default feature set does. `tray` is what
+		# compiles the StatusNotifierItem icon in; `keyring` must be listed
+		# since `gui` stopped implying it (upstream decoupled the two so
+		# Debian, which has no keyring crates, can still build the GUI).
+		local myfeatures=( gui tray keyring )
 		cargo_src_configure
 	else
 		# cargo_src_configure does NOT add --no-default-features on its own

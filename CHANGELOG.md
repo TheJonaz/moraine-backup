@@ -7,6 +7,20 @@ and the project uses [semantic versioning](https://semver.org/).
 The version string embedded in the binary also includes the git hash and build
 date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
 
+## [Unreleased]
+
+### Changed
+- The `gui` build feature no longer implies `keyring`. Both are in the default
+  build, so a normal build — and every package from this project's own channels
+  — is unchanged. The point is that the desktop app can now be built *without*
+  the keyring: Debian builds Rust software against its own packaged crates, and
+  the keyring stack is not there (`keyring-core` and
+  `zbus-secret-service-keyring-store` are absent; `keyring` and `secret-service`
+  are packaged at older majors), so the implication would have kept the GTK app
+  out of Debian entirely. A build without `keyring` simply has no Thern account
+  control, and `password = "keyring:"` fails with an explanatory error, exactly
+  as on a headless build.
+
 ## [0.3.0] — 2026-09-05
 
 ### Added

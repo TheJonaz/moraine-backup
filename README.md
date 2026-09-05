@@ -194,9 +194,12 @@ Moraine handles credentials for your backup destinations. How they are protected
 
   A keyring needs an unlocked desktop session, which **cron does not have** — use
   `env:` for scheduled runs, and run `moraine secrets check` from the same
-  environment as the schedule to be sure. Keyring support is a build feature
-  (`cargo build --features keyring`); without it, `keyring:` fails with an
-  explanatory error rather than an empty secret.
+  environment as the schedule to be sure. Keyring support is a build feature. It is on in the
+  default build, so the packages from this project's own channels have it; a
+  `--no-default-features` build (headless/CLI) and Debian's package do not,
+  because Debian does not carry the keyring crates. Without it, `keyring:` fails
+  with an explanatory error rather than an empty secret, and `moraine secrets`
+  says so — check yours with `moraine secrets check`.
 
   This protects against a config being copied somewhere it shouldn't — into a
   backup, a git repo, a pasted bug report. It does **not** protect against
