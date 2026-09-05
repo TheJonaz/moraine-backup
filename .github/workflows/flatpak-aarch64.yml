@@ -16,6 +16,13 @@ on:
         required: false
         type: string
 
+# The last step attaches the bundle to the release, which is a write to the
+# repository's contents. Without this the whole ARM build runs to completion and
+# only then fails with "Resource not accessible by integration" — the default
+# workflow token is read-only.
+permissions:
+  contents: write
+
 jobs:
   build:
     name: flatpak aarch64
