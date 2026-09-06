@@ -15,6 +15,7 @@ The .nupkg lands next to the nuspec. Push it with:
 """
 
 import hashlib
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -72,6 +73,24 @@ def text(metadata, tag):
     return node.text.strip()
 
 
+def check_default_namespace(blob):
+    """Abort if the packed manifest came out prefixed after all.
+
+    `register_namespace` above is the fix, but nothing downstream of it notices
+    when it stops working: a prefixed manifest still parses here, still passes
+    chocolatey.org's namespace-agnostic validation, and only fails in the
+    verifier — days later, on a version already under moderation. So assert on
+    the serialized bytes, which is the only place the difference exists.
+    """
+    head = blob.decode("utf-8", "replace")
+    if not re.search(rf'<package\s[^>]*xmlns="{re.escape(NS)}"', head):
+        sys.exit("error: packed nuspec declares no default xmlns — "
+                 "NuGet would read it as a package with no id")
+    if re.search(r"<\w+:(?:package|metadata|id)\b", head):
+        sys.exit("error: packed nuspec is namespace-prefixed — "
+                 "NuGet would read it as a package with no id")
+
+
 def main():
     tree = ElementTree.parse(NUSPEC)
     root = tree.getroot()
@@ -83,6 +102,7 @@ def main():
     for files in root.findall(f"{{{NS}}}files"):
         root.remove(files)
     nuspec_blob = ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+    check_default_namespace(nuspec_blob)
 
     payload = sorted(p for p in (HERE / "tools").rglob("*") if p.is_file())
     if not payload:
