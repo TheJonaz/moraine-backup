@@ -21,6 +21,12 @@ date, e.g. `0.1.0 (a1b2c3d, 2026-06-28)` — see `moraine --version`.
   control, and `password = "keyring:"` fails with an explanatory error, exactly
   as on a headless build.
 
+### Fixed
+- The manual page documents `moraine recommend` and `moraine check`. Both
+  shipped without an entry, so the two commands existed only in `--help` — and
+  in Debian, where the man page is the package's documentation, not at all. Its
+  header also stopped claiming version 0.1.0.
+
 ## [0.3.0] — 2026-09-05
 
 ### Added

@@ -1,4 +1,4 @@
-.TH MORAINE 1 "2026-06-29" "moraine 0.1.0" "User Commands"
+.TH MORAINE 1 "2026-09-07" "moraine 0.3.0" "User Commands"
 .SH NAME
 moraine \- snapshot backup over SSH/rsync and rclone
 .SH SYNOPSIS
@@ -34,6 +34,18 @@ Print version, including the git hash and build date.
 .B init
 Write an example configuration file to start from.
 .TP
+.B recommend \fR[\fB\-\-name\fR \fINAME\fR] [\fB\-\-write\fR]
+Look at this machine and suggest what is worth backing up, printed as a ready
+.RI [[ target ]]
+block. The suggestion is OS-aware: it picks the directories that exist and skips
+caches and rebuildable trees. It only prints, unless
+.B \-\-write
+is given, which appends the block to the configuration file.
+.B \-\-name
+sets the target name
+.RI ( essentials
+by default).
+.TP
 .B verify
 Check the SSH connection, key, sources and that the target is writable.
 .TP
@@ -42,6 +54,12 @@ Run a backup for all targets, or a selected one.
 .TP
 .B list \fB\-\-target\fR \fINAME\fR
 List the snapshots on a target.
+.TP
+.B check \fR[\fB\-\-target\fR \fINAME\fR] [\fB\-\-snapshot\fR \fITIMESTAMP\fR]
+Verify a snapshot's contents against the current sources by checksum, and report
+how many paths differ. Defaults to the newest snapshot. A difference is normal
+for an older snapshot whose sources have changed since, but should be zero
+straight after a backup.
 .TP
 .B prune \fR[\fB\-\-dry\-run\fR] [\fB\-\-target\fR \fINAME\fR]
 Delete old snapshots according to the target's retention policy.
