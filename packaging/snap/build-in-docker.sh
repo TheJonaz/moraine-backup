@@ -51,10 +51,17 @@ else
 	mount_src="$repo"   # unused by the recipe, but keeps the run invocation uniform
 fi
 
+# --network host, for both steps below. This workstation routes all traffic
+# through a WireGuard full tunnel (wg0, MTU 1380) while docker0 stays at 1500,
+# so a bridged container advertises an MSS the tunnel cannot carry. DNS and TCP
+# connects still work, then the TLS handshake's large packets vanish: `git clone`
+# over HTTPS hangs until snapcraft gives up with a bare "exited with code 128".
+# Host networking inherits the tunnel's MTU. The container is a throwaway build
+# box, so sharing the host's network namespace gives up nothing it relied on.
 echo "==> building the $image image (cached after the first run)"
-docker build -q -t "$image" -f "$here/Dockerfile.build" "$here" >/dev/null
+docker build --network host -q -t "$image" -f "$here/Dockerfile.build" "$here" >/dev/null
 
-docker run --rm \
+docker run --rm --network host \
 	-v "$mount_src:/project:ro" \
 	-v "$work/build:/build" \
 	-w /build "$image" \
