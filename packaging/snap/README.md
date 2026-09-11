@@ -83,11 +83,24 @@ manual step.
 
 ## Publish to the Snap Store
 
+snapcraft only exists inside the build image (Linux Mint blocks snapd), so
+publish from the container — and run it **from the repository root**. A wrong
+`$PWD` makes Docker silently create an empty directory for the `-v` mount, and
+the upload then fails with `'moraine_...snap' is not a valid file`. The command
+lists the mounted snap first, so that case stops before anything is sent.
+
 ```sh
-snapcraft login
-snapcraft register moraine                            # once, if the name is free
-snapcraft upload --release=stable moraine_0.3.1_amd64.snap
+cd "$(git rev-parse --show-toplevel)"      # the repository root
+docker run --rm -it --network host -v "$PWD/packaging/snap:/snaps:ro" moraine-snapcraft:latest \
+  bash -lc 'ls /snaps/moraine_0.3.1_amd64.snap \
+    && snapcraft export-login /tmp/creds \
+    && SNAPCRAFT_STORE_CREDENTIALS="$(cat /tmp/creds)" snapcraft upload --release=stable /snaps/moraine_0.3.1_amd64.snap'
 ```
+
+`export-login` rather than `login`, because the container has no keyring to hold
+the credentials; log in with the account's e-mail address, not the username.
+`--network host` matters behind a VPN tunnel with a smaller MTU, where HTTPS to
+the store otherwise hangs. The name `moraine` is already registered.
 
 The `personal-files` plug is likely to be **flagged for a store review** (it can
 read sensitive paths), but a narrow one — the reviewer checks the declared
