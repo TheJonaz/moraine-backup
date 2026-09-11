@@ -1,6 +1,6 @@
 maintainer="Jonaz Thern <info@thern.io>"
 pkgname=moraine
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=0
 pkgdesc="Snapshot-based backup application over SSH/rsync and rclone"
 url="https://moraine.thern.io"
@@ -55,5 +55,5 @@ package() {
 }
 
 sha512sums="
-021ab9c13822a210b9b95e8832635457dd667048f6cefbfc8f191f12533839044f17090d5d66514495175cfaf1d1929dba7217751d3baf5f4b70af45755e8ea1  moraine-0.3.0.tar.gz
+e1b5a9892b917a7a5575dce323d4bcb46a675eb55b854dcc04e990b71c216081ab223ff903f76af0214ae008622f888ca79c3272267e510a9a0199405bc5f47b  moraine-0.3.1.tar.gz
 "

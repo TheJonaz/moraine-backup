@@ -1,8 +1,8 @@
 class Moraine < Formula
   desc "Snapshot-based backup over SSH/rsync and rclone (CLI)"
   homepage "https://github.com/TheJonaz/moraine-backup"
-  url "https://github.com/TheJonaz/moraine-backup/archive/refs/tags/v0.3.0.tar.gz"
-  sha256 "22cc3cc4469e3a9292379c16203a163354fe02d551e77e2af6bef0f0fe646890"
+  url "https://github.com/TheJonaz/moraine-backup/archive/refs/tags/v0.3.1.tar.gz"
+  sha256 "0cd525849d6f824e857f34929d07db389e42033d71f4f3f7a6b87644b4fe5a42"
   license "MIT"
   head "https://github.com/TheJonaz/moraine-backup.git", branch: "main"
 

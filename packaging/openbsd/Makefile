@@ -2,10 +2,10 @@ COMMENT =		snapshot backup over SSH/rsync and rclone
 
 GH_ACCOUNT =		TheJonaz
 GH_PROJECT =		moraine-backup
-GH_TAGNAME =		v0.3.0
+GH_TAGNAME =		v0.3.1
 # DISTNAME follows GH_* and would name the package after the repository;
 # the program is moraine.
-PKGNAME =		moraine-0.3.0
+PKGNAME =		moraine-0.3.1
 
 CATEGORIES =		sysutils
 
