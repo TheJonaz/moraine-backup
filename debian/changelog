@@ -1,3 +1,18 @@
+moraine (0.3.1-1) unstable; urgency=medium
+
+  * New upstream release 0.3.1.
+    - New `moraine recommend` command, and a "Suggest sources" button in the
+      desktop app, proposing what is worth backing up on the machine.
+    - Secret fields can reference environment variables (`env:`). The OS
+      keyring backend stays disabled, as its crates are not in Debian;
+      upstream decoupled it from the `gui` feature in 0.3.1 so that the
+      desktop app still builds without it.
+    - A dropped network connection no longer hangs an rsync/ssh backup.
+    - moraine(1) documents the `recommend` and `check` commands.
+  * Refresh drop-windows-build-dependency.patch for the new Cargo.toml.
+
+ -- Jonaz Thern <info@thern.io>  Fri, 11 Sep 2026 22:02:38 +0200
+
 moraine (0.2.2-1) unstable; urgency=medium
 
   * Initial release. (Closes: #1141131)

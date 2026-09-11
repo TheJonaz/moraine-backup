@@ -7,12 +7,12 @@ Description: Drop the Windows-only winresource build-dependency
  that uses it is already compiled out on non-Windows hosts.
 Author: Jonaz Thern <info@thern.io>
 Forwarded: not-needed
-Last-Update: 2026-07-22
+Last-Update: 2026-09-11
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -73,11 +73,6 @@
- # Debian, so the official Debian recipe must vendor it or drop the tray.
- ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"], optional = true }
+@@ -113,11 +113,6 @@
+ [target.'cfg(windows)'.dependencies]
+ keyring = { version = "4", default-features = false, features = ["v1", "windows-native-keyring-store"], optional = true }
  
 -# Windows-only: embed the app icon + version info into the .exe (build.rs). Gated
 -# on a Windows host, which is where the Windows release is built.
