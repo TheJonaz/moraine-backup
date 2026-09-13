@@ -1,44 +1,41 @@
 # Nix packaging for Moraine
 
-A flake that builds the CLI **and** the GTK desktop app, wrapping both so
-`rsync`, `ssh` and `rclone` are on their runtime `PATH`.
+The flake now lives at the **repo root** (`/flake.nix`), so it works straight from
+GitHub with no per-release hash to maintain:
+
+```bash
+# Run the CLI (headless-friendly)
+nix run github:TheJonaz/moraine-backup
+
+# Launch the GTK desktop app
+nix run github:TheJonaz/moraine-backup#gui
+
+# Install into a profile
+nix profile install github:TheJonaz/moraine-backup
+
+# Build from a local checkout
+nix build .
+```
+
+It builds the CLI **and** the GTK desktop app, wrapping both so `rsync`, `ssh`
+and `rclone` are on their runtime `PATH`.
 
 > **Requires moraine ≥ 0.1.19** — asset lookup uses `XDG_DATA_DIRS`, which
 > `wrapGAppsHook4` points at the package's `share/` directory.
 
-## Build & run
+## Why no hashes any more
 
-```sh
-# from this directory
-nix build .#moraine
-./result/bin/moraine --version
-nix run .#           # launches the GTK app (moraine-gui)
-```
+The old flake used `fetchFromGitHub` + `cargoHash`, both of which had to be
+re-pinned on every release (and were shipped as `lib.fakeHash` placeholders, so
+they never actually built). The root flake instead uses:
 
-Install into your profile:
+- `src = self;` — builds the flake's own tree, so there is no source hash;
+- `cargoLock.lockFile = ./Cargo.lock;` — vendors deps from the lockfile (all
+  crates.io, no git sources), so there is no `cargoHash`;
+- `version` read from `Cargo.toml`, so releases need no flake edit at all.
 
-```sh
-nix profile install github:TheJonaz/moraine-backup?dir=packaging/nix
-```
+This flake is **separate from the nixpkgs submission** (`packaging/nixpkgs/`) —
+it lets Nix users run moraine today without waiting on the nixpkgs review.
 
-## Pinning the hashes
-
-`src.hash` and `cargoHash` start as `lib.fakeHash`. On the first build Nix fails
-with the **real** hashes in the error — paste each into `flake.nix` and rebuild:
-
-```sh
-nix build .#moraine 2>&1 | grep -E 'got:|specified:'
-```
-
-Do `src.hash` first (fix, rebuild), then `cargoHash`.
-
-## On each new release
-
-1. Bump `version` (drives the `v${version}` git tag fetched by `fetchFromGitHub`).
-2. Reset both hashes to `pkgs.lib.fakeHash` and re-pin them as above.
-
-## NixOS / home-manager
-
-Add the flake as an input and reference
-`inputs.moraine.packages.${system}.default` in `environment.systemPackages` or
-`home.packages`.
+> Not yet verified with an actual `nix build` from this repo (no Nix on the dev
+> box). Run `nix build .` once to confirm; if it builds, nothing here drifts.

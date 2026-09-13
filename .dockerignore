@@ -1,0 +1,21 @@
+# Keep the build context small and the layers cache-friendly. The CLI build
+# needs only Cargo.toml/lock, src/, build.rs and .cargo/ — everything else is
+# either huge (target/, site/) or irrelevant to a Linux CLI build.
+target
+site
+.git
+.github
+docs
+packaging
+assets
+man
+*.md
+*.deb
+*.rpm
+*.snap
+*.nupkg
+*.tar.*
+*.orig.tar.*
+moraine.toml
+moraine.toml.bak
+history.jsonl
