@@ -26,7 +26,10 @@ paths to a NAS/server over SSH (rsync) or to cloud storage via rclone. In that
 earlier thread I asked for classic confinement; that was declined, and
 @ogra recommended `system-backup` plus `personal-files` instead. I reworked the
 snap to **strict** on that advice. Revision 2 was then rejected because
-`personal-files` needs its own request — hence this post.
+`personal-files` needs its own request, so I published without it — the snap has
+been live in `stable` since, currently **revision 4 (0.3.1)**, strict, with
+`home`, `removable-media`, `network` and `ssh-keys`. This post is the missing
+request.
 
 **What I'm asking for:** permission to *use* `personal-files` (read-only).
 I am **not** requesting auto-connection — users would run
@@ -42,27 +45,25 @@ plugs:
       - $HOME/.ssh
       - $HOME/.gnupg
       - $HOME/.config
-      - $HOME/.local/share
       - $HOME/.gitconfig
       - $HOME/.mozilla
       - $HOME/.thunderbird
-      - $HOME/.bashrc
-      - $HOME/.profile
 ```
 
 **Why these paths**
 
 The `home` interface excludes every top-level dotfile (`owner @{HOME}/[^s.]**`),
-and those dotfiles are precisely what a backup tool exists to preserve. Of the
-eleven source locations `moraine recommend` proposes by default on Linux, six
-are in the list above — the split is `~/Documents`, `~/Pictures`, `~/Music` etc.
-(re-downloadable media) on the reachable side, and configuration, keys and mail
-profiles on the unreachable side. A backup snap that silently skips a user's
+and those dotfiles are precisely what a backup tool exists to preserve. `moraine recommend` proposes exactly
+eleven source locations by default on Linux, and the six above are precisely the
+ones `home` cannot reach: the other five (`~/Documents`, `~/Desktop`,
+`~/Pictures`, `~/Music`, `~/Videos`) are re-downloadable media, while these six
+are configuration, keys and mail profiles. A backup snap that silently skips a user's
 `~/.ssh`, `~/.gnupg` and `~/.config` is worse than no backup, because the gap is
 invisible until a restore.
 
-The list is the tool's documented default source set, not an open-ended grab:
-it is fixed, enumerable and shipped in the recipe.
+The list is not an open-ended grab: it is exactly the dotfile half of the tool's
+own default source set (src/recommend.rs), fixed, enumerable and shipped in the
+recipe. Nothing was added to it for this request.
 
 **Why read-only**
 
@@ -86,8 +87,11 @@ Happy to trim the list or answer any questions. Thanks for reviewing!
 
 ## Notes for us (not part of the post)
 
-- Meanwhile revision 3 ships WITHOUT this plug so the snap can be published:
-  `home` + `removable-media` + `network` + `ssh-keys` only.
+- Revisions 3 and 4 ship WITHOUT this plug so the snap can be published:
+  `home` + `removable-media` + `network` + `ssh-keys` only. Current: rev 4 (0.3.1).
+- The plug list was trimmed 2026-09-14 to match `moraine recommend` exactly:
+  `.local/share`, `.bashrc` and `.profile` were dropped, since the tool does not
+  propose them and unjustified paths invite a reviewer to trim the request.
 - When granted: restore the `dot-files` block that is commented into
   `snapcraft.yaml`, rebuild, upload, and mention `snap connect moraine:dot-files`
   in the description again.

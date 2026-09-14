@@ -93,12 +93,9 @@ apps:
 #         - $HOME/.ssh
 #         - $HOME/.gnupg
 #         - $HOME/.config
-#         - $HOME/.local/share
 #         - $HOME/.gitconfig
 #         - $HOME/.mozilla
 #         - $HOME/.thunderbird
-#         - $HOME/.bashrc
-#         - $HOME/.profile
 
 parts:
   moraine:
