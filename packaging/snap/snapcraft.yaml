@@ -8,7 +8,7 @@
 # This recipe covers the COMMON case with no code change and no store request —
 # publish, and users enable the privileged plugs with one `snap connect`:
 #   • $HOME non-hidden files      → home (auto-connects)
-#   • dotfiles (SSH/GPG/config …) → personal-files `dot-files` (snap connect)
+#   • dotfiles (SSH/GPG/config …) → personal-files `dot-backup-sources` (snap connect)
 #   • external drives             → removable-media
 #   • remote destinations         → network + the bundled ssh/rclone
 #
@@ -73,7 +73,7 @@ apps:
       - network           # rsync-over-SSH / rclone to remote destinations
       - ssh-keys          # bundled ssh authenticates with ~/.ssh keys (manual connect)
 
-# NOTE — the `dot-files` (personal-files) plug is temporarily REMOVED.
+# NOTE — the `dot-backup-sources` (personal-files) plug is temporarily REMOVED.
 #
 # Revision 2 carried it and was REJECTED by the store: personal-files is a
 # "super-privileged" interface, and merely *using* it — not just auto-connecting
@@ -87,7 +87,7 @@ apps:
 # granted, restore this block verbatim and bump the revision:
 #
 #   plugs:
-#     dot-files:
+#     dot-backup-sources:
 #       interface: personal-files
 #       read:
 #         - $HOME/.ssh

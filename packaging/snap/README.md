@@ -24,13 +24,13 @@ is reserved for mature, well-known apps and the project is judged too new), and
 Oliver Grawert pointed out the right approach:
 [thread 52730](https://forum.snapcraft.io/t/request-for-classic-confinement-moraine/52730).
 So the snap is now **strict**, and the excluded dotfiles come back via a
-read-only `personal-files` plug (`dot-files`) declaring that default set —
+read-only `personal-files` plug (`dot-backup-sources`) declaring that default set —
 exactly the "named paths" personal-files is for.
 
 **Covered now** (the common case, at real paths, no host prefix):
-`home` + `dot-files` (personal-files) + `removable-media` + `network` +
+`home` + `dot-backup-sources` (personal-files) + `removable-media` + `network` +
 `ssh-keys`. `home` auto-connects; enable the rest once with
-`snap connect moraine:dot-files`.
+`snap connect moraine:dot-backup-sources`.
 
 **Deferred to a later release** (each needs app-side work):
 
@@ -73,12 +73,12 @@ snapcraft
 
 ```sh
 sudo snap install --dangerous moraine_0.3.1_amd64.snap
-sudo snap connect moraine:dot-files    # to back up ~/.ssh, ~/.config, GPG, …
+sudo snap connect moraine:dot-backup-sources    # to back up ~/.ssh, ~/.config, GPG, …
 moraine --version
 ```
 
 `--dangerous` is only because a local file is unsigned. `home`, `network`,
-`removable-media` and `ssh-keys` connect automatically; `dot-files` is the one
+`removable-media` and `ssh-keys` connect automatically; `dot-backup-sources` is the one
 manual step.
 
 ## Publish to the Snap Store

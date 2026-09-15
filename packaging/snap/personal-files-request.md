@@ -31,15 +31,18 @@ been live in `stable` since, currently **revision 4 (0.3.1)**, strict, with
 `home`, `removable-media`, `network` and `ssh-keys`. This post is the missing
 request.
 
+**Plug name:** `dot-backup-sources` — renamed from `dot-files` on review feedback
+(2026-09-15), so the name states what the access is for rather than what it is.
+
 **What I'm asking for:** permission to *use* `personal-files` (read-only).
 I am **not** requesting auto-connection — users would run
-`snap connect moraine:dot-files` themselves.
+`snap connect moraine:dot-backup-sources` themselves.
 
 **Plug requested**
 
 ```yaml
 plugs:
-  dot-files:
+  dot-backup-sources:
     interface: personal-files
     read:
       - $HOME/.ssh
@@ -92,8 +95,8 @@ Happy to trim the list or answer any questions. Thanks for reviewing!
 - The plug list was trimmed 2026-09-14 to match `moraine recommend` exactly:
   `.local/share`, `.bashrc` and `.profile` were dropped, since the tool does not
   propose them and unjustified paths invite a reviewer to trim the request.
-- When granted: restore the `dot-files` block that is commented into
-  `snapcraft.yaml`, rebuild, upload, and mention `snap connect moraine:dot-files`
+- When granted: restore the `dot-backup-sources` block that is commented into
+  `snapcraft.yaml`, rebuild, upload, and mention `snap connect moraine:dot-backup-sources`
   in the description again.
 - `ssh-keys` is NOT super-privileged (snapd's ssh_keys.go only sets
   `deny-auto-connection: true`), so it needs no request — just a manual connect.
